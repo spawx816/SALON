@@ -50,6 +50,7 @@ export default function TenantCustomizationModule() {
   const { branding, updateBranding, resetBranding, refreshBranding } = useTenantBranding();
   const { hasMembershipsAddon } = useEntitlements();
   const fileInputRef = useRef(null);
+  const submitInFlightRef = useRef(false);
 
   const isSuperAdmin = user?.role?.toLowerCase() === 'superadmin' || user?.role_name?.toLowerCase()?.includes('superadmin');
   const [tenants, setTenants] = useState([]);
@@ -244,12 +245,14 @@ export default function TenantCustomizationModule() {
     } catch (err) {
       showNotification(err.message || 'Error restableciendo valores', 'error');
     } finally {
+      submitInFlightRef.current = false;
       setSaving(false);
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitInFlightRef.current || saving) return;
     if (!formData.business_name.trim()) {
       showNotification('El nombre comercial de la empresa es obligatorio.', 'error');
       return;
@@ -260,6 +263,7 @@ export default function TenantCustomizationModule() {
       return;
     }
 
+    submitInFlightRef.current = true;
     setSaving(true);
     setSaveSuccess(false);
 
@@ -330,6 +334,7 @@ export default function TenantCustomizationModule() {
       setSaveSuccess(false);
       showNotification(`Error: ${err.message || 'No se pudo guardar la personalización'}`, 'error');
     } finally {
+      submitInFlightRef.current = false;
       setSaving(false);
     }
   };

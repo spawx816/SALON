@@ -26,6 +26,8 @@ export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }
   const issuerAddress = invoice.emisor_direccion || invoice.address || branding?.address || '';
   const issuerPhone = invoice.emisor_telefono || invoice.phone || branding?.phone || '';
   const issuerRnc = invoice.emisor_rnc || invoice.rnc || branding?.rnc || '';
+  const issuerReceiptHeader = invoice.receipt_header || branding?.receipt_header || '';
+  const issuerReceiptFooter = invoice.receipt_footer || branding?.receipt_footer || '';
 
   // Items parsing
   let items = [];
@@ -190,6 +192,9 @@ export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }
               {issuerAddress && <div>Dirección: {issuerAddress}</div>}
               {issuerPhone && <div>Tel.: {issuerPhone}</div>}
               {issuerRnc && <div>RNC: {issuerRnc}</div>}
+              {issuerReceiptHeader && issuerReceiptHeader !== 'SalonPro - Sistema de Gestión' && (
+                <div style={{ marginTop: '3px', fontSize: '8.5px', fontWeight: 700 }}>{issuerReceiptHeader}</div>
+              )}
             </div>
 
             <div style={{ textAlign: 'center', letterSpacing: '1px', margin: '4px 0', fontSize: '8.5px', overflow: 'hidden', whiteSpace: 'nowrap' }}>
@@ -318,7 +323,12 @@ export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }
               </div>
             )}
 
-            {/* 8. LEYENDA CORRESPONDIENTE AL TIPO DE DOCUMENTO */}
+            {/* 8. PIE DE RECIBO CONFIGURADO POR LA EMPRESA + LEYENDA DEL DOCUMENTO */}
+            {issuerReceiptFooter && (
+              <div style={{ fontSize: '8.5px', textAlign: 'center', fontWeight: 700, color: '#111827', marginTop: '4px', lineHeight: '1.3' }}>
+                {issuerReceiptFooter}
+              </div>
+            )}
             <div style={{ fontSize: '7.5px', textAlign: 'center', color: '#4b5563', marginTop: '6px', lineHeight: '1.25' }}>
               {footerLegend}
             </div>

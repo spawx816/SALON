@@ -147,6 +147,21 @@ function createTenantRouter(pool, options = {}) {
         ).catch(() => {});
       }
 
+      if (pool) {
+        const actorName = req.auth?.name || req.user?.name || req.auth?.email || 'Administrador';
+        await pool.query(
+          `INSERT INTO audit_logs (tenant_id, entity_type, entity_id, action, reason, user_name, details, created_at)
+           VALUES (?, 'tenant_branding', ?, 'UPDATE_TENANT_BRANDING', ?, ?, ?, NOW())`,
+          [
+            tenantId,
+            String(tenantId),
+            'Actualización de identidad visual y personalización de empresa',
+            actorName,
+            `Branding actualizado: business_name=${updated?.business_name || ''}, primary=${updated?.primary_color || ''}, logo=${updated?.logo_url ? 'set' : 'none'}`
+          ]
+        ).catch(() => {});
+      }
+
       res.json({
         success: true,
         message: 'Branding de la empresa actualizado correctamente',
@@ -183,6 +198,32 @@ function createTenantRouter(pool, options = {}) {
         tenantId,
         req.auth?.id || req.user?.id || req.auth?.userId
       );
+
+      if (pool) {
+        await pool.query(
+          `UPDATE tenants
+           SET logo_url = NULL,
+               primary_color = '#0f172a',
+               secondary_color = '#d4af37',
+               receipt_footer = '¡Gracias por preferirnos! ♡',
+               updated_at = NOW()
+           WHERE id = ?`,
+          [tenantId]
+        ).catch(() => {});
+
+        const actorName = req.auth?.name || req.user?.name || req.auth?.email || 'Administrador';
+        await pool.query(
+          `INSERT INTO audit_logs (tenant_id, entity_type, entity_id, action, reason, user_name, details, created_at)
+           VALUES (?, 'tenant_branding', ?, 'RESET_TENANT_BRANDING', ?, ?, ?, NOW())`,
+          [
+            tenantId,
+            String(tenantId),
+            'Restablecimiento de identidad visual a valores predeterminados',
+            actorName,
+            'Branding y logotipo de empresa restablecidos a valores neutrales'
+          ]
+        ).catch(() => {});
+      }
 
       res.json({
         success: true,
