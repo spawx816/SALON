@@ -115,8 +115,8 @@ async function runModule9PosInvoicingAcceptance() {
 
     // Seed B02 NCF sequence
     await pool.query(
-      `INSERT INTO dgii_ncf_sequences (tenant_id, tipo_comprobante, nombre, prefijo, secuencia_desde, secuencia_actual, secuencia_hasta, fecha_vencimiento, estado)
-       VALUES (?, 'B02', 'Factura de Consumo', 'B02', 1, 1, 100, '2028-12-31', 'Activo')`,
+      `INSERT INTO dgii_ncf_sequences (tenant_id, tipo_comprobante, prefijo, secuencia_desde, secuencia_actual, secuencia_hasta, fecha_vencimiento, estado)
+       VALUES (?, 'B02', 'B02', 1, 1, 100, '2028-12-31', 'Activo')`,
       [tenantA]
     );
 
