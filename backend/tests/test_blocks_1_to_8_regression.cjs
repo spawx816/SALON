@@ -631,6 +631,19 @@ async function runTests() {
     const prodPosId = prodPosRes.body.id || prodPosRes.body.service?.id;
     assert.ok(prodPosId, 'prodPosId requerido');
 
+    // Inicializar stock en 3 unidades en la ubicación default de la sucursal
+    const [locRowsPos] = await pool.query(
+      'SELECT id FROM inventory_locations WHERE tenant_id = ? ORDER BY is_default DESC LIMIT 1',
+      [tenantId]
+    );
+    const posLocId = locRowsPos[0].id;
+    await pool.query(
+      `INSERT INTO inventory_stock (id, tenant_id, product_id, location_id, quantity)
+       VALUES (?, ?, ?, ?, 3)
+       ON CONFLICT (tenant_id, product_id, location_id) DO UPDATE SET quantity = 3`,
+      [crypto.randomUUID(), tenantId, prodPosId, posLocId]
+    );
+
     // 1. Producto con ID temporal float SIN product_id ni service_id válidos -> 400 estructurado (SIN exponer SQL)
     const badUuidTicketId = `TKT-BAD-${Date.now()}`;
     const badUuidRes = await requestJson(baseUrl, 'POST', `/api/visits/${badUuidTicketId}/checkout`, {
