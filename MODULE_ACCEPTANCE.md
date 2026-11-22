@@ -2,7 +2,7 @@
 
 Documento único y autoritativo de validación sistemática de Etereas por módulos y procesos de negocio.
 
-- **Release candidato actual**: commit `bcb4cf1` / imagen `salonpro-app:bcb4cf1` (staging).
+- **Release candidato actual**: commit `fa15f28` / imagen `salonpro-app:fa15f28` (staging).
 - **Base de pruebas automatizadas**: `salon_saas_test` (PostgreSQL 17, aislada con guardas canónicas).
 - **Entorno de producción**: intacto (`salon_saas_prod` sin escrituras, sin cargos CardNet reales, `SAAS_RENEWAL_WORKER_ENABLED` deshabilitado, `DGII_MODE=disabled` / `DGII_ENABLED` deshabilitado).
 
@@ -39,7 +39,7 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **6** | **Inventario (stock, ubicaciones, movimientos, compras, transferencias, toma física)** | Módulo 5, Sucursales, POS | `687940a` | `test_module6_inventory_acceptance.cjs` (`M6-C1`–`M6-C4`), `test_inventory_concurrency.cjs`, `test_blocks_1_to_8_regression.cjs` (B6) + DOM real `/inventario` | **`aprobado`** | Ninguno (`M6-01`–`M6-07` corregidos, verificados y desplegados en staging `687940a`) |
 | **7** | **Clientes (CRM)** (`registro 2 pasos → perfil/edición → búsqueda/paginación cursor → borrado/archivo histórico → aislamiento B2C/RBAC/BASE`) | Módulo 1, Plan Principal, POS (`visits`), Membresías (`contracts`) | `74ec5d5` (`5c19b33`) | `test_module7_clients_acceptance.cjs` (8/8), `test_pagination_cursors.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` + DOM real `/registro-cliente`, `/clientes` | **`aprobado`** | Ninguno (`M7-01`–`M7-06` corregidos, verificados y desplegados en staging `74ec5d5`) |
 | **8** | **Cajas (apertura, movimientos, cierre, arqueo)** (`apertura atómica → ingresos/gastos/retiros → ventas efectivo/tarjeta/anulaciones → cierre atómico/PIN → reporte → alcance sucursal`) | Módulos 1, 2, 9 | `bcb4cf1` (`01d365a`) | `test_module8_cash_registers_acceptance.cjs` (6/6), `test_cash_reconciliation.cjs` (7/7), `test_blocks_1_to_8_regression.cjs` + DOM real `/cajas` | **`aprobado`** | Ninguno (`M8-01`–`M8-04` corregidos, verificados y desplegados en staging `bcb4cf1`) |
-| **9** | POS, tickets y facturación convencional | Módulos 1, 5, 6, 7, 8, Secuencias NCF | — | `test_blocks_1_to_8_regression.cjs` (B1/B5/B6/B9b) | `pendiente` | — |
+| **9** | **POS, tickets y facturación convencional** (`ticket pendiente → borrador → precuenta 0 NCF → checkout B02/NONE + efectivo neto + stock → inmutabilidad → anulación atómica → reimpresión`) | Módulos 1, 5, 6, 7, 8, Secuencias NCF | `fa15f28` | `test_module9_pos_invoicing_acceptance.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` (B1/B5/B6/B9b) + DOM real `/visitas`, `/facturas` | **`aprobado`** | Ninguno (`M9-01`–`M9-03` corregidos, verificados y desplegados en staging `fa15f28`) |
 | **10** | Comisiones y descuentos | Módulos 3, 4, 9 | — | `test_blocks_1_to_8_regression.cjs` (B1/B2) | `pendiente` | — |
 | **11** | Nómina | Módulos 3, 10 | — | `test_blocks_1_to_8_regression.cjs` (B3) | `pendiente` | — |
 | **12** | Contabilidad y reportes (Egresos, 606, 607, IT-1, NCF) | Módulos 2, 9 | — | `test_blocks_1_to_8_regression.cjs` (B4), RBAC Contabilidad | `pendiente` | — |
@@ -343,3 +343,38 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **M8-DOM** | Flujo real Chromium en `/cajas`: tabla con cajas abierta y cerrada, apertura de modal de detalles y pestaña Movimientos | `hasOpenAndClosed=true`, `detailModalOpened=true`, `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:bcb4cf1`) | **PASS** |
 
 - **Gates y Despliegue**: `test:scanner` (0 violaciones), `test:runner-guards` (PASS), `lint`, `build`, `verify:release`, `graphify update .`, `test_blocks_1_to_8_regression.cjs` (PASS), limpieza de `salon_saas_test`, respaldo previo de `salon_saas_staging` y despliegue verificado de `salonpro-app:bcb4cf1` (`Up (healthy)`, `/api/health` → `200`). **Estado: APROBADO**.
+
+---
+
+## Módulo 9 — POS, Tickets y Facturación Convencional
+
+### A. Análisis de Arquitectura y Dependencias (Graphify + Código)
+
+- **UI**: [VisitRecorder.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/visits/VisitRecorder.jsx) (`/visitas`), [ThermalTicketModal.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/visits/ThermalTicketModal.jsx) (ticket térmico 80mm / `60mm` seguro, `window.print()` a 250ms), [InvoiceHistory.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/admin/InvoiceHistory.jsx) (`/facturas`), [ElectronicInvoicePrintModal.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/common/ElectronicInvoicePrintModal.jsx) (reimpresión sin consumir secuencia).
+- **Backend**: [visits.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/visits.routes.js) (`/api/visits/ticket`, `/:id/draft`, `/precuenta`, `/:id/checkout`, `/:id/void`, `/:id/cancel`, `DELETE /:id`) + `InventoryService` + `dgii_ncf_sequences`.
+- **Tablas**: `visits`, `ticket_sequences`, `dgii_ncf_sequences`, `inventory_stock`, `inventory_movements`, `cash_registers`, `cash_register_movements`, `employee_commissions_log`, `audit_logs`.
+- **Reglas confirmadas**:
+  - Facturación convencional (`B01`/`B02` o `NONE` sin comprobante) opera sin integración electrónica DGII (`DGII_MODE=disabled`), mientras los e-CF (`E31`, etc.) se bloquean explícitamente con `409 NCF_ECF_INTEGRATION_REQUIRED`.
+  - Precuenta **no** consume NCF, **no** descuenta stock y **no** suma a caja.
+  - Servicios no descuentan inventario; productos físicos descuentan atómicamente en checkout y se revierten exactamente una vez al anular.
+  - Doble clic en checkout es idempotente (no consume segundo NCF ni vuelve a descontar stock). Reimpresión en `/facturas` no crea nueva factura ni consume secuencia.
+
+### B. Fallos Corregidos (`fa15f28`)
+
+- **M9-01 (Crítico fiscal)**: `DELETE /api/visits/:id` y `POST /api/visits/:id/delete` permitían eliminar físicamente facturas ya emitidas (`Facturado`) o anuladas (`Anulado`) y carecían de validación de sucursal → corregido para bloquear el borrado de facturas emitidas/anuladas con `409 INVOICE_CANNOT_BE_DELETED` y exigir `isBranchAuthorized`.
+- **M9-02 (Concurrencia y sucursal)**: `POST /api/visits/:id/void` carecía de condición atómica en el `UPDATE` (dos anulaciones concurrentes podían revertir inventario dos veces y duplicar `anulacion_venta`), permitía anular tickets no facturados y no validaba alcance de sucursal → corregido (`WHERE ... AND status = 'Facturado' RETURNING id`, rechazo `409 NOT_INVOICED` / `409 ALREADY_VOIDED` y `403 BRANCH_ACCESS_DENIED`).
+- **M9-03 (Inmutabilidad)**: `POST /api/visits/precuenta` permitía sobrescribir `servicios`, `items_detail` y `total` de una visita ya `Facturado` y no verificaba sucursal → corregido (`409 TICKET_NOT_EDITABLE` fuera de estados editables y `403 BRANCH_ACCESS_DENIED`).
+
+### C. Evidencia de Aceptación (`fa15f28` — APROBADO)
+
+| Caso | Esperado | Observado | Evidencia | Resultado |
+|---|---|---|---|---|
+| **M9-C1** | Ticket pendiente (`201`) → borrador → precuenta: `0` NCF consumidos, `0` stock descontado, `0` efectivo en caja | `secuencia_actual` sin cambios (`1`), stock intacto (`10`), `expected_cash = 1000` | `test_module9_pos_invoicing_acceptance.cjs` | **PASS** |
+| **M9-C2** | Checkout convencional `B02` (`DGII_MODE=disabled`), servicio (`0` stock) + producto (`-2`), efectivo entregado `1500` sobre `1200` (neto `1200`, cambio `300`), doble clic idempotente | `ncf = B0200000001`, secuencia avanzó `1 → 2` una sola vez, stock `10 → 8`, servicio `0` movimientos, `expected_cash = 2200` | `test_module9_pos_invoicing_acceptance.cjs` + `B9b` | **PASS** |
+| **M9-C3** | Inmutabilidad post-facturación: `/precuenta`, `/draft`, `/cancel`, `DELETE /:id` bloqueados con `409` | Todos rechazados con `409` (`INVOICE_CANNOT_BE_DELETED`, `TICKET_NOT_EDITABLE`, `ALREADY_INVOICED`) | `test_module9_pos_invoicing_acceptance.cjs` | **PASS** |
+| **M9-C4** | Dos `POST /:id/void` concurrentes: solo 1 `200`, 1 `409`; stock restaurado exactamente 1× (`8 → 10`); caja excluye anulada (`1000`); `DELETE` sigue bloqueado (`409`) | `[200, 409]`, stock exacto `10`, `expected_cash = 1000`, `DELETE` → `409` | `test_module9_pos_invoicing_acceptance.cjs` | **PASS** |
+| **M9-C5** | `/void` en pendiente rechazado (`409 NOT_INVOICED`), `DELETE` en pendiente permitido (`200`), `E31` bloqueado (`409 NCF_ECF_INTEGRATION_REQUIRED`), `NONE` factura sin consumir `B02` | Todos los códigos y estados exactos; `secuencia_actual` sigue en `2` | `test_module9_pos_invoicing_acceptance.cjs` | **PASS** |
+| **M9-C6** | Aislamiento por sucursal (`403 BRANCH_ACCESS_DENIED`) y multi-tenant (`404`) en `/draft`, `/precuenta`, `/cancel`, `/void`, `DELETE` | Operador de A1 bloqueado en A2 (`403`); Empresa B recibe `404` | `test_module9_pos_invoicing_acceptance.cjs` | **PASS** |
+| **M9-DOM** | Flujo real Chromium: login → `/visitas` (POS con caja abierta y catálogo) → `/facturas` (factura `B0200000001` visible y reimpresión) | `posLoaded=true`, `invoiceVisible=true`, `reprintClicked=true`, `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:fa15f28`) | **PASS** |
+
+- **Gates y Despliegue**: `test:scanner` (0 violaciones), `test:runner-guards` (PASS), `lint`, `build`, `verify:release`, `graphify update .`, `test_blocks_1_to_8_regression.cjs` (PASS), limpieza de `salon_saas_test`, respaldo previo de `salon_saas_staging` y despliegue verificado de `salonpro-app:fa15f28` (`Up (healthy)`, `/api/health` → `200`). **Estado: APROBADO**.
