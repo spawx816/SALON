@@ -437,7 +437,7 @@ async function runTests() {
     assert.ok(prodRes.status === 200 || prodRes.status === 201, `Create product failed: ${prodRes.text}`);
     const prodServiceId = prodRes.body.id;
 
-    // Ensure inventory_products + inventory_locations + inventory_stock exist with stock = 0
+    // Ensure inventory_locations + inventory_stock exist with stock = 0 (unified catalog: product_id -> services.id)
     const [locRows] = await pool.query(
       'SELECT id FROM inventory_locations WHERE tenant_id = ? LIMIT 1',
       [tenantId]
@@ -450,18 +450,7 @@ async function runTests() {
       );
       locId = locIns[0].id;
     }
-    const [invProdRows] = await pool.query(
-      'SELECT id FROM inventory_products WHERE tenant_id = ? AND LOWER(name) = LOWER(?) LIMIT 1',
-      [tenantId, 'Shampoo Keratina Test']
-    );
-    let invProdId = invProdRows?.[0]?.id;
-    if (!invProdId) {
-      const [ipIns] = await pool.query(
-        `INSERT INTO inventory_products (tenant_id, name, sku, category, sale_price, track_stock, is_active) VALUES (?, 'Shampoo Keratina Test', ?, 'Productos', 850, TRUE, TRUE) RETURNING id`,
-        [tenantId, `SKU-${ts}`]
-      );
-      invProdId = ipIns[0].id;
-    }
+    const invProdId = prodServiceId;
     await pool.query(
       `INSERT INTO inventory_stock (tenant_id, product_id, location_id, quantity)
        VALUES (?, ?, ?, 0)
