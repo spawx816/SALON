@@ -855,6 +855,9 @@ function createVisitsRouter(pool, helpers = {}) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!isValidUuid(id)) {
+        return res.status(404).json({ error: 'Ticket no encontrado en esta empresa.', code: 'TICKET_NOT_FOUND' });
+      }
       const {
         client_id,
         client_name,
@@ -936,22 +939,43 @@ function createVisitsRouter(pool, helpers = {}) {
     }
   });
 
-  // 6. POST /api/visits/precuenta - Save pre-bill thermal ticket state
+  // 6. POST /api/visits/precuenta - Save pre-bill thermal ticket state (NEVER consumes NCF, NEVER mutates invoiced visits)
   router.post('/precuenta', async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id, ticket_id, servicios, items_detail, total } = req.body;
       const targetId = id || ticket_id;
       if (targetId) {
+        if (!isValidUuid(targetId)) {
+          return res.status(404).json({ error: 'Ticket no encontrado en esta empresa.', code: 'TICKET_NOT_FOUND' });
+        }
+        const [existingRows] = await pool.query(
+          'SELECT id, status, salon_id FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1',
+          [targetId, tenantId]
+        );
+        if (!existingRows || existingRows.length === 0) {
+          return res.status(404).json({ error: 'Ticket no encontrado en esta empresa.', code: 'TICKET_NOT_FOUND' });
+        }
+        if (existingRows[0].salon_id && !isBranchAuthorized(req, existingRows[0].salon_id)) {
+          return res.status(403).json({ error: 'No tienes autorización para modificar tickets de esta sucursal.', code: 'BRANCH_ACCESS_DENIED' });
+        }
+        const editableStatuses = new Set(['Pendiente', 'Abierto', 'En Proceso', 'Pre-cuenta']);
+        if (!editableStatuses.has(String(existingRows[0].status || '').trim())) {
+          return res.status(409).json({
+            error: `Este ticket ya está en estado "${existingRows[0].status}" y no puede modificarse como precuenta.`,
+            code: 'TICKET_NOT_EDITABLE'
+          });
+        }
         await pool.query(
           `UPDATE visits SET
              servicios = COALESCE(?, servicios),
              items_detail = COALESCE(?, items_detail),
-             total = COALESCE(?, total)
-           WHERE id = ? AND tenant_id = ?`,
+             total = COALESCE(?, total),
+             status = 'Pre-cuenta'
+           WHERE id = ? AND tenant_id = ? AND status IN ('Pendiente', 'Abierto', 'En Proceso', 'Pre-cuenta')`,
           [
-            servicios ? JSON.stringify(servicios) : null,
-            items_detail ? JSON.stringify(items_detail) : null,
+            servicios ? (typeof servicios === 'string' ? servicios : JSON.stringify(servicios)) : null,
+            items_detail ? (typeof items_detail === 'string' ? items_detail : JSON.stringify(items_detail)) : null,
             total !== undefined ? Number(total) : null,
             targetId,
             tenantId
@@ -1954,12 +1978,22 @@ function createVisitsRouter(pool, helpers = {}) {
 
       const effectiveVoidedBy = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.voided_by || 'Supervisor Autorizado';
 
+      if (!isValidUuid(id)) {
+        return res.status(404).json({ error: 'Factura no encontrada en esta empresa.' });
+      }
+
       const [existing] = await pool.query(
         'SELECT id, status, total, salon_id, cash_register_id, metodo_pago FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1',
         [id, tenantId]
       );
       if (existing.length === 0) {
         return res.status(404).json({ error: 'Factura no encontrada en esta empresa.' });
+      }
+      if (existing[0].salon_id && !isBranchAuthorized(req, existing[0].salon_id)) {
+        return res.status(403).json({
+          error: 'No tienes autorización para anular facturas de esta sucursal.',
+          code: 'BRANCH_ACCESS_DENIED'
+        });
       }
 
       const currentStatus = String(existing[0].status || '').trim();
@@ -1969,11 +2003,23 @@ function createVisitsRouter(pool, helpers = {}) {
           code: 'ALREADY_VOIDED'
         });
       }
+      if (currentStatus !== 'Facturado') {
+        return res.status(409).json({
+          error: `Solo se pueden anular facturas emitidas (estado actual: "${currentStatus}").`,
+          code: 'NOT_INVOICED'
+        });
+      }
 
-      await pool.query(
-        "UPDATE visits SET status = 'Anulado', void_reason = ?, voided_by = ?, voided_at = NOW() WHERE id = ? AND tenant_id = ?",
+      const [voidedRows] = await pool.query(
+        "UPDATE visits SET status = 'Anulado', void_reason = ?, voided_by = ?, voided_at = NOW() WHERE id = ? AND tenant_id = ? AND status = 'Facturado' RETURNING id",
         [reason, effectiveVoidedBy, id, tenantId]
       );
+      if (!voidedRows || voidedRows.length === 0) {
+        return res.status(409).json({
+          error: 'La factura ya ha sido anulada previamente.',
+          code: 'ALREADY_VOIDED'
+        });
+      }
 
       await pool.query(
         "UPDATE employee_commissions_log SET status = 'Anulada' WHERE visit_id = ? AND tenant_id = ?",
@@ -2452,6 +2498,9 @@ function createVisitsRouter(pool, helpers = {}) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!isValidUuid(id)) {
+        return res.status(404).json({ error: 'Ticket no encontrado en esta empresa.', code: 'TICKET_NOT_FOUND' });
+      }
       const { reason = 'Cancelado en recepción antes de facturar' } = req.body || {};
       const actorName = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.cancelled_by || 'Recepción';
 
@@ -2483,15 +2532,38 @@ function createVisitsRouter(pool, helpers = {}) {
     }
   });
 
-  // 12b. DELETE /api/visits/:id & POST /api/visits/:id/delete - Delete pending ticket within the authenticated tenant
+  // 12b. DELETE /api/visits/:id & POST /api/visits/:id/delete - Delete pending ticket within the authenticated tenant (NEVER deletes Facturado/Anulado invoices)
   const handleDeleteVisit = async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      const [result] = await pool.query('DELETE FROM visits WHERE id = ? AND tenant_id = ?', [id, tenantId]);
-      if (result.rowCount === 0) {
+      if (!isValidUuid(id)) {
         return res.status(404).json({ error: 'Visita no encontrada' });
       }
+      const [existing] = await pool.query(
+        'SELECT id, status, salon_id FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [id, tenantId]
+      );
+      if (!existing || existing.length === 0) {
+        return res.status(404).json({ error: 'Visita no encontrada' });
+      }
+      if (existing[0].salon_id && !isBranchAuthorized(req, existing[0].salon_id)) {
+        return res.status(403).json({
+          error: 'No tienes autorización para eliminar tickets de esta sucursal.',
+          code: 'BRANCH_ACCESS_DENIED'
+        });
+      }
+      const curStatus = String(existing[0].status || '').trim();
+      if (curStatus === 'Facturado' || curStatus === 'Anulado' || curStatus === 'Anulada') {
+        return res.status(409).json({
+          error: 'Las facturas emitidas o anuladas no pueden eliminarse físicamente para preservar la integridad fiscal y contable.',
+          code: 'INVOICE_CANNOT_BE_DELETED'
+        });
+      }
+      await pool.query(
+        "DELETE FROM visits WHERE id = ? AND tenant_id = ? AND status NOT IN ('Facturado', 'Anulado', 'Anulada')",
+        [id, tenantId]
+      );
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
