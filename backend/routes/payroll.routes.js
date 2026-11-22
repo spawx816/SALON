@@ -1420,6 +1420,7 @@ function createPayrollRouter(pool) {
       const [periodRes] = await conn.query(`
         INSERT INTO payroll_periods (period_name, start_date, end_date, sucursal, departamento, status, tenant_id)
         VALUES (?, ?, ?, ?, ?, 'En preparación', ?)
+        RETURNING id
       `, [period_name, start_date, end_date, sucursal, departamento, tenantId]);
       const payrollId = periodRes.insertId || periodRes[0]?.id;
 
