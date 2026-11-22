@@ -102,18 +102,18 @@ async function runModule10CommissionsDiscountsAcceptance() {
     );
 
     const [staffA1] = await pool.query(
-      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, activo)
-       VALUES (?, 'Estilista Ana M10', 'Estilista', 'Sucursal M10 A1', 1) RETURNING id`,
+      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, estado)
+       VALUES (?, 'Estilista Ana M10', 'Estilista', 'Sucursal M10 A1', 'Activo') RETURNING id`,
       [tenantA]
     );
     const [staffA2] = await pool.query(
-      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, activo)
-       VALUES (?, 'Estilista Rosa M10', 'Estilista', 'Sucursal M10 A1', 1) RETURNING id`,
+      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, estado)
+       VALUES (?, 'Estilista Rosa M10', 'Estilista', 'Sucursal M10 A1', 'Activo') RETURNING id`,
       [tenantA]
     );
     const [staffB1] = await pool.query(
-      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, activo)
-       VALUES (?, 'Estilista Ajena B', 'Estilista', 'Sucursal M10 B1', 1) RETURNING id`,
+      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, estado)
+       VALUES (?, 'Estilista Ajena B', 'Estilista', 'Sucursal M10 B1', 'Activo') RETURNING id`,
       [tenantB]
     );
     const empA1 = staffA1[0].id;
