@@ -108,7 +108,9 @@ class EntitlementsService {
           is_enabled: Boolean(ov.is_enabled),
           reason: ov.reason,
           expires_at: ov.expires_at,
-          enabled_branch_ids: parsedBranches
+          enabled_branch_ids: parsedBranches,
+          acquired_blocks: Number(ov.acquired_blocks || 0),
+          acquired_branch_capacity: Number(ov.acquired_branch_capacity || 0),
         };
       }
 
@@ -192,6 +194,17 @@ class EntitlementsService {
       const enabledBranchCount = membershipsActive
         ? (Array.isArray(resolvedBranchIds) ? resolvedBranchIds.length : (branchesUsage || 0))
         : 0;
+      const rawAcquiredBlocks = Math.max(
+        Number(membershipsOv?.acquired_blocks || 0),
+        Number(sub.addon_blocks_count || 0),
+        membershipsActive ? Math.max(1, Math.ceil(Math.max(1, enabledBranchCount) / 3)) : 0
+      );
+      const acquiredBlocks = membershipsActive || Number(membershipsOv?.acquired_blocks || 0) > 0 || Number(sub.addon_blocks_count || 0) > 0
+        ? rawAcquiredBlocks
+        : 0;
+      const acquiredBranchCapacity = acquiredBlocks * 3;
+      const usedBranchCapacity = enabledBranchCount;
+      const availableBranchCapacity = Math.max(0, acquiredBranchCapacity - usedBranchCapacity);
 
       return {
         hasSubscription: true,
@@ -215,6 +228,11 @@ class EntitlementsService {
             branchIds: membershipsActive ? resolvedBranchIds : [],
             branches: membershipsActive ? resolvedBranches : [],
             enabledBranchCount,
+            branchesPerBlock: 3,
+            acquiredBlocks,
+            acquiredBranchCapacity,
+            usedBranchCapacity,
+            availableBranchCapacity,
             isLegacyTransition: membershipsActive && membershipsSource === 'legacy_pro_transition'
           }
         },
@@ -290,17 +308,29 @@ class EntitlementsService {
       };
     }
 
-    if (featureKey === SAAS_FEATURES.MEMBERSHIPS && options?.branchId) {
-      const enabledBranchIds = entitlements.addons?.[SAAS_ADDONS.MEMBERSHIPS]?.branchIds;
-      if (Array.isArray(enabledBranchIds) && !enabledBranchIds.includes(String(options.branchId))) {
+    if (featureKey === SAAS_FEATURES.MEMBERSHIPS) {
+      const addonMeta = entitlements.addons?.[SAAS_ADDONS.MEMBERSHIPS] || {};
+      if (addonMeta.acquiredBranchCapacity > 0 && addonMeta.usedBranchCapacity > addonMeta.acquiredBranchCapacity) {
         return {
           allowed: false,
-          reason: 'El add-on de Suscripciones/Membresías B2C no está habilitado para esta sucursal.',
-          code: 'FEATURE_NOT_INCLUDED',
+          reason: `La cantidad de sucursales asignadas (${addonMeta.usedBranchCapacity}) excede la capacidad contratada de Membresías (${addonMeta.acquiredBranchCapacity}).`,
+          code: 'ADDON_CAPACITY_EXCEEDED',
           feature: featureKey,
-          branchId: String(options.branchId),
-          currentPlan: entitlements.plan
+          currentPlan: entitlements.plan,
         };
+      }
+      if (options?.branchId) {
+        const enabledBranchIds = addonMeta.branchIds;
+        if (Array.isArray(enabledBranchIds) && !enabledBranchIds.includes(String(options.branchId))) {
+          return {
+            allowed: false,
+            reason: 'El add-on de Suscripciones/Membresías B2C no está habilitado para esta sucursal.',
+            code: 'FEATURE_NOT_INCLUDED',
+            feature: featureKey,
+            branchId: String(options.branchId),
+            currentPlan: entitlements.plan
+          };
+        }
       }
     }
 
@@ -434,7 +464,7 @@ class EntitlementsService {
     return sub;
   }
 
-  async setAddonStatus(tenantId, addonCode, { enabled, source = 'commercial_addon', reason, actorId = 'superadmin', expiresAt = null, branchIds } = {}) {
+  async setAddonStatus(tenantId, addonCode, { enabled, source = 'commercial_addon', reason, actorId = 'superadmin', expiresAt = null, branchIds, acquiredBlocks = null } = {}) {
     if (!tenantId) throw new Error('tenantId es obligatorio');
     if (addonCode !== SAAS_ADDONS.MEMBERSHIPS) {
       const err = new Error(`Add-on inválido: ${addonCode}`);
@@ -458,12 +488,13 @@ class EntitlementsService {
       try {
         await client.query('BEGIN');
 
-        const tenantRes = await client.query('SELECT id FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+        const tenantRes = await client.query('SELECT id, COALESCE(licensed_branches, max_branches, 1) AS licensed_branches FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
         if (!tenantRes.rows || tenantRes.rows.length === 0) {
           const err = new Error('Empresa no encontrado');
           err.code = 'TENANT_NOT_FOUND';
           throw err;
         }
+        const licensedBranches = Math.max(1, Number(tenantRes.rows[0].licensed_branches || 1));
 
         const branchRes = await client.query(
           'SELECT id::text as id, name, COALESCE(is_active, true) as is_active FROM branches WHERE tenant_id = $1 ORDER BY is_main DESC, name ASC',
@@ -487,6 +518,17 @@ class EntitlementsService {
               err.code = 'INVALID_BRANCH_SELECTION';
               throw err;
             }
+            const inactiveBranch = cleaned.find(id => !branchMap.get(id)?.is_active);
+            if (inactiveBranch) {
+              const err = new Error('Cada sucursal seleccionada para Membresías debe tener una licencia principal activa.');
+              err.code = 'BRANCH_LICENSE_REQUIRED';
+              throw err;
+            }
+            if (cleaned.length > licensedBranches) {
+              const err = new Error(`Seleccionaste ${cleaned.length} sucursales, pero tu cuenta tiene ${licensedBranches} licencia(s) principal(es) contratada(s).`);
+              err.code = 'BRANCH_LICENSE_REQUIRED';
+              throw err;
+            }
             normalizedBranchIds = cleaned;
           } else if (branchIds !== undefined && branchIds !== null) {
             const err = new Error('Formato inválido de sucursales para el add-on.');
@@ -494,26 +536,37 @@ class EntitlementsService {
             throw err;
           } else {
             const activeOnly = tenantBranches.filter(b => b.is_active).map(b => b.id);
-            normalizedBranchIds = activeOnly.length > 0 ? activeOnly : tenantBranches.map(b => b.id);
+            normalizedBranchIds = (activeOnly.length > 0 ? activeOnly : tenantBranches.map(b => b.id)).slice(0, licensedBranches);
           }
         }
 
         const existingRes = await client.query(
-          'SELECT is_enabled, reason, enabled_branch_ids FROM tenant_feature_overrides WHERE tenant_id = $1 AND feature_key = $2 FOR UPDATE',
+          'SELECT is_enabled, reason, enabled_branch_ids, COALESCE(acquired_blocks, 0) AS acquired_blocks, COALESCE(acquired_branch_capacity, 0) AS acquired_branch_capacity FROM tenant_feature_overrides WHERE tenant_id = $1 AND feature_key = $2 FOR UPDATE',
           [tenantId, SAAS_FEATURES.MEMBERSHIPS]
         );
         const existing = existingRes.rows[0] || null;
+        const requiredBlocksForSelection = enabledBool ? Math.max(1, Math.ceil(Math.max(1, normalizedBranchIds.length) / 3)) : 0;
+        const finalAcquiredBlocks = enabledBool
+          ? Math.max(
+              Number(acquiredBlocks || 0),
+              Number(existing?.acquired_blocks || 0),
+              requiredBlocksForSelection
+            )
+          : 0;
+        const finalAcquiredCapacity = finalAcquiredBlocks * 3;
+
         const existingBranches = Array.isArray(existing?.enabled_branch_ids)
           ? [...new Set(existing.enabled_branch_ids.map(String))].sort()
           : [];
         const targetBranchesSorted = [...normalizedBranchIds].sort();
         const sameBranches = existingBranches.length === targetBranchesSorted.length
           && existingBranches.every((v, i) => v === targetBranchesSorted[i]);
+        const sameBlocks = Number(existing?.acquired_blocks || 0) === finalAcquiredBlocks;
         const existingPrefix = String(existing?.reason || '').startsWith('legacy_pro_transition')
           ? 'legacy_pro_transition'
           : 'commercial_addon';
 
-        if (existing && Boolean(existing.is_enabled) === enabledBool && (!enabledBool || (sameBranches && existingPrefix === prefix))) {
+        if (existing && Boolean(existing.is_enabled) === enabledBool && (!enabledBool || (sameBranches && sameBlocks && existingPrefix === prefix))) {
           await client.query(
             'UPDATE tenants SET has_memberships = $1 WHERE id = $2 AND has_memberships IS DISTINCT FROM $1',
             [enabledBool, tenantId]
@@ -530,7 +583,7 @@ class EntitlementsService {
 
         const branchNames = normalizedBranchIds.map(id => branchMap.get(id)?.name || id);
         const scopeSuffix = enabledBool
-          ? (branchNames.length > 0 ? ` [Sucursales: ${branchNames.join(', ')}]` : ' [Sin sucursales]')
+          ? ` [Bloques: ${finalAcquiredBlocks} (Capacidad: ${finalAcquiredCapacity} sucursales) | Habilitadas (${branchNames.length}): ${branchNames.join(', ')}]`
           : ' [Alcance: 0 sucursales]';
         const fullReason = `${baseReason}${scopeSuffix}`;
 
@@ -540,13 +593,24 @@ class EntitlementsService {
           reason: fullReason,
           actor_id: actorId,
           expires_at: expiresAt,
-          enabled_branch_ids: normalizedBranchIds
+          enabled_branch_ids: normalizedBranchIds,
+          acquired_blocks: finalAcquiredBlocks,
+          acquired_branch_capacity: finalAcquiredCapacity,
         }, client);
 
         await client.query(
           'UPDATE tenants SET has_memberships = $1 WHERE id = $2',
           [enabledBool, tenantId]
         );
+        await client.query(
+          `UPDATE tenant_subscriptions
+           SET addon_branches_count = $1,
+               addon_blocks_count = $2,
+               addon_branches_capacity = $3,
+               updated_at = NOW()
+           WHERE tenant_id = $4`,
+          [normalizedBranchIds.length, finalAcquiredBlocks, finalAcquiredCapacity, tenantId]
+        ).catch(() => {});
 
         const subRes = await client.query(
           'SELECT plan_code, status FROM tenant_subscriptions WHERE tenant_id = $1 LIMIT 1',

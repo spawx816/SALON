@@ -1171,7 +1171,7 @@ const VisitRecorder = () => {
     setServicesError(null);
     try {
       const [servs, top] = await Promise.all([
-        dataService.getServices(),
+        dataService.getServices(false, salonId),
         dataService.getTopServices(salonId, 20).catch(() => [])
       ]);
 
@@ -2335,6 +2335,25 @@ const VisitRecorder = () => {
       (s.nombre || '').toLowerCase().trim() === (service.nombre || '').toLowerCase().trim() ||
       (s.nombre || '').toLowerCase().includes((service.nombre || '').toLowerCase())
     );
+    const catalogItem = match || service;
+    const isPhysicalProduct =
+      String(catalogItem?.item_type || catalogItem?.tipo_item || '').trim().toUpperCase() === 'PRODUCTO' ||
+      String(catalogItem?.tipo_item || '').trim().toLowerCase() === 'producto';
+    const tracksStock = isPhysicalProduct && catalogItem?.track_stock !== false;
+
+    if (tracksStock) {
+      const availableStock = Number(catalogItem?.current_stock ?? 0);
+      const currentInCart = (lineItems || []).reduce((acc, it) => {
+        const sameId = catalogItem?.id && it.service_id && String(it.service_id) === String(catalogItem.id);
+        const sameName = (it.nombre || '').trim().toLowerCase() === (catalogItem?.nombre || '').trim().toLowerCase();
+        return (sameId || sameName) ? acc + (Number(it.cantidad) || 1) : acc;
+      }, 0);
+      if (availableStock <= 0 || currentInCart + 1 > availableStock) {
+        alert('No hay inventario disponible');
+        return;
+      }
+    }
+
     const realPrice = match?.precio || match?.precioBase || service.precio || service.precioBase || 600;
     const realName = match?.nombre || service.nombre;
 
@@ -2357,10 +2376,21 @@ const VisitRecorder = () => {
       autoDiscountVal = Number((basePrice * 0.15).toFixed(2));
     }
 
+    const appliesItbis = match?.aplica_itbis !== undefined
+      ? (Number(match.aplica_itbis) === 1 || match.aplica_itbis === true ? 1 : 0)
+      : (service.aplica_itbis !== undefined
+        ? (Number(service.aplica_itbis) === 1 || service.aplica_itbis === true ? 1 : 0)
+        : (Number(catalogItem?.tax_rate || 0) > 0 ? 1 : 0));
+
     const newItem = {
       id: Date.now() + Math.random(),
       service_id: match?.id || service.id || `srv-${Date.now()}`,
       nombre: isCoveredByPlan ? `${realName} (Membresía)` : realName,
+      categoria: catalogItem?.categoria || catalogItem?.commission_category_nombre || 'General',
+      item_type: isPhysicalProduct ? 'PRODUCTO' : 'SERVICIO',
+      tipo_item: isPhysicalProduct ? 'Producto' : 'Servicio',
+      track_stock: tracksStock,
+      current_stock: tracksStock ? Number(catalogItem?.current_stock ?? 0) : null,
       precioBase: basePrice,
       precioAplicado: basePrice,
       cantidad: 1,
@@ -2370,7 +2400,9 @@ const VisitRecorder = () => {
       descuento: autoDiscountVal,
       descuentoPercent: autoDiscountPercent,
       isPlanWash: isCoveredByPlan,
-      aplica_itbis: match?.aplica_itbis !== undefined ? (match.aplica_itbis ? 1 : 0) : (service.aplica_itbis !== undefined ? (service.aplica_itbis ? 1 : 0) : 0)
+      aplica_itbis: appliesItbis,
+      tax_rate: appliesItbis ? (Number(catalogItem?.tax_rate) > 0 ? Number(catalogItem.tax_rate) : 0.18) : 0,
+      tax_mode: catalogItem?.tax_mode || 'exclusive'
     };
     setLineItems([...lineItems, newItem]);
   };
@@ -2402,6 +2434,29 @@ const VisitRecorder = () => {
       setLineItems([...lineItems, secondWash]);
       alert('ℹ️ Membresía incluye 1 solo lavado en cada facturación.\nEl lavado adicional se ha agregado automáticamente a precio regular (RD$ ' + regularPrice.toLocaleString('es-DO', { minimumFractionDigits: 2 }) + ').');
       return;
+    }
+
+    if (delta > 0) {
+      const matchedCatalog = availableServices.find(s =>
+        (s.id && item.service_id && String(s.id) === String(item.service_id)) ||
+        (s.nombre || '').trim().toLowerCase() === (item.nombre || '').trim().toLowerCase()
+      );
+      const isPhysicalProduct =
+        String(item.item_type || matchedCatalog?.item_type || item.tipo_item || matchedCatalog?.tipo_item || '').trim().toUpperCase() === 'PRODUCTO' ||
+        String(item.tipo_item || matchedCatalog?.tipo_item || '').trim().toLowerCase() === 'producto';
+      const tracksStock = isPhysicalProduct && (item.track_stock ?? matchedCatalog?.track_stock) !== false;
+      if (tracksStock) {
+        const availableStock = Number(matchedCatalog?.current_stock ?? item.current_stock ?? 0);
+        const totalInCart = updated.reduce((acc, it) => {
+          const sameId = item.service_id && it.service_id && String(it.service_id) === String(item.service_id);
+          const sameName = (it.nombre || '').trim().toLowerCase() === (item.nombre || '').trim().toLowerCase();
+          return (sameId || sameName) ? acc + (Number(it.cantidad) || 1) : acc;
+        }, 0);
+        if (availableStock <= 0 || totalInCart + delta > availableStock) {
+          alert('No hay inventario disponible');
+          return;
+        }
+      }
     }
 
     const newQty = Math.max(1, (item.cantidad || 1) + delta);
@@ -3336,6 +3391,9 @@ const VisitRecorder = () => {
       let checkoutRes = null;
       try {
         checkoutRes = await dataService.checkoutTicket(ticketIdToUse, {
+          subtotal: grossSubtotal,
+          descuento: totalDiscounts,
+          itbis: itbisAmount,
           total: finalTotalAmount,
           monto_recibido: finalMontoRecibido,
           devuelta: finalDevuelta,

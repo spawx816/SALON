@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useNotification } from '../../context/NotificationContext';
+import { useAuth } from '../../context/AuthContext';
+import { hasUiPermission } from '../../utils/rbacCatalog';
 
 const MONTHS_ES = [
   { value: '01', label: 'Enero' },
@@ -42,6 +44,9 @@ const fmtCurrency = (val, showDecimals = true) => {
 export default function ReporteIT1Module() {
   const navigate = useNavigate();
   const { showNotification } = useNotification();
+  const { user } = useAuth();
+  const canManageIt1 = hasUiPermission(user, 'accounting.it1.manage');
+  const canExportAccounting = hasUiPermission(user, 'accounting.export');
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -451,6 +456,7 @@ export default function ReporteIT1Module() {
           </div>
 
           {/* Botón de Configuración Exenta / Gravada */}
+          {canManageIt1 && (
           <button
             onClick={() => {
               setConfigRegimen(isExento ? 'exento' : 'gravado');
@@ -477,6 +483,7 @@ export default function ReporteIT1Module() {
               Configuración: <strong>{isExento ? 'Empresa Exenta' : 'Genera ITBIS en Ventas'}</strong>
             </span>
           </button>
+          )}
         </div>
 
         {/* TARJETA DE FILTROS: PREPARAR DECLARACIÓN */}
@@ -1462,42 +1469,47 @@ export default function ReporteIT1Module() {
             paddingTop: '4px'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-              <button
-                onClick={() => handleSaveDeclaration('Borrador')}
-                disabled={saving}
-                style={{
-                  padding: '11px 22px',
-                  background: '#ffffff',
-                  border: '1px solid #0284c7',
-                  borderRadius: '8px',
-                  color: '#0f172a',
-                  fontSize: '14.5px',
-                  fontWeight: 700,
-                  cursor: saving ? 'wait' : 'pointer'
-                }}
-              >
-                Guardar borrador
-              </button>
+              {canManageIt1 && (
+                <>
+                  <button
+                    onClick={() => handleSaveDeclaration('Borrador')}
+                    disabled={saving}
+                    style={{
+                      padding: '11px 22px',
+                      background: '#ffffff',
+                      border: '1px solid #0284c7',
+                      borderRadius: '8px',
+                      color: '#0f172a',
+                      fontSize: '14.5px',
+                      fontWeight: 700,
+                      cursor: saving ? 'wait' : 'pointer'
+                    }}
+                  >
+                    Guardar borrador
+                  </button>
 
-              <button
-                onClick={() => handleSaveDeclaration('Revisado', true)}
-                disabled={saving}
-                style={{
-                  padding: '11px 24px',
-                  background: '#0891b2',
-                  border: '1px solid #0891b2',
-                  borderRadius: '8px',
-                  color: '#ffffff',
-                  fontSize: '14.5px',
-                  fontWeight: 700,
-                  cursor: saving ? 'wait' : 'pointer'
-                }}
-              >
-                Marcar como revisado
-              </button>
+                  <button
+                    onClick={() => handleSaveDeclaration('Revisado', true)}
+                    disabled={saving}
+                    style={{
+                      padding: '11px 24px',
+                      background: '#0891b2',
+                      border: '1px solid #0891b2',
+                      borderRadius: '8px',
+                      color: '#ffffff',
+                      fontSize: '14.5px',
+                      fontWeight: 700,
+                      cursor: saving ? 'wait' : 'pointer'
+                    }}
+                  >
+                    Marcar como revisado
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Menú desplegable Exportar */}
+            {canExportAccounting && (
             <div style={{ position: 'relative' }}>
               <button
                 onClick={() => setShowExportMenu(prev => !prev)}
@@ -1602,6 +1614,7 @@ export default function ReporteIT1Module() {
                 </div>
               )}
             </div>
+            )}
           </div>
 
           <div style={{

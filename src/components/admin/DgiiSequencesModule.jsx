@@ -6,10 +6,14 @@ import {
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useNotification } from '../../context/NotificationContext';
+import { useAuth } from '../../context/AuthContext';
+import { hasUiPermission } from '../../utils/rbacCatalog';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function DgiiSequencesModule() {
   const { showNotification } = useNotification();
+  const { user } = useAuth();
+  const canManageSequences = hasUiPermission(user, 'accounting.sequences.manage');
   const [sequences, setSequences] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -205,26 +209,28 @@ export default function DgiiSequencesModule() {
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refrescar
           </button>
 
-          <button
-            onClick={handleOpenCreate}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.65rem 1.25rem',
-              borderRadius: '10px',
-              border: 'none',
-              background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
-              color: '#fff',
-              fontWeight: 700,
-              fontSize: '0.875rem',
-              cursor: 'pointer',
-              boxShadow: '0 4px 14px rgba(14, 165, 233, 0.35)',
-              transition: 'all 0.2s'
-            }}
-          >
-            <Plus size={18} /> Registrar Nueva Secuencia
-          </button>
+          {canManageSequences && (
+            <button
+              onClick={handleOpenCreate}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.65rem 1.25rem',
+                borderRadius: '10px',
+                border: 'none',
+                background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: '0.875rem',
+                cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(14, 165, 233, 0.35)',
+                transition: 'all 0.2s'
+              }}
+            >
+              <Plus size={18} /> Registrar Nueva Secuencia
+            </button>
+          )}
         </div>
       </div>
 
@@ -457,22 +463,26 @@ export default function DgiiSequencesModule() {
                       </td>
 
                       <td style={{ padding: '1.25rem 1.5rem', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                          <button
-                            onClick={() => handleOpenEdit(seq)}
-                            style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.4rem', cursor: 'pointer', color: '#475569' }}
-                            title="Editar Secuencia"
-                          >
-                            <Edit size={15} />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(seq.id, seq.nombre_comprobante)}
-                            style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '8px', padding: '0.4rem', cursor: 'pointer', color: '#dc2626' }}
-                            title="Eliminar Secuencia"
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
+                        {canManageSequences ? (
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                            <button
+                              onClick={() => handleOpenEdit(seq)}
+                              style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.4rem', cursor: 'pointer', color: '#475569' }}
+                              title="Editar Secuencia"
+                            >
+                              <Edit size={15} />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(seq.id, seq.nombre_comprobante)}
+                              style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '8px', padding: '0.4rem', cursor: 'pointer', color: '#dc2626' }}
+                              title="Eliminar Secuencia"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Solo consulta</span>
+                        )}
                       </td>
                     </tr>
                   );

@@ -36,7 +36,9 @@ const CANONICAL_MIGRATIONS = [
   '20261116_print_templates_and_turn_tickets',
   '20261117_kiosk_devices_hardening',
   '20261120_schedule_overrides_unique_tenant_emp_date',
-  '20261121_reconcile_saas_billing_schema_drift'
+  '20261121_reconcile_saas_billing_schema_drift',
+  '20261122_operational_accounting_and_addon_blocks',
+  '20261123_rbac_accounting_and_role_templates'
 ];
 
 // Global / Control Plane / System Tables

@@ -9,6 +9,11 @@ function createServicesRouter(pool) {
   const normalizeCatalogRow = (r) => {
     const rawType = String(r.item_type || r.tipo_item || '').trim().toUpperCase();
     const isProduct = rawType === 'PRODUCTO' || rawType === 'PRODUCT';
+    const explicitAplica = r.aplica_itbis !== undefined && r.aplica_itbis !== null
+      ? (Number(r.aplica_itbis) === 1 || r.aplica_itbis === true || String(r.aplica_itbis) === '1')
+      : false;
+    const rawRate = r.tax_rate !== undefined && r.tax_rate !== null ? parseFloat(r.tax_rate) : (explicitAplica ? 0.18 : 0);
+    const effectiveRate = explicitAplica ? (rawRate > 0 ? rawRate : 0.18) : 0;
     return {
       ...r,
       nombre: r.nombre || r.name || 'Servicio',
@@ -22,14 +27,91 @@ function createServicesRouter(pool) {
       sku: r.sku || null,
       barcode: r.barcode || null,
       unit_of_measure: r.unit_of_measure || 'unit',
-      tax_rate: r.tax_rate !== undefined && r.tax_rate !== null ? parseFloat(r.tax_rate) : 0.18,
+      aplica_itbis: explicitAplica ? 1 : 0,
+      tax_rate: effectiveRate,
+      tax_mode: r.tax_mode || 'exclusive',
       min_stock: r.min_stock !== undefined && r.min_stock !== null ? parseFloat(r.min_stock) : 0,
       track_stock: r.track_stock !== undefined && r.track_stock !== null ? Boolean(r.track_stock) : isProduct,
       commission_category_id: r.commission_category_id !== undefined && r.commission_category_id !== null ? Number(r.commission_category_id) : null,
       commission_category_nombre: r.commission_category_nombre || null,
       commission_category_estado: r.commission_category_estado || null,
       current_stock: r.current_stock !== undefined && r.current_stock !== null ? parseFloat(r.current_stock) : 0,
+      has_inventory_record: Boolean(r.has_inventory_record),
     };
+  };
+
+  /**
+   * Resuelve el stock por producto del tenant y sucursal (branch_id / salon_id).
+   * Si la sucursal tiene ubicaciones asignadas en inventory_locations, usa exclusivamente esas ubicaciones.
+   * Si no tiene ubicación propia y solo existe la ubicación default del tenant, usa la ubicación default.
+   */
+  const attachBranchScopedStock = async (tenantId, rows, salonId = null) => {
+    if (!Array.isArray(rows) || rows.length === 0) return [];
+    const targetBranch = salonId && salonId !== 'all' && salonId !== 'Todas' ? String(salonId).trim() : null;
+
+    let locationFilterIds = null;
+    if (targetBranch) {
+      const [locs] = await pool.query(
+        'SELECT id, branch_id, is_default, name FROM inventory_locations WHERE tenant_id = ? AND COALESCE(is_active, TRUE) = TRUE ORDER BY is_default DESC, created_at ASC',
+        [tenantId]
+      ).catch(() => [[]]);
+      if (Array.isArray(locs) && locs.length > 0) {
+        const directMatches = locs.filter((l) => String(l.branch_id || '') === targetBranch);
+        if (directMatches.length > 0) {
+          locationFilterIds = directMatches.map((l) => l.id);
+        } else {
+          // Si hay una sola ubicación default sin branch_id explícito o de sucursal única
+          const unassignedDefault = locs.filter((l) => !l.branch_id && l.is_default);
+          if (unassignedDefault.length > 0 && locs.length === 1) {
+            locationFilterIds = unassignedDefault.map((l) => l.id);
+          } else if (locs.some((l) => l.branch_id)) {
+            // Otras sucursales sí tienen ubicación pero esta sucursal aún no tiene stock registrado
+            locationFilterIds = [];
+          }
+        }
+      }
+    }
+
+    let stockRows = [];
+    if (Array.isArray(locationFilterIds) && locationFilterIds.length === 0) {
+      stockRows = [];
+    } else if (Array.isArray(locationFilterIds) && locationFilterIds.length > 0) {
+      const ph = locationFilterIds.map(() => '?').join(', ');
+      const [sRows] = await pool.query(
+        `SELECT product_id::text AS product_id, COALESCE(SUM(quantity), 0) AS qty, COUNT(*)::int AS rec_count
+         FROM inventory_stock
+         WHERE tenant_id = ? AND location_id IN (${ph})
+         GROUP BY product_id`,
+        [tenantId, ...locationFilterIds]
+      ).catch(() => [[]]);
+      stockRows = sRows || [];
+    } else {
+      const [sRows] = await pool.query(
+        `SELECT product_id::text AS product_id, COALESCE(SUM(quantity), 0) AS qty, COUNT(*)::int AS rec_count
+         FROM inventory_stock
+         WHERE tenant_id = ?
+         GROUP BY product_id`,
+        [tenantId]
+      ).catch(() => [[]]);
+      stockRows = sRows || [];
+    }
+
+    const stockMap = new Map();
+    for (const sr of stockRows) {
+      stockMap.set(String(sr.product_id), {
+        qty: parseFloat(sr.qty || 0),
+        hasRecord: Number(sr.rec_count || 0) > 0,
+      });
+    }
+
+    return rows.map((r) => {
+      const entry = stockMap.get(String(r.id));
+      return normalizeCatalogRow({
+        ...r,
+        current_stock: entry ? entry.qty : 0,
+        has_inventory_record: entry ? entry.hasRecord : false,
+      });
+    });
   };
 
   const resolveCommissionCategory = async (tenantId, commissionCategoryId, fallbackExistingId = null, fallbackName = null) => {
@@ -78,16 +160,11 @@ function createServicesRouter(pool) {
   router.get('/', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      const { active_only, item_type } = req.query;
+      const { active_only, item_type, salon_id, branch_id } = req.query;
       let query = `
         SELECT s.*,
                cc.nombre AS commission_category_nombre,
-               cc.estado AS commission_category_estado,
-               COALESCE((
-                 SELECT SUM(st.quantity)
-                 FROM inventory_stock st
-                 WHERE st.product_id = s.id AND st.tenant_id = s.tenant_id
-               ), 0) AS current_stock
+               cc.estado AS commission_category_estado
         FROM services s
         LEFT JOIN commission_categories cc ON cc.id = s.commission_category_id AND cc.tenant_id = s.tenant_id
         WHERE s.tenant_id = ?
@@ -103,7 +180,8 @@ function createServicesRouter(pool) {
       }
       query += ' ORDER BY COALESCE(s.categoria, s.category, \'General\') ASC, COALESCE(s.nombre, s.name, \'\') ASC';
       const [rows] = await pool.query(query, params);
-      res.json(rows.map(normalizeCatalogRow));
+      const hydrated = await attachBranchScopedStock(tenantId, rows, salon_id || branch_id || null);
+      res.json(hydrated);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -183,16 +261,12 @@ function createServicesRouter(pool) {
         }
       }
 
-      const scoredServices = activeServices.map(srv => {
+      const hydratedTop = await attachBranchScopedStock(tenantId, activeServices, salon_id || null);
+      const scoredServices = hydratedTop.map(srv => {
         const srvName = srv.nombre || srv.name || 'Servicio';
         const key = srvName.trim().toLowerCase();
         return {
           ...srv,
-          nombre: srvName,
-          categoria: srv.categoria || srv.category || 'General',
-          precio: parseFloat(srv.precio ?? srv.price ?? 0),
-          duracion: parseInt(srv.duracion ?? srv.duration_minutes ?? 30),
-          activo: srv.activo !== undefined && srv.activo !== null ? srv.activo : (srv.is_active ? 1 : 0),
           usage_count: usageCounts[key] || 0
         };
       });
@@ -298,7 +372,7 @@ function createServicesRouter(pool) {
       const {
         nombre, name, categoria, category, commission_category_id, subcategoria, precio, price, costo, cost,
         duracion, duration, activo, tipo_comision, comision_valor,
-        item_type, tipo_item, sku, barcode, unit_of_measure, tax_rate, min_stock, track_stock
+        item_type, tipo_item, sku, barcode, unit_of_measure, tax_rate, tax_mode, aplica_itbis, min_stock, track_stock
       } = req.body;
       const finalName = (nombre || name || '').trim();
       const rawPrice = precio !== undefined ? precio : price;
@@ -347,13 +421,21 @@ function createServicesRouter(pool) {
         }
       }
 
+      const resolvedAplicaItbis = aplica_itbis !== undefined && aplica_itbis !== null
+        ? (Number(aplica_itbis) === 1 || aplica_itbis === true || String(aplica_itbis) === '1' ? 1 : 0)
+        : (tax_rate !== undefined && parseFloat(tax_rate) > 0 ? 1 : 0);
+      const resolvedTaxRate = resolvedAplicaItbis === 1
+        ? (tax_rate !== undefined && parseFloat(tax_rate) > 0 ? parseFloat(tax_rate) : 0.18)
+        : 0;
+      const resolvedTaxMode = tax_mode === 'inclusive' ? 'inclusive' : 'exclusive';
+
       const [result] = await pool.query(
         `INSERT INTO services (
           tenant_id, name, nombre, categoria, category, commission_category_id, subcategoria,
           precio, price, costo, duracion, duration_minutes,
           activo, is_active, tipo_comision, comision_valor,
-          item_type, sku, barcode, unit_of_measure, tax_rate, min_stock, track_stock
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+          item_type, sku, barcode, unit_of_measure, aplica_itbis, tax_rate, tax_mode, min_stock, track_stock
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
         [
           tenantId,
           finalName,
@@ -375,7 +457,9 @@ function createServicesRouter(pool) {
           cleanSku,
           cleanBarcode,
           unit_of_measure || 'unit',
-          tax_rate !== undefined ? parseFloat(tax_rate) : 0.18,
+          resolvedAplicaItbis,
+          resolvedTaxRate,
+          resolvedTaxMode,
           min_stock !== undefined ? parseFloat(min_stock) || 0 : 0,
           canonicalType === 'PRODUCTO' ? (track_stock !== false) : false
         ]
@@ -400,7 +484,7 @@ function createServicesRouter(pool) {
       const {
         nombre, name, categoria, category, commission_category_id, subcategoria, precio, price, costo, cost,
         duracion, duration, activo, tipo_comision, comision_valor,
-        item_type, tipo_item, sku, barcode, unit_of_measure, tax_rate, min_stock, track_stock
+        item_type, tipo_item, sku, barcode, unit_of_measure, tax_rate, tax_mode, aplica_itbis, min_stock, track_stock
       } = req.body;
 
       const [existingRows] = await pool.query(
@@ -474,12 +558,20 @@ function createServicesRouter(pool) {
         }
       }
 
+      const resolvedAplicaItbis = aplica_itbis !== undefined && aplica_itbis !== null
+        ? (Number(aplica_itbis) === 1 || aplica_itbis === true || String(aplica_itbis) === '1' ? 1 : 0)
+        : (tax_rate !== undefined ? (parseFloat(tax_rate) > 0 ? 1 : 0) : (existing.aplica_itbis ?? 0));
+      const resolvedTaxRate = resolvedAplicaItbis === 1
+        ? (tax_rate !== undefined && parseFloat(tax_rate) > 0 ? parseFloat(tax_rate) : (parseFloat(existing.tax_rate) > 0 ? parseFloat(existing.tax_rate) : 0.18))
+        : 0;
+      const resolvedTaxMode = tax_mode !== undefined ? (tax_mode === 'inclusive' ? 'inclusive' : 'exclusive') : (existing.tax_mode || 'exclusive');
+
       const [result] = await pool.query(
         `UPDATE services SET
           name=?, nombre=?, categoria=?, category=?, commission_category_id=?, subcategoria=?,
           precio=?, price=?, costo=?, duracion=?, duration_minutes=?,
           activo=?, is_active=?, tipo_comision=?, comision_valor=?,
-          item_type=?, sku=?, barcode=?, unit_of_measure=?, tax_rate=?, min_stock=?, track_stock=?,
+          item_type=?, sku=?, barcode=?, unit_of_measure=?, aplica_itbis=?, tax_rate=?, tax_mode=?, min_stock=?, track_stock=?,
           updated_at=NOW()
          WHERE id=? AND tenant_id=?`,
         [
@@ -502,7 +594,9 @@ function createServicesRouter(pool) {
           cleanSku,
           cleanBarcode,
           unit_of_measure || existing.unit_of_measure || 'unit',
-          tax_rate !== undefined ? parseFloat(tax_rate) : (existing.tax_rate ?? 0.18),
+          resolvedAplicaItbis,
+          resolvedTaxRate,
+          resolvedTaxMode,
           min_stock !== undefined ? parseFloat(min_stock) || 0 : (existing.min_stock ?? 0),
           nextType === 'PRODUCTO' ? (track_stock !== undefined ? Boolean(track_stock) : (existing.track_stock ?? true)) : false,
           id,

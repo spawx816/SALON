@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { createQuarantineGuard } = require('../middleware/quarantine.middleware.cjs');
+const { requirePermission, getBranchScope } = require('../middleware/rbac.middleware');
 
 let forge = null;
 try { forge = require('node-forge'); } catch (e) {}
@@ -119,9 +120,10 @@ function decorateSequenceRow(row, electronicEnabled) {
 
 function canManageSequences(req) {
   const role = String(req.auth?.role || req.user?.role || '').toLowerCase();
-  if (role === 'propietario' || role === 'owner' || role === 'admin' || req.auth?.isSuperAdmin) return true;
+  if (role === 'propietario' || role === 'owner') return true;
+  if (role === 'admin' && !req.auth?.roleId) return true;
   const perms = req.auth?.permissions || {};
-  return Boolean(perms['dgii.sequences.manage'] || perms['settings.manage'] || perms['pos.cash_registers.manage']);
+  return Boolean(perms['accounting.sequences.manage']);
 }
 
 /**
@@ -131,7 +133,7 @@ function createDgiiRouter(pool) {
   const router = express.Router();
 
   // 1. GET /api/dgii/sequences - List all voucher sequences for the authenticated tenant
-  router.get('/sequences', async (req, res) => {
+  router.get('/sequences', requirePermission('accounting.view', 'accounting.sequences.manage'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
@@ -154,7 +156,7 @@ function createDgiiRouter(pool) {
   });
 
   // 2. GET /api/dgii/sequences/availability - Quick check for POS checkout within the authenticated tenant
-  router.get('/sequences/availability', async (req, res) => {
+  router.get('/sequences/availability', requirePermission('accounting.view', 'accounting.sequences.manage', 'pos.visits.view', 'pos.visits.create', 'pos.invoices.view'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
@@ -369,11 +371,11 @@ function createDgiiRouter(pool) {
   };
 
   // 3. POST /api/dgii/sequences & PUT /api/dgii/sequences/:id
-  router.post('/sequences', createQuarantineGuard(pool, 'ticket_sequences', req => req.body.id), upsertSequenceHandler);
-  router.put('/sequences/:id', createQuarantineGuard(pool, 'dgii_ncf_sequences', req => req.params.id), upsertSequenceHandler);
+  router.post('/sequences', requirePermission('accounting.sequences.manage'), createQuarantineGuard(pool, 'ticket_sequences', req => req.body.id), upsertSequenceHandler);
+  router.put('/sequences/:id', requirePermission('accounting.sequences.manage'), createQuarantineGuard(pool, 'dgii_ncf_sequences', req => req.params.id), upsertSequenceHandler);
 
   // 3b. DELETE /api/dgii/sequences/:id - Protected against deleting used sequences
-  router.delete('/sequences/:id', async (req, res) => {
+  router.delete('/sequences/:id', requirePermission('accounting.sequences.manage'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido.' });
@@ -434,7 +436,7 @@ function createDgiiRouter(pool) {
     return { records, targetPeriod, tenantId };
   };
 
-  router.get('/607', async (req, res) => {
+  router.get('/607', requirePermission('accounting.view'), async (req, res) => {
     try {
       const { records } = await queryReport607(req, res);
       res.json(records);
@@ -443,7 +445,7 @@ function createDgiiRouter(pool) {
     }
   });
 
-  router.get('/report-607', async (req, res) => {
+  router.get('/report-607', requirePermission('accounting.view'), async (req, res) => {
     try {
       const { records, targetPeriod, tenantId } = await queryReport607(req, res);
       const [tRows] = await pool.query('SELECT business_name, rnc FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
@@ -471,8 +473,35 @@ function createDgiiRouter(pool) {
     }
   });
 
+  // 4a. GET /api/dgii/report-607/txt - Exportación TXT oficial 607 (requiere accounting.export)
+  router.get('/report-607/txt', requirePermission('accounting.export'), async (req, res) => {
+    try {
+      const { records, targetPeriod, tenantId } = await queryReport607(req, res);
+      const [tRows] = await pool.query('SELECT rnc FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
+      const rnc = String(tRows?.[0]?.rnc || '').replace(/\D/g, '');
+      const header = `607|${rnc}|${targetPeriod || ''}|${records.length}`;
+      const lines = records.map((r) => [
+        String(r.rnc_cliente || '').replace(/\D/g, ''),
+        r.rnc_cliente && String(r.rnc_cliente).replace(/\D/g, '').length === 9 ? 1 : (r.rnc_cliente ? 2 : 3),
+        r.ncf || '',
+        '',
+        '01',
+        r.visited_at ? new Date(r.visited_at).toISOString().slice(0, 10).replace(/-/g, '') : '',
+        '',
+        Number(r.subtotal || 0).toFixed(2),
+        Number(r.itbis || 0).toFixed(2),
+        Number(r.total || 0).toFixed(2),
+      ].join('|'));
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="DGII_F_607_${rnc || 'EMPRESA'}_${targetPeriod || 'PERIODO'}.txt"`);
+      return res.send([header, ...lines].join('\r\n'));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 4b. GET /api/dgii/credit-notes - Local credit notes issued on visits for this tenant
-  router.get('/credit-notes', async (req, res) => {
+  router.get('/credit-notes', requirePermission('accounting.view'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const [rows] = await pool.query(`
@@ -490,7 +519,7 @@ function createDgiiRouter(pool) {
   });
 
   // 4c. POST /api/dgii/credit-notes/retransmit/:id - Explicit disabled state (no real DGII transport)
-  router.post('/credit-notes/retransmit/:id', (req, res) => {
+  router.post('/credit-notes/retransmit/:id', requirePermission('accounting.credit_notes.manage'), (req, res) => {
     return res.status(503).json({
       success: false,
       unavailable: true,
@@ -499,21 +528,282 @@ function createDgiiRouter(pool) {
     });
   });
 
-  // 4d. /api/dgii/it1* - Explicit unavailable state until IT-1 schema and DGII integration are enabled
-  const handleIt1Unavailable = (req, res) => {
-    return res.status(501).json({
-      success: false,
-      unavailable: true,
-      code: 'DGII_IT1_UNAVAILABLE',
-      error: 'Declaración IT-1 pendiente de integración fiscal y esquema en PostgreSQL.'
-    });
+  // 4d. /api/dgii/it1* - Cálculo local de Declaración Jurada IT-1 (sin emisión ni transmisión electrónica a DGII)
+  const getTenantIt1Store = async (tenantId) => {
+    const [tRows] = await pool.query('SELECT modules_config, name, rnc FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
+    const tRow = tRows?.[0] || {};
+    let cfg = {};
+    try {
+      cfg = typeof tRow.modules_config === 'string' ? JSON.parse(tRow.modules_config || '{}') : (tRow.modules_config || {});
+    } catch {
+      cfg = {};
+    }
+    return {
+      tenantName: tRow.name || 'Empresa',
+      tenantRnc: tRow.rnc || '',
+      cfg,
+      it1Settings: cfg.it1_settings || {},
+      it1Declarations: cfg.it1_declarations || {},
+    };
   };
-  router.get('/it1', handleIt1Unavailable);
-  router.post('/it1/settings', handleIt1Unavailable);
-  router.post('/it1/save', handleIt1Unavailable);
+
+  const saveTenantIt1Store = async (tenantId, nextCfg) => {
+    await pool.query('UPDATE tenants SET modules_config = ?::jsonb WHERE id = ?', [JSON.stringify(nextCfg), tenantId]);
+  };
+
+  router.get('/it1', requirePermission('accounting.view'), async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
+      }
+      const scope = getBranchScope(req);
+      const periodo = String(req.query.periodo || new Date().toISOString().slice(0, 7)).trim();
+      const salonId = req.query.salonId || req.query.salon_id || 'all';
+      if (!scope.allBranches && scope.branchIds.length > 0 && salonId !== 'all' && salonId !== 'Todas' && !scope.branchIds.includes(String(salonId))) {
+        return res.status(403).json({ error: 'Acceso denegado: sucursal fuera de tu alcance autorizado.', code: 'FORBIDDEN_BRANCH_SCOPE' });
+      }
+      const [yearStr, monthStr] = periodo.split('-');
+      const year = parseInt(yearStr, 10) || new Date().getFullYear();
+      const month = parseInt(monthStr, 10) || (new Date().getMonth() + 1);
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+      const store = await getTenantIt1Store(tenantId);
+      const savedDecl = store.it1Declarations[periodo] || {};
+      const settings = store.it1Settings || {};
+
+      // 1. Ventas facturadas y anuladas en visits durante el período
+      let visitQuery = `
+        SELECT id, ticket_number, client_name, total, subtotal, descuento, itbis, status, ncf, tipo_ncf, items_detail, metodo_pago, visited_at, salon_id
+        FROM visits
+        WHERE tenant_id = ?
+          AND visited_at >= ? AND visited_at <= ?
+      `;
+      const visitParams = [tenantId, `${startDate} 00:00:00`, `${endDate} 23:59:59`];
+      if (salonId && salonId !== 'all' && salonId !== 'Todas') {
+        visitQuery += ' AND salon_id::text = ?';
+        visitParams.push(String(salonId));
+      }
+      const [visitRows] = await pool.query(visitQuery, visitParams);
+
+      let totalFacturadoBruto = 0;
+      let totalIngresosExentos = 0;
+      let totalBaseGravada18 = 0;
+      let totalItbisCobrado18 = 0;
+      let cantidadFacturasValidas = 0;
+      let cantidadFacturasAnuladas = 0;
+      let montoFacturasAnuladas = 0;
+
+      for (const v of (visitRows || [])) {
+        if (v.status === 'Anulado' || v.status === 'Anulada') {
+          cantidadFacturasAnuladas += 1;
+          montoFacturasAnuladas += Number(v.total || 0);
+          continue;
+        }
+        if (v.status !== 'Facturado') continue;
+
+        cantidadFacturasValidas += 1;
+        const vItbis = Number(v.itbis || 0);
+        const vTotal = Number(v.total || 0);
+        const vSubtotalNeto = Math.max(0, vTotal - vItbis);
+
+        let lineTaxedBase = 0;
+        let lineExemptBase = 0;
+        let parsedItems = [];
+        try {
+          parsedItems = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail || '[]') : (Array.isArray(v.items_detail) ? v.items_detail : []);
+        } catch {
+          parsedItems = [];
+        }
+
+        if (parsedItems.length > 0) {
+          for (const it of parsedItems) {
+            const qty = Math.max(1, Number(it.cantidad || 1));
+            const unitP = Number(it.precioAplicado !== undefined ? it.precioAplicado : (it.precio !== undefined ? it.precio : (it.precioBase || 0)));
+            const disc = Number(it.descuento || 0);
+            const netLine = Math.max(0, (unitP * qty) - disc);
+            const applies = it.aplica_itbis === 1 || it.aplica_itbis === true || String(it.aplica_itbis) === '1' || Number(it.itbis_amount || 0) > 0;
+            if (applies) {
+              lineTaxedBase += Number(it.taxable_base !== undefined ? it.taxable_base : netLine);
+            } else {
+              lineExemptBase += netLine;
+            }
+          }
+        } else if (vItbis > 0) {
+          lineTaxedBase = vSubtotalNeto;
+        } else {
+          lineExemptBase = vSubtotalNeto;
+        }
+
+        totalBaseGravada18 += lineTaxedBase;
+        totalIngresosExentos += lineExemptBase;
+        totalItbisCobrado18 += vItbis;
+        totalFacturadoBruto += (lineTaxedBase + lineExemptBase);
+      }
+
+      totalBaseGravada18 = Number(totalBaseGravada18.toFixed(2));
+      totalIngresosExentos = Number(totalIngresosExentos.toFixed(2));
+      totalItbisCobrado18 = Number((totalItbisCobrado18 > 0 ? totalItbisCobrado18 : totalBaseGravada18 * 0.18).toFixed(2));
+      totalFacturadoBruto = Number((totalBaseGravada18 + totalIngresosExentos).toFixed(2));
+
+      // 2. Compras 606 y Gastos del período
+      let comprasItbisAdelantado = 0;
+      let totalCompras606 = 0;
+      let cantidadCompras606 = 0;
+      try {
+        const [compRows] = await pool.query(
+          `SELECT monto_facturado, itbis_facturado
+           FROM dgii_606_purchases
+           WHERE tenant_id = ? AND fecha_comprobante >= ? AND fecha_comprobante <= ? AND COALESCE(status, 'Activo') != 'Anulado'`,
+          [tenantId, startDate, endDate]
+        );
+        for (const c of (compRows || [])) {
+          cantidadCompras606 += 1;
+          totalCompras606 += Number(c.monto_facturado || 0);
+          comprasItbisAdelantado += Number(c.itbis_facturado || 0);
+        }
+      } catch (_) {}
+
+      let totalGastosOperativos = 0;
+      let cantidadGastos = 0;
+      try {
+        const [expRows] = await pool.query(
+          `SELECT amount
+           FROM expenses
+           WHERE tenant_id = ?
+             AND COALESCE(payment_date, date, expense_date) BETWEEN ? AND ?
+             AND COALESCE(status, 'Registrado') != 'Anulado'`,
+          [tenantId, startDate, endDate]
+        );
+        for (const ex of (expRows || [])) {
+          cantidadGastos += 1;
+          totalGastosOperativos += Number(ex.amount || 0);
+        }
+      } catch (_) {}
+
+      const saldoFavorAnterior = Number(savedDecl.saldo_favor_anterior ?? settings.saldo_favor_anterior ?? 0);
+      const retencionesTarjetas = Number(savedDecl.retenciones_tarjetas ?? settings.retenciones_tarjetas ?? 0);
+      const pagosComputables = Number(savedDecl.pagos_computables ?? 0);
+
+      const itbisPorPagarBruto = Math.max(0, Number((totalItbisCobrado18 - comprasItbisAdelantado).toFixed(2)));
+      const totalCreditos = Number((comprasItbisAdelantado + saldoFavorAnterior + retencionesTarjetas + pagosComputables).toFixed(2));
+      const impuestoPagarFinal = Math.max(0, Number((totalItbisCobrado18 - totalCreditos).toFixed(2)));
+      const nuevoSaldoFavor = Math.max(0, Number((totalCreditos - totalItbisCobrado18).toFixed(2)));
+
+      return res.json({
+        success: true,
+        periodo,
+        salonId,
+        electronicTransmissionEnabled: false,
+        mode: 'LOCAL_ACCOUNTING_REPORT',
+        empresa: {
+          nombre: store.tenantName,
+          rnc: store.tenantRnc,
+        },
+        settings: {
+          regimen: settings.regimen || 'RST',
+          porcentaje_itbis: 18,
+          ...settings,
+        },
+        resumen: {
+          total_operaciones_periodo: totalFacturadoBruto,
+          ingresos_exentos: totalIngresosExentos,
+          base_gravada_18: totalBaseGravada18,
+          itbis_cobrado_18: totalItbisCobrado18,
+          itbis_adelantado_606: Number(comprasItbisAdelantado.toFixed(2)),
+          total_compras_606: Number(totalCompras606.toFixed(2)),
+          cantidad_compras_606: cantidadCompras606,
+          total_gastos_operativos: Number(totalGastosOperativos.toFixed(2)),
+          cantidad_gastos: cantidadGastos,
+          saldo_favor_anterior: saldoFavorAnterior,
+          retenciones_tarjetas: retencionesTarjetas,
+          pagos_computables: pagosComputables,
+          itbis_por_pagar_bruto: itbisPorPagarBruto,
+          impuesto_a_pagar: impuestoPagarFinal,
+          nuevo_saldo_a_favor: nuevoSaldoFavor,
+          cantidad_facturas_validas: cantidadFacturasValidas,
+          cantidad_facturas_anuladas: cantidadFacturasAnuladas,
+          monto_facturas_anuladas: Number(montoFacturasAnuladas.toFixed(2)),
+        },
+        casillas: {
+          casilla_1_total_operaciones: totalFacturadoBruto,
+          casilla_2_no_gravadas: totalIngresosExentos,
+          casilla_11_gravadas_18: totalBaseGravada18,
+          casilla_16_itbis_cobrado_18: totalItbisCobrado18,
+          casilla_21_itbis_compras_locales: Number(comprasItbisAdelantado.toFixed(2)),
+          casilla_26_impuesto_a_pagar: itbisPorPagarBruto,
+          casilla_28_saldo_favor_anterior: saldoFavorAnterior,
+          casilla_29_retenciones_computables: retencionesTarjetas,
+          casilla_33_total_a_pagar: impuestoPagarFinal,
+          casilla_34_nuevo_saldo_favor: nuevoSaldoFavor,
+        },
+        savedDeclaration: savedDecl,
+      });
+    } catch (err) {
+      console.error('[DGII IT1 GET ERROR]:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/it1/settings', requirePermission('accounting.it1.manage'), async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido.' });
+      const store = await getTenantIt1Store(tenantId);
+      const nextSettings = {
+        ...(store.it1Settings || {}),
+        ...(req.body || {}),
+        updated_at: new Date().toISOString(),
+      };
+      const nextCfg = {
+        ...(store.cfg || {}),
+        it1_settings: nextSettings,
+      };
+      await saveTenantIt1Store(tenantId, nextCfg);
+      return res.json({ success: true, settings: nextSettings, message: 'Configuración IT-1 guardada localmente.' });
+    } catch (err) {
+      console.error('[DGII IT1 SETTINGS ERROR]:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/it1/save', requirePermission('accounting.it1.manage'), async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido.' });
+      const body = req.body || {};
+      const periodo = String(body.periodo || new Date().toISOString().slice(0, 7)).trim();
+      const store = await getTenantIt1Store(tenantId);
+      const nextDeclarations = {
+        ...(store.it1Declarations || {}),
+        [periodo]: {
+          ...(store.it1Declarations?.[periodo] || {}),
+          ...body,
+          periodo,
+          saved_at: new Date().toISOString(),
+        },
+      };
+      const nextCfg = {
+        ...(store.cfg || {}),
+        it1_declarations: nextDeclarations,
+      };
+      await saveTenantIt1Store(tenantId, nextCfg);
+      return res.json({
+        success: true,
+        periodo,
+        declaration: nextDeclarations[periodo],
+        message: 'Borrador de declaración IT-1 guardado localmente.',
+      });
+    } catch (err) {
+      console.error('[DGII IT1 SAVE ERROR]:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
 
   // 5. GET /api/dgii/certificate-status - Verify X.509 certificate status
-  router.get('/certificate-status', async (req, res) => {
+  router.get('/certificate-status', requirePermission('accounting.view', 'accounting.sequences.manage'), async (req, res) => {
     try {
       let certPath = process.env.DGII_CERT_PATH
         ? path.resolve(__dirname, '..', process.env.DGII_CERT_PATH)

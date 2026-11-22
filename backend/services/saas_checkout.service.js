@@ -99,10 +99,12 @@ class SaasCheckoutService {
     }
 
     const addonUsd = Number(pricing?.addons?.memberships?.usd ?? 99);
+    const branchesPerBlock = Number(pricing?.addons?.memberships?.branchesPerBlock ?? 3);
+    const addonBlocksCount = safeAddonEnabled ? Math.max(1, Math.ceil(safeAddonBranches / branchesPerBlock)) : 0;
     const branchUsdMinor = BigInt(Math.round(Number(unitUsd) * 100)) * BigInt(safeBranches);
     const extraUserUsdMinor =
       safeExtraUsers > 0 ? BigInt(Math.round(Number(extraUserUsd || 0) * 100)) * BigInt(safeExtraUsers) : 0n;
-    const addonUsdMinor = safeAddonEnabled ? BigInt(Math.round(addonUsd * 100)) * BigInt(safeAddonBranches) : 0n;
+    const addonUsdMinor = safeAddonEnabled ? BigInt(Math.round(addonUsd * 100)) * BigInt(addonBlocksCount) : 0n;
 
     const subtotalUsdMinor = branchUsdMinor + extraUserUsdMinor + addonUsdMinor;
     const taxUsdMinor = 0n; // B2B SaaS export/digital services; extensible por política fiscal
@@ -115,6 +117,8 @@ class SaasCheckoutService {
         extraUsersCount: safeExtraUsers,
         wantsMembershipsAddon: safeAddonEnabled,
         addonBranchesCount: safeAddonBranches,
+        addonBlocksCount,
+        addonBranchCapacity: addonBlocksCount * branchesPerBlock,
         currency: 'USD',
         billingCycle: 'monthly',
         subtotalMinor: subtotalUsdMinor,
@@ -166,12 +170,548 @@ class SaasCheckoutService {
       extraUsersCount: safeExtraUsers,
       wantsMembershipsAddon: safeAddonEnabled,
       addonBranchesCount: safeAddonBranches,
+      addonBlocksCount,
+      addonBranchCapacity: addonBlocksCount * branchesPerBlock,
       currency: 'DOP',
       billingCycle: 'monthly',
       subtotalMinor: subtotalDopMinor,
       taxMinor: taxDopMinor,
       totalMinor: totalDopMinor,
       fxSnapshot,
+    };
+  }
+
+  /**
+   * Cotiza la contratación o ampliación del add-on Suscripciones y Membresías B2C
+   * bajo la regla comercial: US$99/mes por bloque de capacidad de hasta 3 sucursales habilitadas.
+   * Valida que cada sucursal seleccionada pertenezca al tenant y cuente con licencia principal activa.
+   */
+  async calculateProratedAddonBlocksQuote({ tenantId, branchIds = [], fxRate = null, effectiveAt = new Date() }) {
+    if (!tenantId) throw new Error('tenantId es requerido para cotizar el add-on de Membresías');
+
+    const cleanedIds = Array.isArray(branchIds)
+      ? [...new Set(branchIds.map((id) => String(id).trim()).filter(Boolean))]
+      : [];
+
+    const [tenantRows] = await this.pool.query(
+      `SELECT COALESCE(licensed_branches, max_branches, 1) AS licensed_branches FROM tenants WHERE id = ? LIMIT 1`,
+      [tenantId]
+    );
+    const licensedBranches = Math.max(1, Number(tenantRows?.[0]?.licensed_branches || 1));
+
+    const [branchRows] = await this.pool.query(
+      `SELECT id::text AS id, name, COALESCE(is_active, true) AS is_active
+       FROM branches
+       WHERE tenant_id = ?
+       ORDER BY is_main DESC, created_at ASC`,
+      [tenantId]
+    );
+    const allBranches = branchRows || [];
+    const branchMap = new Map(allBranches.map((b) => [String(b.id), b]));
+
+    if (cleanedIds.length === 0) {
+      const err = new Error('Debes seleccionar al menos una sucursal con licencia activa para habilitar Membresías.');
+      err.code = 'BRANCH_SELECTION_REQUIRED';
+      err.statusCode = 400;
+      throw err;
+    }
+
+    for (const bId of cleanedIds) {
+      const bObj = branchMap.get(bId);
+      if (!bObj) {
+        const err = new Error('Una o más sucursales seleccionadas no pertenecen a tu empresa.');
+        err.code = 'INVALID_BRANCH_SELECTION';
+        err.statusCode = 400;
+        throw err;
+      }
+      if (!bObj.is_active) {
+        const err = new Error(`La sucursal "${bObj.name}" no tiene una licencia principal activa.`);
+        err.code = 'BRANCH_LICENSE_REQUIRED';
+        err.statusCode = 400;
+        throw err;
+      }
+    }
+
+    if (cleanedIds.length > licensedBranches) {
+      const err = new Error(`Seleccionaste ${cleanedIds.length} sucursales, pero tu plan principal solo tiene ${licensedBranches} licencia(s) de sucursal activa(s).`);
+      err.code = 'BRANCH_LICENSE_REQUIRED';
+      err.statusCode = 400;
+      throw err;
+    }
+
+    // Consultar capacidad actual de bloques del add-on
+    let periodStart = null;
+    let periodEnd = null;
+    let subAddonBlocks = 0;
+    const [subRows] = await this.pool.query(
+      `SELECT current_period_start, current_period_end, COALESCE(addon_blocks_count, 0) AS addon_blocks_count
+       FROM tenant_subscriptions WHERE tenant_id = ? LIMIT 1`,
+      [tenantId]
+    ).catch(() => [[]]);
+    if (subRows?.[0]) {
+      if (subRows[0].current_period_start) periodStart = new Date(subRows[0].current_period_start);
+      if (subRows[0].current_period_end) periodEnd = new Date(subRows[0].current_period_end);
+      subAddonBlocks = Number(subRows[0].addon_blocks_count || 0);
+    }
+
+    const [ovRows] = await this.pool.query(
+      `SELECT is_enabled, enabled_branch_ids, COALESCE(acquired_blocks, 0) AS acquired_blocks
+       FROM tenant_feature_overrides
+       WHERE tenant_id = ? AND feature_key = 'memberships' AND (expires_at IS NULL OR expires_at > NOW())
+       LIMIT 1`,
+      [tenantId]
+    ).catch(() => [[]]);
+    const ov = ovRows?.[0] || null;
+    const currentlyActive = Boolean(ov?.is_enabled);
+    const currentEnabledBranchIds = currentlyActive && Array.isArray(ov?.enabled_branch_ids)
+      ? ov.enabled_branch_ids.map(String)
+      : [];
+    const currentAcquiredBlocks = currentlyActive
+      ? Math.max(Number(ov?.acquired_blocks || 0), subAddonBlocks, Math.ceil(Math.max(1, currentEnabledBranchIds.length) / 3))
+      : Math.max(Number(ov?.acquired_blocks || 0), subAddonBlocks);
+
+    const branchesPerBlock = 3;
+    const currentAcquiredCapacity = currentAcquiredBlocks * branchesPerBlock;
+    const requiredBlocks = Math.ceil(cleanedIds.length / branchesPerBlock);
+    const targetBranchCapacity = requiredBlocks * branchesPerBlock;
+    const additionalBlocksToBuy = Math.max(0, requiredBlocks - currentAcquiredBlocks);
+    const newAcquiredBlocks = Math.max(currentAcquiredBlocks, requiredBlocks);
+    const newAcquiredCapacity = newAcquiredBlocks * branchesPerBlock;
+    const availableCapacityAfter = Math.max(0, newAcquiredCapacity - cleanedIds.length);
+    const requiresPayment = additionalBlocksToBuy > 0;
+
+    const now = new Date(effectiveAt);
+    if (!periodStart || !periodEnd || isNaN(periodStart.getTime()) || isNaN(periodEnd.getTime()) || periodEnd <= periodStart) {
+      periodStart = now;
+      periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    }
+    const totalDurationMs = BigInt(periodEnd.getTime() - periodStart.getTime());
+    let remainingMs = BigInt(Math.max(0, periodEnd.getTime() - now.getTime()));
+    if (remainingMs <= 0n || remainingMs > totalDurationMs) {
+      remainingMs = totalDurationMs;
+    }
+
+    const pricing = getConfiguredPricing();
+    const blockMonthlyUsd = Number(pricing?.addons?.memberships?.usd ?? 99);
+    const blockMonthlyUsdMinor = BigInt(Math.round(blockMonthlyUsd * 100));
+    const additionalMonthlyUsdMinor = blockMonthlyUsdMinor * BigInt(additionalBlocksToBuy);
+
+    const proratedAddonUsdMinor = requiresPayment
+      ? (totalDurationMs > 0n ? (additionalMonthlyUsdMinor * remainingMs + totalDurationMs - 1n) / totalDurationMs : additionalMonthlyUsdMinor)
+      : 0n;
+
+    let rateObj = fxRate;
+    if (!rateObj && this.fxRateService) {
+      if (typeof this.fxRateService.requireCurrentRate === 'function') {
+        rateObj = await this.fxRateService.requireCurrentRate('USD_DOP').catch(() => null);
+      } else if (typeof this.fxRateService.getEffectiveRate === 'function') {
+        rateObj = await this.fxRateService.getEffectiveRate('USD_DOP').catch(() => null);
+      }
+    }
+    if (!rateObj && requiresPayment) {
+      const err = new Error('No hay una tasa de cambio USD → DOP válida configurada.');
+      err.code = 'FX_RATE_NOT_CONFIGURED';
+      err.statusCode = 409;
+      throw err;
+    }
+
+    const rateVal = (typeof rateObj === 'object' && rateObj !== null)
+      ? (rateObj.rateFormatted ?? rateObj.rate_numeric ?? rateObj.rate)
+      : rateObj;
+    const parsedRate = rateVal ? parseAndScaleRate(rateVal) : { rateNumber: 1, rateStr: '1.0000', rateScaledBigInt: 10000n };
+    const totalDopMinor = convertUsdMinorToDopMinor(proratedAddonUsdMinor, parsedRate.rateScaledBigInt);
+    const remainingDays = Math.ceil(Number(remainingMs) / (1000 * 60 * 60 * 24));
+    const isProrated = remainingMs < totalDurationMs;
+
+    const fxSnapshot = rateObj ? {
+      pair: rateObj.pair || 'USD_DOP',
+      rate: parsedRate.rateNumber,
+      rate_formatted: parsedRate.rateStr,
+      rate_scaled_10000: parsedRate.rateScaledBigInt.toString(),
+      rate_id: rateObj.id ?? null,
+      snapshot_at: new Date().toISOString(),
+      usd: {
+        currency: 'USD',
+        addon_minor: proratedAddonUsdMinor.toString(),
+        subtotal_minor: proratedAddonUsdMinor.toString(),
+        tax_minor: '0',
+        total_minor: proratedAddonUsdMinor.toString(),
+      },
+      dop: {
+        currency: 'DOP',
+        addon_minor: totalDopMinor.toString(),
+        subtotal_minor: totalDopMinor.toString(),
+        tax_minor: '0',
+        total_minor: totalDopMinor.toString(),
+      },
+    } : null;
+
+    return {
+      addonCode: SAAS_ADDONS.MEMBERSHIPS,
+      billingUnit: 'per_block_up_to_3_branches',
+      branchesPerBlock,
+      blockMonthlyUsd,
+      licensedBranches,
+      selectedBranchIds: cleanedIds,
+      selectedBranches: cleanedIds.map((id) => ({ id, name: branchMap.get(id)?.name || id })),
+      selectedBranchesCount: cleanedIds.length,
+      currentAcquiredBlocks,
+      currentAcquiredCapacity,
+      currentUsedCapacity: currentEnabledBranchIds.length,
+      currentAvailableCapacity: Math.max(0, currentAcquiredCapacity - currentEnabledBranchIds.length),
+      requiredBlocks,
+      targetBranchCapacity,
+      additionalBlocksToBuy,
+      newAcquiredBlocks,
+      newAcquiredCapacity,
+      newUsedCapacity: cleanedIds.length,
+      newAvailableCapacity: availableCapacityAfter,
+      requiresPayment,
+      withinAcquiredCapacity: !requiresPayment,
+      currentAddonMonthlyUsd: currentAcquiredBlocks * blockMonthlyUsd,
+      newAddonMonthlyUsd: newAcquiredBlocks * blockMonthlyUsd,
+      additionalMonthlyUsd: additionalBlocksToBuy * blockMonthlyUsd,
+      remainingDays,
+      isProrated,
+      periodStart: periodStart.toISOString(),
+      periodEnd: periodEnd.toISOString(),
+      subtotalUsdMinor: proratedAddonUsdMinor.toString(),
+      taxUsdMinor: '0',
+      totalUsdMinor: proratedAddonUsdMinor.toString(),
+      subtotalDopMinor: totalDopMinor.toString(),
+      taxDopMinor: '0',
+      totalDopMinor: totalDopMinor.toString(),
+      setupFeeQuotedSeparately: true,
+      fxSnapshot,
+      fxRate: rateObj ? {
+        pair: rateObj.pair || 'USD_DOP',
+        rate: parsedRate.rateNumber,
+        rateFormatted: parsedRate.rateStr,
+      } : null,
+    };
+  }
+
+  /**
+   * Contrata o actualiza el alcance de sucursales del add-on Membresías por bloques de hasta 3 sucursales.
+   * - Si las sucursales seleccionadas caben dentro de la capacidad ya adquirida (additionalBlocksToBuy === 0),
+   *   actualiza la asignación de sucursales sin generar ningún cobro adicional.
+   * - Si requiere bloques adicionales, crea la orden con snapshot y ejecuta el pago con tarjeta guardada o CardNet checkout.
+   */
+  async contractMembershipsAddonBlocks({
+    tenantId,
+    branchIds = [],
+    paymentMethodChoice = 'saved_card',
+    actorUserId = null,
+    clientIp = null,
+    returnBaseUrl = null,
+  }) {
+    const quote = await this.calculateProratedAddonBlocksQuote({ tenantId, branchIds });
+
+    if (!quote.requiresPayment) {
+      if (this.entitlementsService) {
+        await this.entitlementsService.setAddonStatus(tenantId, SAAS_ADDONS.MEMBERSHIPS, {
+          enabled: true,
+          source: 'commercial_addon',
+          reason: `Asignación de sucursales actualizada dentro de capacidad contratada (${quote.newUsedCapacity}/${quote.newAcquiredCapacity} sucursales, ${quote.newAcquiredBlocks} bloque(s))`,
+          actorId: actorUserId || 'owner',
+          branchIds: quote.selectedBranchIds,
+          acquiredBlocks: quote.newAcquiredBlocks,
+        });
+      }
+      return {
+        success: true,
+        activated: true,
+        paid: false,
+        charged: false,
+        withinAcquiredCapacity: true,
+        quote,
+        message: `Sucursales habilitadas actualizadas (${quote.newUsedCapacity} de ${quote.newAcquiredCapacity} disponibles en tus ${quote.newAcquiredBlocks} bloque(s) contratado(s)) sin cargo adicional.`,
+      };
+    }
+
+    const orderId = crypto.randomUUID();
+    const orderNumber = generateOrderNumber();
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    const metadata = {
+      type: 'addon_memberships_blocks',
+      addon_code: SAAS_ADDONS.MEMBERSHIPS,
+      selected_branch_ids: quote.selectedBranchIds,
+      selected_branches: quote.selectedBranches,
+      previous_acquired_blocks: quote.currentAcquiredBlocks,
+      additional_blocks_to_buy: quote.additionalBlocksToBuy,
+      new_acquired_blocks: quote.newAcquiredBlocks,
+      new_acquired_capacity: quote.newAcquiredCapacity,
+      block_monthly_usd: quote.blockMonthlyUsd,
+      new_addon_monthly_usd: quote.newAddonMonthlyUsd,
+      fx_snapshot: quote.fxSnapshot,
+      proration: {
+        remainingDays: quote.remainingDays,
+        isProrated: quote.isProrated,
+        periodStart: quote.periodStart,
+        periodEnd: quote.periodEnd,
+      },
+    };
+
+    const [rows] = await this.pool.query(
+      `INSERT INTO saas_checkout_orders (
+         id, tenant_id, order_number, status, currency, subtotal_minor, tax_minor, total_minor,
+         plan_code, billing_cycle, branches_count, extra_users_count, memberships_addon_enabled,
+         addon_branches_count, addon_blocks_count, addon_branch_ids,
+         created_by_user_id, source, expires_at, metadata
+       )
+       VALUES (?, ?, ?, ?, 'DOP', ?, 0, ?, ?, 'monthly', ?, 0, TRUE, ?, ?, ?::jsonb, ?, 'addon_memberships', ?, ?::jsonb)
+       RETURNING *`,
+      [
+        orderId,
+        tenantId,
+        orderNumber,
+        ORDER_STATUS.PENDING_PAYMENT,
+        quote.totalDopMinor,
+        quote.totalDopMinor,
+        SAAS_PLANS.PRINCIPAL,
+        quote.licensedBranches,
+        quote.selectedBranchesCount,
+        quote.newAcquiredBlocks,
+        JSON.stringify(quote.selectedBranchIds),
+        actorUserId,
+        expiresAt.toISOString(),
+        JSON.stringify(metadata),
+      ]
+    );
+    const order = sanitizeOrderForClient(rows[0]);
+
+    if (paymentMethodChoice === 'saved_card') {
+      const payResult = await this.payAddBranchWithSavedMethod({
+        orderId: order.id,
+        tenantId,
+        actorUserId,
+        clientIp,
+      });
+      return {
+        success: true,
+        activated: payResult.activated,
+        paid: true,
+        charged: true,
+        withinAcquiredCapacity: false,
+        quote,
+        order: payResult.order,
+        message: `Add-on de Membresías contratado y activado (${quote.newAcquiredBlocks} bloque(s), capacidad hasta ${quote.newAcquiredCapacity} sucursales).`,
+      };
+    }
+
+    const checkoutResult = await this.initiateCardnetCheckout({
+      orderId: order.id,
+      tenantId,
+      clientIp,
+      returnBaseUrl,
+    });
+
+    return {
+      success: true,
+      needsCheckout: true,
+      requiresCheckout: true,
+      quote,
+      order,
+      checkout: checkoutResult.checkout || checkoutResult,
+    };
+  }
+
+  /**
+   * Cotiza asientos de usuarios adicionales (+US$30/mes por usuario adicional, prorrateado en el ciclo vigente).
+   */
+  async calculateProratedExtraSeatsQuote({ tenantId, additionalSeats = 1, fxRate = null, effectiveAt = new Date() }) {
+    if (!tenantId) throw new Error('tenantId es requerido');
+    const addedSeats = Math.max(1, Math.min(100, parseInt(additionalSeats, 10) || 1));
+
+    const [tenantRows] = await this.pool.query(
+      `SELECT COALESCE(licensed_branches, max_branches, 1) AS licensed_branches,
+              COALESCE(extra_user_seats, 0) AS extra_user_seats
+       FROM tenants WHERE id = ? LIMIT 1`,
+      [tenantId]
+    );
+    const licensedBranches = Math.max(1, Number(tenantRows?.[0]?.licensed_branches || 1));
+    const currentExtraSeats = Math.max(0, Number(tenantRows?.[0]?.extra_user_seats || 0));
+    const currentMaxUsers = (licensedBranches * 3) + currentExtraSeats;
+    const newExtraSeats = currentExtraSeats + addedSeats;
+    const newMaxUsers = (licensedBranches * 3) + newExtraSeats;
+
+    let periodStart = null;
+    let periodEnd = null;
+    const [subRows] = await this.pool.query(
+      `SELECT current_period_start, current_period_end FROM tenant_subscriptions WHERE tenant_id = ? LIMIT 1`,
+      [tenantId]
+    ).catch(() => [[]]);
+    if (subRows?.[0]?.current_period_start) periodStart = new Date(subRows[0].current_period_start);
+    if (subRows?.[0]?.current_period_end) periodEnd = new Date(subRows[0].current_period_end);
+
+    const now = new Date(effectiveAt);
+    if (!periodStart || !periodEnd || isNaN(periodStart.getTime()) || isNaN(periodEnd.getTime()) || periodEnd <= periodStart) {
+      periodStart = now;
+      periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    }
+    const totalDurationMs = BigInt(periodEnd.getTime() - periodStart.getTime());
+    let remainingMs = BigInt(Math.max(0, periodEnd.getTime() - now.getTime()));
+    if (remainingMs <= 0n || remainingMs > totalDurationMs) remainingMs = totalDurationMs;
+
+    const pricing = getConfiguredPricing();
+    const seatMonthlyUsd = Number(pricing?.principal?.extraUserUsd ?? 30);
+    const addedMonthlyUsdMinor = BigInt(Math.round(seatMonthlyUsd * 100)) * BigInt(addedSeats);
+    const proratedSeatsUsdMinor = totalDurationMs > 0n
+      ? (addedMonthlyUsdMinor * remainingMs + totalDurationMs - 1n) / totalDurationMs
+      : addedMonthlyUsdMinor;
+
+    let rateObj = fxRate;
+    if (!rateObj && this.fxRateService) {
+      rateObj = await this.fxRateService.requireCurrentRate('USD_DOP');
+    }
+    if (!rateObj) {
+      const err = new Error('No hay una tasa de cambio USD → DOP válida configurada.');
+      err.code = 'FX_RATE_NOT_CONFIGURED';
+      err.statusCode = 409;
+      throw err;
+    }
+    const rateVal = typeof rateObj === 'object' ? (rateObj.rateFormatted ?? rateObj.rate_numeric ?? rateObj.rate) : rateObj;
+    const parsedRate = parseAndScaleRate(rateVal);
+    const totalDopMinor = convertUsdMinorToDopMinor(proratedSeatsUsdMinor, parsedRate.rateScaledBigInt);
+    const remainingDays = Math.ceil(Number(remainingMs) / (1000 * 60 * 60 * 24));
+    const isProrated = remainingMs < totalDurationMs;
+
+    const fxSnapshot = {
+      pair: rateObj.pair || 'USD_DOP',
+      rate: parsedRate.rateNumber,
+      rate_formatted: parsedRate.rateStr,
+      rate_scaled_10000: parsedRate.rateScaledBigInt.toString(),
+      rate_id: rateObj.id ?? null,
+      snapshot_at: new Date().toISOString(),
+      usd: {
+        currency: 'USD',
+        extra_users_minor: proratedSeatsUsdMinor.toString(),
+        subtotal_minor: proratedSeatsUsdMinor.toString(),
+        tax_minor: '0',
+        total_minor: proratedSeatsUsdMinor.toString(),
+      },
+      dop: {
+        currency: 'DOP',
+        extra_users_minor: totalDopMinor.toString(),
+        subtotal_minor: totalDopMinor.toString(),
+        tax_minor: '0',
+        total_minor: totalDopMinor.toString(),
+      },
+    };
+
+    return {
+      licensedBranches,
+      currentExtraSeats,
+      additionalSeats: addedSeats,
+      newExtraSeats,
+      currentMaxUsers,
+      newMaxUsers,
+      seatMonthlyUsd,
+      additionalMonthlyUsd: addedSeats * seatMonthlyUsd,
+      remainingDays,
+      isProrated,
+      periodStart: periodStart.toISOString(),
+      periodEnd: periodEnd.toISOString(),
+      subtotalUsdMinor: proratedSeatsUsdMinor.toString(),
+      taxUsdMinor: '0',
+      totalUsdMinor: proratedSeatsUsdMinor.toString(),
+      subtotalDopMinor: totalDopMinor.toString(),
+      taxDopMinor: '0',
+      totalDopMinor: totalDopMinor.toString(),
+      fxSnapshot,
+      fxRate: {
+        pair: rateObj.pair || 'USD_DOP',
+        rate: parsedRate.rateNumber,
+        rateFormatted: parsedRate.rateStr,
+      },
+    };
+  }
+
+  async contractExtraSeats({
+    tenantId,
+    additionalSeats = 1,
+    paymentMethodChoice = 'saved_card',
+    actorUserId = null,
+    clientIp = null,
+    returnBaseUrl = null,
+  }) {
+    const quote = await this.calculateProratedExtraSeatsQuote({ tenantId, additionalSeats });
+    const orderId = crypto.randomUUID();
+    const orderNumber = generateOrderNumber();
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    const metadata = {
+      type: 'extra_user_seats',
+      additional_seats: quote.additionalSeats,
+      previous_extra_seats: quote.currentExtraSeats,
+      new_extra_seats: quote.newExtraSeats,
+      new_max_users: quote.newMaxUsers,
+      seat_monthly_usd: quote.seatMonthlyUsd,
+      fx_snapshot: quote.fxSnapshot,
+      proration: {
+        remainingDays: quote.remainingDays,
+        isProrated: quote.isProrated,
+        periodStart: quote.periodStart,
+        periodEnd: quote.periodEnd,
+      },
+    };
+
+    const [rows] = await this.pool.query(
+      `INSERT INTO saas_checkout_orders (
+         id, tenant_id, order_number, status, currency, subtotal_minor, tax_minor, total_minor,
+         plan_code, billing_cycle, branches_count, extra_users_count, memberships_addon_enabled,
+         created_by_user_id, source, expires_at, metadata
+       )
+       VALUES (?, ?, ?, ?, 'DOP', ?, 0, ?, ?, 'monthly', ?, ?, FALSE, ?, 'extra_seats', ?, ?::jsonb)
+       RETURNING *`,
+      [
+        orderId,
+        tenantId,
+        orderNumber,
+        ORDER_STATUS.PENDING_PAYMENT,
+        quote.totalDopMinor,
+        quote.totalDopMinor,
+        SAAS_PLANS.PRINCIPAL,
+        quote.licensedBranches,
+        quote.additionalSeats,
+        actorUserId,
+        expiresAt.toISOString(),
+        JSON.stringify(metadata),
+      ]
+    );
+    const order = sanitizeOrderForClient(rows[0]);
+
+    if (paymentMethodChoice === 'saved_card') {
+      const payResult = await this.payAddBranchWithSavedMethod({
+        orderId: order.id,
+        tenantId,
+        actorUserId,
+        clientIp,
+      });
+      return {
+        success: true,
+        activated: payResult.activated,
+        paid: true,
+        charged: true,
+        quote,
+        order: payResult.order,
+        message: `+${quote.additionalSeats} usuario(s) adicional(es) contratado(s) exitosamente (capacidad total: ${quote.newMaxUsers} usuarios).`,
+      };
+    }
+
+    const checkoutResult = await this.initiateCardnetCheckout({
+      orderId: order.id,
+      tenantId,
+      clientIp,
+      returnBaseUrl,
+    });
+
+    return {
+      success: true,
+      needsCheckout: true,
+      requiresCheckout: true,
+      quote,
+      order,
+      checkout: checkoutResult.checkout || checkoutResult,
     };
   }
 
@@ -1291,8 +1831,48 @@ class SaasCheckoutService {
 
       const meta = typeof order.metadata === 'object' && order.metadata ? order.metadata : {};
       const isAddBranch = meta.type === 'add_branch';
+      const isAddonBlocks = meta.type === 'addon_memberships_blocks';
+      const isExtraSeats = meta.type === 'extra_user_seats';
 
-      if (isAddBranch) {
+      if (isAddonBlocks) {
+        const selectedBranchIds = Array.isArray(meta.selected_branch_ids)
+          ? meta.selected_branch_ids
+          : (Array.isArray(order.addon_branch_ids) ? order.addon_branch_ids : []);
+        const newBlocks = Math.max(1, Number(meta.new_acquired_blocks || order.addon_blocks_count || 1));
+        if (this.entitlementsService) {
+          await this.entitlementsService.setAddonStatus(order.tenant_id, SAAS_ADDONS.MEMBERSHIPS, {
+            enabled: true,
+            source: 'commercial_addon',
+            reason: `Contratación Add-on Membresías (${newBlocks} bloque(s), hasta ${newBlocks * 3} sucursales · Orden ${order.order_number})`,
+            actorId: actorUserId || order.created_by_user_id || 'cardnet_checkout',
+            branchIds: selectedBranchIds,
+            acquiredBlocks: newBlocks,
+          });
+          if (typeof this.entitlementsService.invalidateTenantCache === 'function') {
+            this.entitlementsService.invalidateTenantCache(order.tenant_id);
+          }
+        }
+      } else if (isExtraSeats) {
+        const addedSeats = Math.max(1, Number(meta.additional_seats || order.extra_users_count || 1));
+        await this.pool.query(
+          `UPDATE tenants
+           SET extra_user_seats = COALESCE(extra_user_seats, 0) + ?,
+               max_users = (COALESCE(licensed_branches, max_branches, 1) * 3) + COALESCE(extra_user_seats, 0) + ?,
+               updated_at = NOW()
+           WHERE id = ?`,
+          [addedSeats, addedSeats, order.tenant_id]
+        );
+        await this.pool.query(
+          `UPDATE tenant_subscriptions
+           SET extra_users_count = COALESCE(extra_users_count, 0) + ?,
+               updated_at = NOW()
+           WHERE tenant_id = ?`,
+          [addedSeats, order.tenant_id]
+        ).catch(() => {});
+        if (this.entitlementsService && typeof this.entitlementsService.invalidateTenantCache === 'function') {
+          this.entitlementsService.invalidateTenantCache(order.tenant_id);
+        }
+      } else if (isAddBranch) {
         // A1. Activar la sucursal creada o pendiente en branches y salons
         if (meta.branch_id) {
           await this.pool.query(
@@ -1550,7 +2130,16 @@ class SaasCheckoutService {
       const fx = meta.fx_snapshot || null;
 
       let itemDesc = '';
-      if (meta.type === 'add_branch') {
+      if (meta.type === 'addon_memberships_blocks') {
+        const addedBlocks = Number(meta.additional_blocks_to_buy || 1);
+        const totalBlocks = Number(meta.new_acquired_blocks || addedBlocks);
+        const prorationText = meta.proration?.isProrated ? ` (Prorrateo ${meta.proration.remainingDays} días)` : '';
+        itemDesc = `Add-on Suscripciones y Membresías B2C (+${addedBlocks} ${addedBlocks === 1 ? 'bloque' : 'bloques'} · capacidad total hasta ${totalBlocks * 3} sucursales)${prorationText} · Orden #${order.order_number}${fx?.rate_formatted ? ` (Tasa ${fx.rate_formatted})` : ''}`;
+      } else if (meta.type === 'extra_user_seats') {
+        const addedSeats = Number(meta.additional_seats || order.extra_users_count || 1);
+        const prorationText = meta.proration?.isProrated ? ` (Prorrateo ${meta.proration.remainingDays} días)` : '';
+        itemDesc = `Usuarios adicionales (+${addedSeats} ${addedSeats === 1 ? 'asiento' : 'asientos'})${prorationText} · Orden #${order.order_number}${fx?.rate_formatted ? ` (Tasa ${fx.rate_formatted})` : ''}`;
+      } else if (meta.type === 'add_branch') {
         const branchName = meta.branch_data?.name || 'Sucursal adicional';
         const addonText = meta.wants_memberships_addon ? ' + Add-on Membresías B2C' : '';
         const prorationText = meta.proration?.isProrated ? ` (Prorrateo ${meta.proration.remainingDays} días)` : '';

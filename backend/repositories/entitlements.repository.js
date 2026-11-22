@@ -36,36 +36,73 @@ class EntitlementsRepository {
 
   async upsertOverride(tenantId, overrideData, conn = null) {
     if (!tenantId) throw new Error('tenant_id es requerido para upsert de override');
-    const { feature_key, is_enabled, reason, actor_id, expires_at, enabled_branch_ids = null } = overrideData;
+    const {
+      feature_key,
+      is_enabled,
+      reason,
+      actor_id,
+      expires_at,
+      enabled_branch_ids = null,
+      acquired_blocks = null,
+      acquired_branch_capacity = null,
+    } = overrideData;
     if (!feature_key) throw new Error('feature_key es requerido');
 
     const serializedBranches = Array.isArray(enabled_branch_ids)
       ? JSON.stringify([...new Set(enabled_branch_ids.map(String))])
       : null;
 
-    const params = [tenantId, feature_key, Boolean(is_enabled), reason || 'Override administrativo', actor_id || 'system', expires_at || null, serializedBranches];
+    const branchCount = Array.isArray(enabled_branch_ids) ? new Set(enabled_branch_ids.map(String)).size : 0;
+    const computedBlocks = acquired_blocks !== null && acquired_blocks !== undefined
+      ? Math.max(0, Number(acquired_blocks) || 0)
+      : (is_enabled ? Math.max(1, Math.ceil(Math.max(1, branchCount) / 3)) : 0);
+    const computedCapacity = acquired_branch_capacity !== null && acquired_branch_capacity !== undefined
+      ? Math.max(0, Number(acquired_branch_capacity) || 0)
+      : (computedBlocks * 3);
+
+    const params = [
+      tenantId,
+      feature_key,
+      Boolean(is_enabled),
+      reason || 'Override administrativo',
+      actor_id || 'system',
+      expires_at || null,
+      serializedBranches,
+      computedBlocks,
+      computedCapacity,
+    ];
     if (conn && typeof conn.release === 'function') {
       await conn.query(`
-        INSERT INTO tenant_feature_overrides (tenant_id, feature_key, is_enabled, reason, actor_id, expires_at, enabled_branch_ids, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW(), NOW())
+        INSERT INTO tenant_feature_overrides (
+          tenant_id, feature_key, is_enabled, reason, actor_id, expires_at,
+          enabled_branch_ids, acquired_blocks, acquired_branch_capacity, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, NOW(), NOW())
         ON CONFLICT (tenant_id, feature_key) DO UPDATE SET
           is_enabled = EXCLUDED.is_enabled,
           reason = EXCLUDED.reason,
           actor_id = EXCLUDED.actor_id,
           expires_at = EXCLUDED.expires_at,
           enabled_branch_ids = EXCLUDED.enabled_branch_ids,
+          acquired_blocks = GREATEST(COALESCE(tenant_feature_overrides.acquired_blocks, 0), EXCLUDED.acquired_blocks),
+          acquired_branch_capacity = GREATEST(COALESCE(tenant_feature_overrides.acquired_branch_capacity, 0), EXCLUDED.acquired_branch_capacity),
           updated_at = NOW()
       `, params);
     } else if (this.pool) {
       await this.pool.query(`
-        INSERT INTO tenant_feature_overrides (tenant_id, feature_key, is_enabled, reason, actor_id, expires_at, enabled_branch_ids, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, NOW(), NOW())
+        INSERT INTO tenant_feature_overrides (
+          tenant_id, feature_key, is_enabled, reason, actor_id, expires_at,
+          enabled_branch_ids, acquired_blocks, acquired_branch_capacity, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, NOW(), NOW())
         ON CONFLICT (tenant_id, feature_key) DO UPDATE SET
           is_enabled = EXCLUDED.is_enabled,
           reason = EXCLUDED.reason,
           actor_id = EXCLUDED.actor_id,
           expires_at = EXCLUDED.expires_at,
           enabled_branch_ids = EXCLUDED.enabled_branch_ids,
+          acquired_blocks = GREATEST(COALESCE(tenant_feature_overrides.acquired_blocks, 0), EXCLUDED.acquired_blocks),
+          acquired_branch_capacity = GREATEST(COALESCE(tenant_feature_overrides.acquired_branch_capacity, 0), EXCLUDED.acquired_branch_capacity),
           updated_at = NOW()
       `, params);
     }
@@ -77,7 +114,9 @@ class EntitlementsRepository {
       reason,
       actor_id,
       expires_at,
-      enabled_branch_ids: Array.isArray(enabled_branch_ids) ? [...new Set(enabled_branch_ids.map(String))] : null
+      enabled_branch_ids: Array.isArray(enabled_branch_ids) ? [...new Set(enabled_branch_ids.map(String))] : null,
+      acquired_blocks: computedBlocks,
+      acquired_branch_capacity: computedCapacity,
     };
   }
 

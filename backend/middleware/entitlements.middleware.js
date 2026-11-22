@@ -28,7 +28,7 @@ function createEntitlementsMiddleware(entitlementsService) {
         }
 
         const targetBranchId = featureKey === 'memberships'
-          ? (req.body?.branch_id || req.body?.branchId || req.query?.branch_id || req.query?.branchId || req.headers?.['x-branch-id'] || req.auth?.branchId || req.user?.branch_id || null)
+          ? (req.body?.branch_id || req.body?.branchId || req.body?.salon_id || req.body?.salonId || req.query?.branch_id || req.query?.branchId || req.query?.salon_id || req.query?.salonId || req.headers?.['x-branch-id'] || req.auth?.branchId || req.user?.branch_id || null)
           : null;
 
         const check = await entitlementsService.hasFeature(tenantId, featureKey, {

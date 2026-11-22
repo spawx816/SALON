@@ -60,8 +60,14 @@ export default function SecurityModule() {
   const [editingRole, setEditingRole] = useState(null);
   const [roleForm, setRoleForm] = useState({
     nombre: '',
+    description: '',
+    template_key: '',
     permisos: {}
   });
+  const [roleTemplates, setRoleTemplates] = useState([]);
+  const [installingTemplates, setInstallingTemplates] = useState(false);
+  const [restorePreview, setRestorePreview] = useState(null);
+  const [restoringTemplate, setRestoringTemplate] = useState(false);
 
   // Live Monitoring State (Sessions & Audit)
   const [activeSessions, setActiveSessions] = useState([]);
@@ -124,6 +130,9 @@ export default function SecurityModule() {
       setStaffList(staffRes || []);
       if (catalogRes?.modules?.length) {
         setCatalogModules(catalogRes.modules);
+      }
+      if (Array.isArray(catalogRes?.templates)) {
+        setRoleTemplates(catalogRes.templates);
       }
       if (catalogRes && typeof catalogRes.canManageRoles === 'boolean') {
         setCanManageRoles(catalogRes.canManageRoles);
@@ -307,16 +316,59 @@ export default function SecurityModule() {
       await dataService.saveRole({
         id: editingRole ? editingRole.id : undefined,
         nombre: cleanName,
+        description: roleForm.description || '',
+        template_key: !editingRole && roleForm.template_key ? roleForm.template_key : undefined,
         permisos: roleForm.permisos
       });
       setShowRoleModal(false);
       setEditingRole(null);
       setRoleDirty(false);
-      setRoleForm({ nombre: '', permisos: {} });
+      setRoleForm({ nombre: '', description: '', template_key: '', permisos: {} });
       await loadAllSecurityData();
       alert(editingRole ? 'Rol actualizado exitosamente' : 'Rol creado exitosamente');
     } catch (err) {
       setRoleSaveError(err.message || 'Error al guardar rol.');
+    }
+  };
+
+  const handleInstallPredefinedRoles = async () => {
+    setInstallingTemplates(true);
+    try {
+      const res = await dataService.installRoleTemplates();
+      await loadAllSecurityData();
+      if (res.installedCount > 0) {
+        alert(`Se agregaron ${res.installedCount} rol(es) predefinido(s) faltante(s). Los roles existentes o personalizados no fueron modificados.`);
+      } else {
+        alert('Todos los roles predefinidos ya están instalados en esta empresa.');
+      }
+    } catch (err) {
+      alert('No se pudieron instalar los roles predefinidos: ' + err.message);
+    } finally {
+      setInstallingTemplates(false);
+    }
+  };
+
+  const handleOpenRestorePreview = async (role) => {
+    try {
+      const preview = await dataService.getRoleRestorePreview(role.id);
+      setRestorePreview(preview);
+    } catch (err) {
+      alert('No se pudo cargar la vista previa de restauración: ' + err.message);
+    }
+  };
+
+  const handleConfirmRestoreTemplate = async () => {
+    if (!restorePreview?.role?.id) return;
+    setRestoringTemplate(true);
+    try {
+      await dataService.restoreRoleTemplate(restorePreview.role.id);
+      setRestorePreview(null);
+      await loadAllSecurityData();
+      alert('Plantilla restaurada correctamente. Las sesiones activas de usuarios con este rol fueron actualizadas.');
+    } catch (err) {
+      alert('Error al restaurar plantilla: ' + err.message);
+    } finally {
+      setRestoringTemplate(false);
     }
   };
 
@@ -349,6 +401,16 @@ export default function SecurityModule() {
         for (const dep of permObj.dependsOn) {
           if (canDelegatePermKey(dep)) {
             nextPerms[dep] = true;
+          }
+        }
+      }
+      // Si se deshabilita un permiso de consulta, deshabilitar los permisos que dependen de él
+      if (!nextValue) {
+        for (const mod of catalogModules) {
+          for (const candidate of (mod.permissions || [])) {
+            if (Array.isArray(candidate.dependsOn) && candidate.dependsOn.includes(permKey)) {
+              nextPerms[candidate.key] = false;
+            }
           }
         }
       }
@@ -386,6 +448,8 @@ export default function SecurityModule() {
     }
     setRoleForm({
       nombre: r.nombre || '',
+      description: r.descripcion || r.description || '',
+      template_key: r.template_key || '',
       permisos: perms
     });
     setShowRoleModal(true);
@@ -950,30 +1014,53 @@ export default function SecurityModule() {
               </p>
             </div>
             {canManageRoles && (
-              <button
-                onClick={() => {
-                  setEditingRole(null);
-                  setRoleSaveError('');
-                  setRoleDirty(false);
-                  setRoleForm({ nombre: '', permisos: {} });
-                  setShowRoleModal(true);
-                }}
-                style={{
-                  background: '#0f172a',
-                  color: '#ffffff',
-                  border: 'none',
-                  padding: '0.75rem 1.5rem',
-                  borderRadius: '12px',
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  cursor: 'pointer'
-                }}
-              >
-                <Key size={18} color="#d4af37" />
-                <span>Crear Nuevo Rol</span>
-              </button>
+              <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={handleInstallPredefinedRoles}
+                  disabled={installingTemplates}
+                  style={{
+                    background: '#f8fafc',
+                    color: '#0f172a',
+                    border: '1px solid #cbd5e1',
+                    padding: '0.75rem 1.25rem',
+                    borderRadius: '12px',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    cursor: installingTemplates ? 'wait' : 'pointer'
+                  }}
+                >
+                  <ShieldCheck size={18} color="#059669" />
+                  <span>{installingTemplates ? 'Instalando...' : 'Agregar roles predefinidos'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingRole(null);
+                    setRoleSaveError('');
+                    setRoleDirty(false);
+                    setRoleForm({ nombre: '', description: '', template_key: '', permisos: {} });
+                    setShowRoleModal(true);
+                  }}
+                  style={{
+                    background: '#0f172a',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '0.75rem 1.5rem',
+                    borderRadius: '12px',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Key size={18} color="#d4af37" />
+                  <span>Crear Nuevo Rol</span>
+                </button>
+              </div>
             )}
           </div>
 
@@ -999,7 +1086,7 @@ export default function SecurityModule() {
                   justifyContent: 'space-between'
                 }}>
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <span style={{
                         background: 'rgba(15, 23, 42, 0.06)',
                         color: '#0f172a',
@@ -1014,6 +1101,19 @@ export default function SecurityModule() {
                         {activeCount} permisos activos
                       </span>
                     </div>
+
+                    {r.template_key && (
+                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: '999px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}>
+                          Plantilla predefinida
+                        </span>
+                        {r.is_customized && (
+                          <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: '999px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                            Personalizado
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '1.5rem' }}>
                       {Object.keys(perms).map(k => perms[k] && (
@@ -1057,6 +1157,29 @@ export default function SecurityModule() {
                       <Sliders size={15} color="#d4af37" />
                       <span>Configurar Permisos</span>
                     </button>
+                    {canManageRoles && r.template_key && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenRestorePreview(r)}
+                        title="Restaurar permisos originales de la plantilla"
+                        style={{
+                          background: '#eff6ff',
+                          color: '#1d4ed8',
+                          border: '1px solid #bfdbfe',
+                          padding: '0.65rem 0.75rem',
+                          borderRadius: '8px',
+                          fontWeight: 700,
+                          fontSize: '0.78rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.3rem'
+                        }}
+                      >
+                        <RefreshCw size={14} />
+                        <span>Restaurar plantilla</span>
+                      </button>
+                    )}
                     {canManageRoles && (
                       <button
                         type="button"
@@ -1915,6 +2038,46 @@ export default function SecurityModule() {
             )}
 
             <form onSubmit={handleSaveRole}>
+              {!editingRole && roleTemplates.length > 0 && (
+                <div style={{ marginBottom: '1.25rem', background: '#f8fafc', padding: '0.9rem 1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <label style={{ display: 'block', fontWeight: 700, color: '#1e293b', marginBottom: '0.35rem', fontSize: '0.85rem' }}>
+                    Comenzar desde una plantilla predefinida (opcional)
+                  </label>
+                  <select
+                    value={roleForm.template_key || ''}
+                    onChange={(e) => {
+                      const key = e.target.value;
+                      setRoleDirty(true);
+                      setRoleSaveError('');
+                      if (!key) {
+                        setRoleForm(prev => ({ ...prev, template_key: '' }));
+                        return;
+                      }
+                      const tpl = roleTemplates.find(t => t.template_key === key);
+                      if (tpl) {
+                        setRoleForm({
+                          nombre: tpl.nombre,
+                          description: tpl.description || '',
+                          template_key: tpl.template_key,
+                          permisos: { ...(tpl.permissions || {}) },
+                        });
+                      }
+                    }}
+                    style={{ width: '100%', padding: '0.65rem 0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 600 }}
+                  >
+                    <option value="">-- En blanco (seleccionar permisos manualmente) --</option>
+                    {roleTemplates.map((tpl) => (
+                      <option key={tpl.template_key} value={tpl.template_key}>
+                        {tpl.nombre} — {Object.keys(tpl.permissions || {}).length} permisos sugeridos
+                      </option>
+                    ))}
+                  </select>
+                  <p style={{ margin: '0.4rem 0 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+                    Puedes revisar, activar o desactivar cualquier permiso antes de guardar. Los roles predefinidos nunca otorgan acceso a gestión de seguridad ni facturación SaaS.
+                  </p>
+                </div>
+              )}
+
               <div style={{ marginBottom: '1.5rem' }}>
                 <label style={{ display: 'block', fontWeight: 700, color: '#334155', marginBottom: '0.35rem', fontSize: '0.85rem' }}>
                   Nombre del Rol
@@ -1958,9 +2121,14 @@ export default function SecurityModule() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   {catalogModules.map((mod, idx) => (
                     <div key={mod.module || idx} style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                      <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9rem', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9rem', marginBottom: mod.description ? '0.25rem' : '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         {mod.label}
                       </div>
+                      {mod.description && (
+                        <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.76rem', color: '#475569' }}>
+                          {mod.description}
+                        </p>
+                      )}
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.65rem' }}>
                         {(mod.permissions || []).map(p => {
                           const isChecked = Boolean(roleForm.permisos[p.key] || (p.legacyKey && roleForm.permisos[p.legacyKey]));
@@ -1996,14 +2164,19 @@ export default function SecurityModule() {
                                   <span style={{ fontSize: '0.68rem', padding: '1px 5px', borderRadius: '4px', background: '#e2e8f0', color: '#334155', fontWeight: 700 }}>
                                     {ACTION_LABELS[p.action] || p.action}
                                   </span>
+                                  {p.includedInPlan && (
+                                    <span style={{ fontSize: '0.68rem', padding: '1px 5px', borderRadius: '4px', background: '#ecfdf5', color: '#047857', fontWeight: 700 }}>
+                                      Incluido en {p.includedInPlan}
+                                    </span>
+                                  )}
                                   {p.requiresAddon && (
                                     <span style={{ fontSize: '0.68rem', padding: '1px 5px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>
-                                      Add-on: {p.requiresAddon}
+                                      Add-on: {p.requiresAddon === 'memberships' ? 'Suscripciones y Membresías' : p.requiresAddon}
                                     </span>
                                   )}
                                   {p.dependsOn?.length > 0 && (
                                     <span style={{ fontSize: '0.68rem', color: '#64748b' }}>
-                                      Requiere consulta
+                                      Requiere consulta previa
                                     </span>
                                   )}
                                 </div>
@@ -2043,6 +2216,83 @@ export default function SecurityModule() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIRMAR RESTAURACIÓN DE PLANTILLA */}
+      {restorePreview && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(15, 23, 42, 0.7)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1050, padding: '1rem'
+        }}>
+          <div style={{
+            background: '#ffffff', borderRadius: '20px', maxWidth: '580px', width: '100%',
+            padding: '1.75rem', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
+          }}>
+            <h3 style={{ margin: '0 0 0.5rem 0', fontWeight: 900, color: '#0f172a', fontSize: '1.2rem' }}>
+              Restaurar plantilla: {restorePreview.role?.nombre}
+            </h3>
+            <p style={{ margin: '0 0 1rem 0', color: '#475569', fontSize: '0.85rem' }}>
+              Se restaurarán los permisos de la plantilla canónica <strong>{restorePreview.template?.nombre}</strong> (v{restorePreview.template?.template_version || 1}).
+            </p>
+
+            {restorePreview.diff?.hasChanges ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                {restorePreview.diff.added?.length > 0 && (
+                  <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '10px', padding: '0.75rem' }}>
+                    <div style={{ fontWeight: 800, color: '#065f46', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
+                      + Permisos que se agregarán ({restorePreview.diff.added.length})
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                      {restorePreview.diff.added.map((k) => (
+                        <span key={k} style={{ fontSize: '0.72rem', fontWeight: 700, padding: '2px 6px', borderRadius: '6px', background: '#ffffff', color: '#047857' }}>
+                          {k}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {restorePreview.diff.removed?.length > 0 && (
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '0.75rem' }}>
+                    <div style={{ fontWeight: 800, color: '#991b1b', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
+                      - Permisos que se removerán ({restorePreview.diff.removed.length})
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                      {restorePreview.diff.removed.map((k) => (
+                        <span key={k} style={{ fontSize: '0.72rem', fontWeight: 700, padding: '2px 6px', borderRadius: '6px', background: '#ffffff', color: '#b91c1c' }}>
+                          {k}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '0.85rem', marginBottom: '1.25rem', fontSize: '0.84rem', color: '#475569' }}>
+                Este rol ya coincide exactamente con los permisos de su plantilla predefinida.
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={() => setRestorePreview(null)}
+                style={{ padding: '0.65rem 1.2rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={restoringTemplate}
+                onClick={handleConfirmRestoreTemplate}
+                style={{ padding: '0.65rem 1.35rem', borderRadius: '10px', border: 'none', background: '#0f172a', color: '#ffffff', fontWeight: 700, cursor: 'pointer' }}
+              >
+                {restoringTemplate ? 'Restaurando...' : 'Confirmar restauración'}
+              </button>
+            </div>
           </div>
         </div>
       )}

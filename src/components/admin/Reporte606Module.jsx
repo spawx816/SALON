@@ -8,9 +8,15 @@ import {
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useNotification } from '../../context/NotificationContext';
+import { useAuth } from '../../context/AuthContext';
+import { hasUiPermission } from '../../utils/rbacCatalog';
 
 export default function Reporte606Module() {
   const { showNotification } = useNotification();
+  const { user } = useAuth();
+  const canManage606 = hasUiPermission(user, 'accounting.purchases_606.manage');
+  const canVoid606 = hasUiPermission(user, 'accounting.expenses.void');
+  const canExportAccounting = hasUiPermission(user, 'accounting.export');
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('facturas'); // 'facturas' | 'archivos'
   const [showMoreOptions, setShowMoreOptions] = useState(false);
@@ -1154,44 +1160,48 @@ export default function Reporte606Module() {
                                 padding: '0.35rem',
                                 textAlign: 'left'
                               }}>
-                                <button
-                                  type="button"
-                                  onClick={() => handleEdit(r)}
-                                  style={{
-                                    width: '100%',
-                                    background: 'none',
-                                    border: 'none',
-                                    padding: '0.5rem 0.75rem',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.5rem',
-                                    fontSize: '0.8rem',
-                                    fontWeight: 700,
-                                    color: '#0f172a',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  <Edit3 size={14} /> Editar
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDelete(r.id)}
-                                  style={{
-                                    width: '100%',
-                                    background: 'none',
-                                    border: 'none',
-                                    padding: '0.5rem 0.75rem',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.5rem',
-                                    fontSize: '0.8rem',
-                                    fontWeight: 700,
-                                    color: '#dc2626',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  <Trash2 size={14} /> Eliminar
-                                </button>
+                                {canManage606 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEdit(r)}
+                                    style={{
+                                      width: '100%',
+                                      background: 'none',
+                                      border: 'none',
+                                      padding: '0.5rem 0.75rem',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.5rem',
+                                      fontSize: '0.8rem',
+                                      fontWeight: 700,
+                                      color: '#0f172a',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    <Edit3 size={14} /> Editar
+                                  </button>
+                                )}
+                                {canVoid606 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDelete(r.id)}
+                                    style={{
+                                      width: '100%',
+                                      background: 'none',
+                                      border: 'none',
+                                      padding: '0.5rem 0.75rem',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.5rem',
+                                      fontSize: '0.8rem',
+                                      fontWeight: 700,
+                                      color: '#dc2626',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    <Trash2 size={14} /> Eliminar
+                                  </button>
+                                )}
                               </div>
                             )}
                           </td>
@@ -1225,25 +1235,27 @@ export default function Reporte606Module() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <button
-                  type="button"
-                  onClick={handleExportExcel}
-                  style={{
-                    background: '#ffffff',
-                    border: '1px solid #cbd5e1',
-                    padding: '0.55rem 1rem',
-                    borderRadius: '10px',
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
-                    color: '#334155',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem'
-                  }}
-                >
-                  <FileSpreadsheet size={15} color="#16a34a" /> Excel 606
-                </button>
+                {canExportAccounting && (
+                  <button
+                    type="button"
+                    onClick={handleExportExcel}
+                    style={{
+                      background: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      padding: '0.55rem 1rem',
+                      borderRadius: '10px',
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      color: '#334155',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem'
+                    }}
+                  >
+                    <FileSpreadsheet size={15} color="#16a34a" /> Excel 606
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -1266,26 +1278,28 @@ export default function Reporte606Module() {
                   <ShieldCheck size={15} color="#0284c7" /> {isValidating ? 'Validando...' : 'Validar'}
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handleDownloadTxt}
-                  disabled={reportData.records.length === 0}
-                  style={{
-                    background: reportData.records.length > 0 ? '#0f172a' : '#e2e8f0',
-                    border: 'none',
-                    padding: '0.55rem 1.25rem',
-                    borderRadius: '10px',
-                    fontSize: '0.82rem',
-                    fontWeight: 800,
-                    color: reportData.records.length > 0 ? '#ffffff' : '#94a3b8',
-                    cursor: reportData.records.length > 0 ? 'pointer' : 'not-allowed',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem'
-                  }}
-                >
-                  <Download size={14} /> Generar TXT 606
-                </button>
+                {canExportAccounting && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadTxt}
+                    disabled={reportData.records.length === 0}
+                    style={{
+                      background: reportData.records.length > 0 ? '#0f172a' : '#e2e8f0',
+                      border: 'none',
+                      padding: '0.55rem 1.25rem',
+                      borderRadius: '10px',
+                      fontSize: '0.82rem',
+                      fontWeight: 800,
+                      color: reportData.records.length > 0 ? '#ffffff' : '#94a3b8',
+                      cursor: reportData.records.length > 0 ? 'pointer' : 'not-allowed',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem'
+                    }}
+                  >
+                    <Download size={14} /> Generar TXT 606
+                  </button>
+                )}
               </div>
             </div>
 

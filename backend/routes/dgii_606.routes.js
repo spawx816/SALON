@@ -1,4 +1,5 @@
 const express = require('express');
+const { requirePermission } = require('../middleware/rbac.middleware');
 
 /**
  * DGII 606 Purchases & Expenses Report Router (Scoped strictly by tenant_id)
@@ -7,7 +8,7 @@ function createDgii606Router(pool) {
   const router = express.Router();
 
   // 1. GET /api/dgii/report-606 - List 606 purchases for the authenticated tenant
-  router.get('/', async (req, res) => {
+  router.get('/', requirePermission('accounting.view'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const targetPeriod = req.query.periodo || req.query.period || '';
@@ -69,8 +70,51 @@ function createDgii606Router(pool) {
     }
   });
 
+  // 1b. GET /api/dgii/report-606/txt - Exportar TXT oficial 606 (requiere accounting.export)
+  router.get('/txt', requirePermission('accounting.export'), async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const targetPeriod = String(req.query.periodo || req.query.period || '').trim();
+      let query = 'SELECT * FROM dgii_606_purchases WHERE tenant_id = ?';
+      const params = [tenantId];
+      if (targetPeriod && /^\d{6}$/.test(targetPeriod)) {
+        const y = targetPeriod.slice(0, 4);
+        const m = targetPeriod.slice(4, 6);
+        query += ' AND (periodo = ? OR (LEFT(fecha_factura, 4) = ? AND SUBSTRING(fecha_factura, 6, 2) = ?))';
+        params.push(targetPeriod, y, m);
+      }
+      query += ' ORDER BY fecha_factura ASC, id ASC';
+      const [rows] = await pool.query(query, params);
+      const [tRows] = await pool.query('SELECT rnc FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
+      const rnc = String(tRows?.[0]?.rnc || '').replace(/\D/g, '');
+      const header = `606|${rnc}|${targetPeriod}|${(rows || []).length}`;
+      const lines = (rows || []).map((r) => [
+        String(r.rnc_cedula || '').replace(/\D/g, ''),
+        r.tipo_id || 1,
+        r.tipo_bienes_servicios || '02',
+        r.ncf || '',
+        r.ncf_modificado || '',
+        String(r.fecha_factura || '').replace(/-/g, ''),
+        String(r.fecha_pago || r.fecha_factura || '').replace(/-/g, ''),
+        Number(r.monto_servicios || 0).toFixed(2),
+        Number(r.monto_bienes || 0).toFixed(2),
+        Number(r.total_facturado || 0).toFixed(2),
+        Number(r.itbis_facturado || 0).toFixed(2),
+        Number(r.itbis_retenido || 0).toFixed(2),
+        Number(r.isr_retenido || 0).toFixed(2),
+        Number(r.propina_legal || 0).toFixed(2),
+        r.forma_pago || '02',
+      ].join('|'));
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="DGII_F_606_${rnc || 'EMPRESA'}_${targetPeriod || 'PERIODO'}.txt"`);
+      return res.send([header, ...lines].join('\r\n'));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 2. POST /api/dgii/report-606 - Record a new 606 fiscal purchase within the authenticated tenant
-  router.post('/', async (req, res) => {
+  router.post('/', requirePermission('accounting.purchases_606.manage'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const {
@@ -151,7 +195,7 @@ function createDgii606Router(pool) {
   });
 
   // 3. PUT /api/dgii/report-606/:id - Update 606 record within the authenticated tenant
-  router.put('/:id', async (req, res) => {
+  router.put('/:id', requirePermission('accounting.purchases_606.manage'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
@@ -215,7 +259,7 @@ function createDgii606Router(pool) {
   });
 
   // 4. DELETE /api/dgii-606/:id - Delete 606 record within the authenticated tenant
-  router.delete('/:id', async (req, res) => {
+  router.delete('/:id', requirePermission('accounting.expenses.void'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;

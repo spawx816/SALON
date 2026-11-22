@@ -50,156 +50,451 @@ function createVisitsRouter(pool, helpers = {}) {
   };
 
   // Helper: Batch calculate and persist employee commissions for visits (O(1) database queries, no N+1)
+  // Categoría -> Esquema/Regla -> Empleado -> Línea vendida -> Factura -> Comisión/Descuento persistido
   const processBatchVisitCommissions = async (visits, tenantId, dbConn = null) => {
     const db = dbConn || pool;
     try {
       if (!Array.isArray(visits) || visits.length === 0 || !tenantId) return { processed: 0, items: 0 };
       const resolvedTenantId = tenantId;
 
+      const isInvalidEmployeeName = (n) => {
+        if (!n) return true;
+        const clean = String(n).trim().toLowerCase();
+        return ['', 'no asignada', 'no asignado', 'sin asignar', 'n/a', 'none', 'null', 'undefined'].includes(clean);
+      };
+
+      const rawVisitIds = visits.filter((v) => v && v.id).map((v) => String(v.id));
+      if (rawVisitIds.length === 0) return { processed: 0, items: 0 };
+
+      // 0. Proteger comisiones ya liquidadas/pagadas: nunca sobreescribir visitas con status 'Pagado'/'Pagada'
+      const phCheck = rawVisitIds.map(() => '?').join(', ');
+      const [paidRows] = await db.query(
+        `SELECT DISTINCT visit_id FROM employee_commissions_log
+         WHERE tenant_id = ? AND visit_id IN (${phCheck}) AND (status IN ('Pagado', 'Pagada') OR payout_id IS NOT NULL)`,
+        [resolvedTenantId, ...rawVisitIds]
+      ).catch(() => [[]]);
+      const lockedVisitIds = new Set((paidRows || []).map((r) => String(r.visit_id)));
+
       const preparedItems = [];
       const visitIds = [];
-      const distinctEmpIds = new Set();
-      const distinctEmpNames = new Set();
-      const distinctServiceNames = new Set();
 
       for (const v of visits) {
         if (!v || !v.id) continue;
-        visitIds.push(String(v.id));
+        const vid = String(v.id);
+        if (lockedVisitIds.has(vid)) continue;
+        visitIds.push(vid);
 
         let items = [];
         try {
           items = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : (v.items_detail || []);
         } catch (_) {
-          continue;
+          items = [];
         }
         if (!Array.isArray(items) || items.length === 0) continue;
 
-        for (const item of items) {
-          const empIdRaw = item.colaboradorId || item.employee_id || item.stylist_id;
-          const empNameRaw = item.colaboradorNombre || item.colaborador || item.employee_name;
-          if (!empIdRaw && !empNameRaw) continue;
-          if (empNameRaw === 'No asignada' || empNameRaw === 'Sin asignar') continue;
-
-          if (empIdRaw) {
-            distinctEmpIds.add(String(empIdRaw).replace('EMP-', '').trim());
+        // Calcular subtotal bruto y descuentos por línea para distribuir cualquier descuento global de la factura
+        let sumGross = 0;
+        let sumLineDiscounts = 0;
+        const normalizedLines = items.map((item) => {
+          const qty = Math.max(1, Number(item.cantidad ?? item.qty ?? item.quantity ?? 1) || 1);
+          const appliedUnit = Number(
+            item.precioAplicado !== undefined
+              ? item.precioAplicado
+              : (item.precio !== undefined ? item.precio : (item.price !== undefined ? item.price : (item.precioBase || 0)))
+          ) || 0;
+          const baseUnit = Number(item.precioBase !== undefined ? item.precioBase : appliedUnit) || appliedUnit;
+          const grossLine = Number((baseUnit * qty).toFixed(2));
+          let lineDisc = Number(item.descuento || 0);
+          if (lineDisc <= 0 && Number(item.descuentoPercent) > 0) {
+            lineDisc = Number((grossLine * (Number(item.descuentoPercent) / 100)).toFixed(2));
+          } else if (lineDisc <= 0 && appliedUnit < baseUnit) {
+            lineDisc = Number(((baseUnit - appliedUnit) * qty).toFixed(2));
           }
-          if (empNameRaw) {
-            distinctEmpNames.add(String(empNameRaw).trim().toLowerCase());
+          sumGross += grossLine;
+          sumLineDiscounts += lineDisc;
+          return { item, qty, baseUnit, appliedUnit, grossLine, lineDisc };
+        });
+
+        const visitTotalDiscount = Number(v.descuento || 0);
+        const extraGlobalDiscount = Math.max(0, Number((visitTotalDiscount - sumLineDiscounts).toFixed(2)));
+
+        for (const { item, qty, baseUnit, appliedUnit, grossLine, lineDisc } of normalizedLines) {
+          let empIdRaw = item.empleado_id ?? item.colaboradorId ?? item.employee_id ?? item.stylist_id ?? null;
+          let empNameRaw = item.empleado_nombre ?? item.empleado ?? item.colaboradorNombre ?? item.colaborador ?? item.employee_name ?? null;
+
+          // Si empleado_id contiene el nombre por legado y no es numérico, conservarlo como nombre también
+          if (!empNameRaw && empIdRaw && isNaN(Number(String(empIdRaw).replace('EMP-', '')))) {
+            empNameRaw = String(empIdRaw);
           }
 
-          const serviceName = item.nombre || item.service_name || 'Servicio';
-          distinctServiceNames.add(serviceName.trim().toLowerCase());
+          // Fallback a empleado_peluquera de la visita cuando la línea no especificó colaborador individual
+          if ((!empIdRaw || String(empIdRaw).trim() === '') && isInvalidEmployeeName(empNameRaw)) {
+            if (!isInvalidEmployeeName(v.empleado_peluquera)) {
+              empNameRaw = String(v.empleado_peluquera).trim();
+            }
+          }
+
+          const cleanEmpId = empIdRaw ? String(empIdRaw).replace('EMP-', '').trim() : '';
+          const cleanEmpName = !isInvalidEmployeeName(empNameRaw) ? String(empNameRaw).trim() : '';
+          if (!cleanEmpId && !cleanEmpName) continue;
+
+          const serviceName = String(item.nombre || item.service_name || item.servicio || item.name || 'Servicio').trim();
+          const serviceId = item.service_id || item.product_id || (typeof item.id === 'string' && item.id.length > 20 ? item.id : null);
+          const propGlobalDisc = sumGross > 0 && extraGlobalDiscount > 0
+            ? Number(((grossLine / sumGross) * extraGlobalDiscount).toFixed(2))
+            : 0;
+          const commercialDiscount = Number((lineDisc + propGlobalDisc).toFixed(2));
 
           preparedItems.push({
-            visitId: String(v.id),
-            ticketNumber: v.ticket_number || String(v.id),
+            visitId: vid,
+            ticketNumber: v.ticket_number || vid,
             visitedAt: v.visited_at || new Date(),
-            empIdRaw: empIdRaw ? String(empIdRaw).replace('EMP-', '').trim() : null,
-            empNameRaw: empNameRaw ? String(empNameRaw).trim() : null,
+            salonId: v.salon_id || null,
+            empIdRaw: cleanEmpId || null,
+            empNameRaw: cleanEmpName || null,
+            serviceId: serviceId ? String(serviceId) : null,
             serviceName,
-            isProductItem: String(item.tipo_item || item.item_type || '').toUpperCase() === 'PRODUCTO' || Boolean(item.is_product) || Boolean(item.product_id),
-            precioBase: Number(item.precioAplicado ?? item.precio ?? 0) * (Number(item.cantidad) || 1),
-            cantidad: Number(item.cantidad) || 1
+            itemCategory: item.categoria || item.category || null,
+            isPlanWash: Boolean(item.isPlanWash),
+            isProductItem:
+              String(item.tipo_item || item.item_type || '').toUpperCase() === 'PRODUCTO' ||
+              Boolean(item.is_product) ||
+              Boolean(item.product_id),
+            unitPrice: baseUnit > 0 ? baseUnit : appliedUnit,
+            grossLine,
+            commercialDiscount,
+            cantidad: qty,
+            aplicaItbis: item.aplica_itbis === 1 || item.aplica_itbis === true ? 1 : 0,
+            taxMode: item.tax_mode || 'exclusive'
           });
         }
       }
 
-      if (visitIds.length === 0 || preparedItems.length === 0) {
-        return { processed: visits.length, items: 0 };
+      if (visitIds.length === 0) {
+        return { processed: 0, items: 0 };
       }
 
-      // Query 1: Batch delete pending commissions for these visits in one query
+      // Query 1: Batch delete pending commissions for these unlocked visits
       const placeholders = visitIds.map(() => '?').join(', ');
       await db.query(
         `DELETE FROM employee_commissions_log WHERE tenant_id = ? AND status = 'Pendiente' AND visit_id IN (${placeholders})`,
         [resolvedTenantId, ...visitIds]
       );
 
-      // Query 2: Preload all matching staff records in ONE query
+      if (preparedItems.length === 0) {
+        return { processed: visitIds.length, items: 0 };
+      }
+
+      // Query 2: Preload all tenant staff_records, services, commission_categories, commission_schemes, commission_scheme_rules, employee_commission_rules
+      const [
+        [staffRows],
+        [serviceRows],
+        [categoryRows],
+        [schemeRows],
+        [schemeRuleRows],
+        [empRuleRows]
+      ] = await Promise.all([
+        db.query(
+          `SELECT id, nombre, localidad, salon_id, status, commission_scheme_id, scheme_effective_date, tipo_salario
+           FROM staff_records WHERE tenant_id = ?`,
+          [resolvedTenantId]
+        ),
+        db.query(
+          `SELECT id::text as id, COALESCE(nombre, name) as service_name, COALESCE(categoria, category, 'General') as categoria,
+                  commission_category_id, item_type, COALESCE(genera_comision, 1) as genera_comision,
+                  COALESCE(tipo_comision, 'Porcentaje') as tipo_comision, comision_valor, commission_percentage,
+                  COALESCE(aplica_itbis, 0) as aplica_itbis, COALESCE(tax_rate, 0.1800) as tax_rate, COALESCE(tax_mode, 'exclusive') as tax_mode
+           FROM services WHERE tenant_id = ?`,
+          [resolvedTenantId]
+        ),
+        db.query(
+          `SELECT id, nombre, porcentaje, COALESCE(tipo, 'Porcentaje') as tipo, COALESCE(estado, 'Activa') as estado
+           FROM commission_categories WHERE tenant_id = ?`,
+          [resolvedTenantId]
+        ).catch(() => [[]]),
+        db.query(
+          `SELECT id, nombre, tipo, percentage, fixed_amount, COALESCE(estado, 'Activo') as estado
+           FROM commission_schemes WHERE tenant_id = ?`,
+          [resolvedTenantId]
+        ).catch(() => [[]]),
+        db.query(
+          `SELECT * FROM commission_scheme_rules WHERE tenant_id = ? ORDER BY prioridad ASC, id ASC`,
+          [resolvedTenantId]
+        ).catch(() => [[]]),
+        db.query(
+          `SELECT * FROM employee_commission_rules WHERE tenant_id = ?`,
+          [resolvedTenantId]
+        ).catch(() => [[]])
+      ]);
+
       const staffMapById = new Map();
       const staffMapByName = new Map();
-
-      const empIdArr = Array.from(distinctEmpIds);
-      const empNameArr = Array.from(distinctEmpNames);
-      if (empIdArr.length > 0 || empNameArr.length > 0) {
-        const conds = [];
-        const params = [resolvedTenantId];
-        if (empIdArr.length > 0) {
-          const ph = empIdArr.map(() => '?').join(', ');
-          conds.push(`id::text IN (${ph})`);
-          params.push(...empIdArr);
-        }
-        if (empNameArr.length > 0) {
-          const ph = empNameArr.map(() => '?').join(', ');
-          conds.push(`LOWER(nombre) IN (${ph})`);
-          params.push(...empNameArr);
-        }
-
-        const [staffRows] = await db.query(
-          `SELECT id, nombre, localidad, tenant_id FROM staff_records WHERE tenant_id = ? AND (${conds.join(' OR ')})`,
-          params
-        );
-
-        for (const s of (staffRows || [])) {
-          staffMapById.set(String(s.id), s);
-          if (s.nombre) {
-            staffMapByName.set(s.nombre.trim().toLowerCase(), s);
-          }
-        }
+      for (const s of (staffRows || [])) {
+        staffMapById.set(String(s.id), s);
+        if (s.nombre) staffMapByName.set(String(s.nombre).trim().toLowerCase(), s);
       }
 
-      // Query 3: Preload all matching services rules in ONE query
-      const serviceMap = new Map();
-      const srvNameArr = Array.from(distinctServiceNames);
-      if (srvNameArr.length > 0) {
-        const ph = srvNameArr.map(() => '?').join(', ');
-        const [serviceRows] = await db.query(
-          `SELECT id, COALESCE(nombre, name) as service_name, item_type, comision_valor, tipo_comision, tenant_id 
-           FROM services 
-           WHERE tenant_id = ? AND LOWER(COALESCE(nombre, name)) IN (${ph})`,
-          [resolvedTenantId, ...srvNameArr]
-        );
-
-        for (const srv of (serviceRows || [])) {
-          if (srv.service_name) {
-            serviceMap.set(srv.service_name.trim().toLowerCase(), srv);
-          }
-        }
+      const serviceMapById = new Map();
+      const serviceMapByName = new Map();
+      for (const srv of (serviceRows || [])) {
+        if (srv.id) serviceMapById.set(String(srv.id), srv);
+        if (srv.service_name) serviceMapByName.set(String(srv.service_name).trim().toLowerCase(), srv);
       }
 
-      // In-memory calculation with zero SQL queries per item
+      const categoryMapById = new Map();
+      const categoryMapByName = new Map();
+      for (const cat of (categoryRows || [])) {
+        const isCatActive = ['activa', 'activo', 'active', '1'].includes(String(cat.estado || 'Activa').trim().toLowerCase());
+        if (!isCatActive) continue;
+        categoryMapById.set(Number(cat.id), cat);
+        if (cat.nombre) categoryMapByName.set(String(cat.nombre).trim().toLowerCase(), cat);
+      }
+
+      const schemeMapById = new Map();
+      for (const sch of (schemeRows || [])) {
+        const isSchActive = ['activo', 'activa', 'active', '1'].includes(String(sch.estado || 'Activo').trim().toLowerCase());
+        if (isSchActive) schemeMapById.set(Number(sch.id), sch);
+      }
+
+      const rulesBySchemeId = new Map();
+      for (const r of (schemeRuleRows || [])) {
+        const sid = Number(r.scheme_id);
+        if (!rulesBySchemeId.has(sid)) rulesBySchemeId.set(sid, []);
+        rulesBySchemeId.get(sid).push(r);
+      }
+
+      const empRulesMap = new Map();
+      for (const er of (empRuleRows || [])) {
+        const key = `${String(er.employee_id).trim()}::${String(er.service_name || 'General').trim().toLowerCase()}`;
+        empRulesMap.set(key, er);
+      }
+
       const insertRows = [];
       for (const item of preparedItems) {
-        if (item.precioBase <= 0) continue;
-
         let emp = null;
         if (item.empIdRaw && staffMapById.has(item.empIdRaw)) {
           emp = staffMapById.get(item.empIdRaw);
         } else if (item.empNameRaw && staffMapByName.has(item.empNameRaw.toLowerCase())) {
           emp = staffMapByName.get(item.empNameRaw.toLowerCase());
+        } else if (item.empIdRaw && staffMapByName.has(item.empIdRaw.toLowerCase())) {
+          emp = staffMapByName.get(item.empIdRaw.toLowerCase());
         }
-
         if (!emp) continue;
 
-        const srvKey = item.serviceName.trim().toLowerCase();
-        const srv = serviceMap.has(srvKey) ? serviceMap.get(srvKey) : null;
+        const srvKey = item.serviceName.toLowerCase();
+        const srv = (item.serviceId && serviceMapById.get(item.serviceId)) || serviceMapByName.get(srvKey) || null;
         const isProduct = item.isProductItem || (srv && String(srv.item_type || '').toUpperCase() === 'PRODUCTO');
+        const categoryName = String(item.itemCategory || srv?.categoria || 'General').trim();
+        const categoryKey = categoryName.toLowerCase();
 
-        let pct = isProduct ? 0 : 15;
-        let montoComision = isProduct ? 0 : Math.round(item.precioBase * (pct / 100) * 100) / 100;
+        // Base neta del ítem después del descuento comercial y sin ITBIS
+        let netAfterCommercialDisc = Math.max(0, Number((item.grossLine - item.commercialDiscount).toFixed(2)));
+        const effectiveTaxMode = srv?.tax_mode || item.taxMode || 'exclusive';
+        const effectiveItbis = item.aplicaItbis || (srv && Number(srv.aplica_itbis) === 1);
+        const effectiveTaxRate = Number(srv?.tax_rate ?? 0.18) || 0.18;
+        if (effectiveItbis && effectiveTaxMode === 'inclusive' && effectiveTaxRate > 0) {
+          netAfterCommercialDisc = Number((netAfterCommercialDisc / (1 + effectiveTaxRate)).toFixed(2));
+        }
 
-        if (srv && srv.comision_valor !== undefined && srv.comision_valor !== null && Number(srv.comision_valor) > 0) {
-          if (srv.tipo_comision === 'Monto Fijo') {
-            montoComision = Math.round(Number(srv.comision_valor) * item.cantidad * 100) / 100;
-            pct = 0;
-          } else {
-            pct = Number(srv.comision_valor);
-            montoComision = Math.round(item.precioBase * (pct / 100) * 100) / 100;
+        // Verificar esquema asignado al empleado
+        const empSchemeId = emp.commission_scheme_id ? Number(emp.commission_scheme_id) : null;
+        const activeScheme = empSchemeId && schemeMapById.has(empSchemeId) ? schemeMapById.get(empSchemeId) : null;
+        const schemeRules = activeScheme ? (rulesBySchemeId.get(activeScheme.id) || []) : [];
+
+        // Clasificar reglas del esquema según prioridad canónica:
+        // 1) Regla Especial (rule_type === 'especial' o regla con monto_ajuste > 0 para ese servicio)
+        // 2) Excepción por Servicio (rule_type === 'servicio')
+        // 3) Regla por Categoría (rule_type === 'categoria')
+        let matchedSpecialRule = null;
+        let matchedServiceRule = null;
+        let matchedCategoryRule = null;
+
+        for (const r of schemeRules) {
+          const rType = String(r.rule_type || '').trim().toLowerCase();
+          const rService = r.service_name ? String(r.service_name).trim().toLowerCase() : '';
+          const rCategory = r.category_name ? String(r.category_name).trim().toLowerCase() : '';
+          const hasAdjust = Number(r.monto_ajuste || 0) > 0 && (r.operacion === 'Restar' || r.operacion === 'Sumar');
+
+          if (!matchedSpecialRule && rType === 'especial' && rService === srvKey) {
+            matchedSpecialRule = r;
+          } else if (!matchedSpecialRule && hasAdjust && rService === srvKey && (!rCategory || rCategory === categoryKey)) {
+            matchedSpecialRule = r;
+          }
+
+          if (!matchedServiceRule && rType === 'servicio' && rService === srvKey) {
+            matchedServiceRule = r;
+          }
+
+          if (!matchedCategoryRule && rType === 'categoria' && rCategory === categoryKey) {
+            matchedCategoryRule = r;
           }
         }
 
-        // Productos sin regla de comisión no generan registro de comisión
-        if (montoComision <= 0) continue;
+        const empSpecificRule =
+          empRulesMap.get(`${emp.id}::${srvKey}`) ||
+          empRulesMap.get(`${emp.nombre}::${srvKey}`) ||
+          null;
+
+        let tipoComision = 'Porcentaje';
+        let comisionValor = 0;
+        let commissionRate = 0;
+        let descuentoAplicado = item.commercialDiscount;
+        let montoBase = netAfterCommercialDisc;
+        let montoComision = 0;
+        let appliedSchemeId = activeScheme ? activeScheme.id : null;
+        let ruleDescription = '';
+
+        const isFixedType = (t) => String(t || '').toLowerCase().includes('fijo');
+
+        if (item.isPlanWash && item.grossLine <= 0) {
+          // Canje de lavado incluido en membresía a RD$ 0.00
+          tipoComision = 'Porcentaje';
+          comisionValor = 0;
+          commissionRate = 0;
+          montoBase = 0;
+          montoComision = 0;
+          ruleDescription = 'Canje Membresía (RD$ 0.00)';
+        } else if (matchedSpecialRule) {
+          const op = String(matchedSpecialRule.operacion || 'Restar').trim();
+          if (op === 'Contar') {
+            tipoComision = 'Monto_Fijo';
+            comisionValor = 0;
+            commissionRate = 0;
+            montoComision = 0;
+            ruleDescription = `Regla Especial Meta (${matchedSpecialRule.cantidad_meta} serv. -> Bono RD$${Number(matchedSpecialRule.bono_monto || 0).toFixed(2)})`;
+          } else {
+            const unitAdjust = Number(matchedSpecialRule.monto_ajuste || 0);
+            const totalAdjust = Number((unitAdjust * item.cantidad).toFixed(2));
+            const pct = Number(matchedSpecialRule.porcentaje_comision ?? matchedSpecialRule.valor ?? 0);
+            tipoComision = 'Porcentaje';
+            comisionValor = pct;
+            commissionRate = pct;
+            if (op === 'Sumar') {
+              montoBase = Math.max(0, Number((netAfterCommercialDisc + totalAdjust).toFixed(2)));
+              ruleDescription = `Regla Especial (${activeScheme.nombre}: +RD$${totalAdjust.toFixed(2)} -> ${pct}%)`;
+            } else {
+              descuentoAplicado = Number((item.commercialDiscount + totalAdjust).toFixed(2));
+              montoBase = Math.max(0, Number((netAfterCommercialDisc - totalAdjust).toFixed(2)));
+              ruleDescription = `Regla Especial (${activeScheme.nombre}: -RD$${totalAdjust.toFixed(2)} -> ${pct}%)`;
+            }
+            montoComision = Number(((montoBase * pct) / 100).toFixed(2));
+          }
+        } else if (matchedServiceRule) {
+          const val = Number(matchedServiceRule.valor ?? matchedServiceRule.porcentaje_comision ?? 0);
+          if (isFixedType(matchedServiceRule.tipo_calculo)) {
+            tipoComision = 'Monto_Fijo';
+            comisionValor = val;
+            commissionRate = 0;
+            montoComision = Number((val * item.cantidad).toFixed(2));
+            ruleDescription = `Excepción Servicio (${activeScheme.nombre}: RD$${val.toFixed(2)})`;
+          } else {
+            tipoComision = 'Porcentaje';
+            comisionValor = val;
+            commissionRate = val;
+            montoComision = Number(((montoBase * val) / 100).toFixed(2));
+            ruleDescription = `Excepción Servicio (${activeScheme.nombre}: ${val}%)`;
+          }
+        } else if (empSpecificRule) {
+          const val = Number(empSpecificRule.comision_valor || 0);
+          if (isFixedType(empSpecificRule.tipo_comision)) {
+            tipoComision = 'Monto_Fijo';
+            comisionValor = val;
+            commissionRate = 0;
+            montoComision = Number((val * item.cantidad).toFixed(2));
+          } else {
+            tipoComision = 'Porcentaje';
+            comisionValor = val;
+            commissionRate = val;
+            montoComision = Number(((montoBase * val) / 100).toFixed(2));
+          }
+          ruleDescription = `Regla Individual (${emp.nombre})`;
+        } else if (matchedCategoryRule) {
+          const unitAdjust = Number(matchedCategoryRule.monto_ajuste || 0);
+          const totalAdjust = unitAdjust > 0 ? Number((unitAdjust * item.cantidad).toFixed(2)) : 0;
+          const op = String(matchedCategoryRule.operacion || 'Restar').trim();
+          if (totalAdjust > 0) {
+            if (op === 'Sumar') {
+              montoBase = Math.max(0, Number((netAfterCommercialDisc + totalAdjust).toFixed(2)));
+            } else {
+              descuentoAplicado = Number((item.commercialDiscount + totalAdjust).toFixed(2));
+              montoBase = Math.max(0, Number((netAfterCommercialDisc - totalAdjust).toFixed(2)));
+            }
+          }
+          const val = Number(matchedCategoryRule.valor ?? matchedCategoryRule.porcentaje_comision ?? 0);
+          if (isFixedType(matchedCategoryRule.tipo_calculo)) {
+            tipoComision = 'Monto_Fijo';
+            comisionValor = val;
+            commissionRate = 0;
+            montoComision = Number((val * item.cantidad).toFixed(2));
+            ruleDescription = `Esquema ${activeScheme.nombre} · Categoría ${categoryName} (RD$${val.toFixed(2)})`;
+          } else {
+            tipoComision = 'Porcentaje';
+            comisionValor = val;
+            commissionRate = val;
+            montoComision = Number(((montoBase * val) / 100).toFixed(2));
+            ruleDescription = totalAdjust > 0
+              ? `Esquema ${activeScheme.nombre} · Categoría ${categoryName} (${op === 'Sumar' ? '+' : '-'}RD$${totalAdjust.toFixed(2)} -> ${val}%)`
+              : `Esquema ${activeScheme.nombre} · Categoría ${categoryName} (${val}%)`;
+          }
+        } else {
+          // Prioridad 4: Categoría de comisión del catálogo -> Configuración del ítem -> Esquema general -> Default
+          const linkedCat =
+            (srv?.commission_category_id && categoryMapById.get(Number(srv.commission_category_id))) ||
+            categoryMapByName.get(categoryKey) ||
+            null;
+
+          if (srv && Number(srv.genera_comision) === 0) {
+            tipoComision = 'Porcentaje';
+            comisionValor = 0;
+            commissionRate = 0;
+            montoComision = 0;
+            ruleDescription = 'Sin comisión (Deshabilitado en catálogo)';
+          } else if (linkedCat) {
+            const catVal = Number(linkedCat.porcentaje || 0);
+            if (isFixedType(linkedCat.tipo)) {
+              tipoComision = 'Monto_Fijo';
+              comisionValor = catVal;
+              commissionRate = 0;
+              montoComision = Number((catVal * item.cantidad).toFixed(2));
+            } else {
+              tipoComision = 'Porcentaje';
+              comisionValor = catVal;
+              commissionRate = catVal;
+              montoComision = Number(((montoBase * catVal) / 100).toFixed(2));
+            }
+            ruleDescription = `Categoría Catálogo: ${linkedCat.nombre} (${isFixedType(linkedCat.tipo) ? `RD$${catVal}` : `${catVal}%`})`;
+          } else if (srv && srv.comision_valor !== undefined && srv.comision_valor !== null && (Number(srv.comision_valor) > 0 || !isProduct)) {
+            const srvVal = Number(srv.comision_valor || 0);
+            if (isFixedType(srv.tipo_comision)) {
+              tipoComision = 'Monto_Fijo';
+              comisionValor = srvVal;
+              commissionRate = 0;
+              montoComision = Number((srvVal * item.cantidad).toFixed(2));
+            } else {
+              tipoComision = 'Porcentaje';
+              comisionValor = srvVal;
+              commissionRate = srvVal;
+              montoComision = Number(((montoBase * srvVal) / 100).toFixed(2));
+            }
+            ruleDescription = `Catálogo: ${item.serviceName} (${isFixedType(srv.tipo_comision) ? `RD$${srvVal}` : `${srvVal}%`})`;
+          } else if (activeScheme && Number(activeScheme.percentage || 0) > 0 && !isProduct) {
+            const schPct = Number(activeScheme.percentage);
+            tipoComision = 'Porcentaje';
+            comisionValor = schPct;
+            commissionRate = schPct;
+            montoComision = Number(((montoBase * schPct) / 100).toFixed(2));
+            ruleDescription = `Esquema General: ${activeScheme.nombre} (${schPct}%)`;
+          } else {
+            const fallbackPct = isProduct ? 0 : 15;
+            tipoComision = 'Porcentaje';
+            comisionValor = fallbackPct;
+            commissionRate = fallbackPct;
+            montoComision = Number(((montoBase * fallbackPct) / 100).toFixed(2));
+            ruleDescription = isProduct
+              ? 'Producto sin comisión configurada (0%)'
+              : 'Comisión base por defecto (15%)';
+          }
+        }
 
         const commissionCents = Math.round(montoComision * 100);
 
@@ -210,35 +505,45 @@ function createVisitsRouter(pool, helpers = {}) {
           Number(emp.id) || null,
           emp.nombre,
           item.serviceName,
-          item.precioBase,
-          pct,
+          item.grossLine,
+          item.grossLine,
+          item.cantidad,
+          descuentoAplicado,
+          montoBase,
+          tipoComision,
+          comisionValor,
+          commissionRate,
           montoComision,
           montoComision,
           commissionCents,
           'DOP',
           'Pendiente',
           emp.localidad || 'Principal',
+          appliedSchemeId,
+          ruleDescription,
           item.visitedAt
         ]);
       }
 
-      // Query 4: Multi-row chunked INSERT (up to 250 rows per statement)
-      const chunkSize = 250;
+      // Query 4: Multi-row chunked INSERT (up to 150 rows per statement)
+      const chunkSize = 150;
       for (let i = 0; i < insertRows.length; i += chunkSize) {
         const chunk = insertRows.slice(i, i + chunkSize);
-        const rowPlaceholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+        const rowPlaceholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
         const flatParams = chunk.flat();
 
         await db.query(
           `INSERT INTO employee_commissions_log (
              tenant_id, visit_id, ticket_number, employee_id, employee_name, service_name,
-             precio_servicio, commission_rate, monto_comision, commission_amount, commission_cents, currency, status, localidad, created_at
+             service_price, precio_servicio, cantidad, descuento_aplicado, monto_base,
+             tipo_comision, comision_valor, commission_rate, monto_comision, commission_amount,
+             commission_cents, currency, status, localidad, scheme_id, rule_applied_description, created_at
            ) VALUES ${rowPlaceholders}`,
           flatParams
         );
       }
 
-      return { processed: visits.length, items: insertRows.length };
+      return { processed: visitIds.length, items: insertRows.length };
     } catch (err) {
       if (dbConn) throw err;
       console.warn('[PROCESS BATCH COMMISSIONS WARN]:', err.message);
@@ -247,12 +552,13 @@ function createVisitsRouter(pool, helpers = {}) {
   };
 
   // Single-visit helper delegates to the batch processor
-  const processVisitCommissions = async (visitId, itemsDetailRaw, ticketNumber, visitedAt, tenantId, dbConn = null) => {
+  const processVisitCommissions = async (visitId, itemsDetailRaw, ticketNumber, visitedAt, tenantId, dbConn = null, extraVisitProps = {}) => {
     return processBatchVisitCommissions([{
       id: visitId,
       items_detail: itemsDetailRaw,
       ticket_number: ticketNumber,
-      visited_at: visitedAt
+      visited_at: visitedAt,
+      ...extraVisitProps
     }], tenantId, dbConn);
   };
 
@@ -736,8 +1042,8 @@ function createVisitsRouter(pool, helpers = {}) {
         ? items_detail
         : (Array.isArray(servicios) ? servicios : []);
       for (const it of rawItemsForValidation) {
-        const empIdRaw = it.colaboradorId || it.employee_id || it.stylist_id;
-        if (empIdRaw) {
+        const empIdRaw = it.empleado_id || it.colaboradorId || it.employee_id || it.stylist_id;
+        if (empIdRaw && !isNaN(Number(String(empIdRaw).replace('EMP-', '').trim()))) {
           const cleanEmpId = String(empIdRaw).replace('EMP-', '').trim();
           const [empCheck] = await pool.query(
             'SELECT id FROM staff_records WHERE id::text = ? AND tenant_id = ? LIMIT 1',
@@ -1041,12 +1347,123 @@ function createVisitsRouter(pool, helpers = {}) {
         );
       }
 
-      // 9. Persistencia de la venta (visits) con unidades menores exactas
-      const numSubtotal = Number(subtotal) || 0;
-      const numDescuento = parsedDescuento;
-      const numTotal = Number(total) || 0;
+      // 9. Persistencia de la venta (visits) con unidades menores exactas y snapshot fiscal de ITBIS / Descuentos (Bloques 1 y 5)
+      let parsedItemsList = [];
+      try {
+        parsedItemsList = typeof items_detail === 'string' ? JSON.parse(items_detail) : (Array.isArray(items_detail) ? items_detail : []);
+      } catch (_) {
+        parsedItemsList = [];
+      }
+
+      // Enriquecer cada ítem con su clasificación fiscal del catálogo si no viene explícita y calcular subtotal/descuento/ITBIS desde backend
+      let computedGrossSubtotal = 0;
+      let computedLineDiscounts = 0;
+      let computedItbis = 0;
+
+      if (parsedItemsList.length > 0) {
+        const [catalogTaxRows] = await db.query(
+          `SELECT id::text as id, LOWER(TRIM(COALESCE(nombre, name, ''))) as lower_name,
+                  COALESCE(aplica_itbis, 0) as aplica_itbis, COALESCE(tax_rate, 0.1800) as tax_rate,
+                  COALESCE(tax_mode, 'exclusive') as tax_mode, COALESCE(categoria, category, 'General') as categoria,
+                  item_type
+           FROM services WHERE tenant_id = ?`,
+          [tenantId]
+        );
+        const catById = new Map();
+        const catByName = new Map();
+        for (const row of (catalogTaxRows || [])) {
+          catById.set(String(row.id), row);
+          if (row.lower_name) catByName.set(row.lower_name, row);
+        }
+
+        parsedItemsList = parsedItemsList.map((it) => {
+          const sId = it.service_id || it.product_id || (typeof it.id === 'string' && it.id.length > 20 ? it.id : null);
+          const sName = String(it.nombre || it.service_name || it.servicio || it.name || '').trim().toLowerCase();
+          const catMatch = (sId && catById.get(String(sId))) || (sName && catByName.get(sName)) || null;
+
+          const qty = Math.max(1, Number(it.cantidad ?? it.qty ?? it.quantity ?? 1) || 1);
+          const appliedPrice = Number(
+            it.precioAplicado !== undefined
+              ? it.precioAplicado
+              : (it.precio !== undefined ? it.precio : (it.price !== undefined ? it.price : (it.precioBase || 0)))
+          ) || 0;
+          const basePrice = Number(it.precioBase !== undefined ? it.precioBase : appliedPrice) || appliedPrice;
+          const lineGross = Number((appliedPrice * qty).toFixed(2));
+
+          let lineDisc = Number(it.descuento || 0);
+          if (lineDisc <= 0 && Number(it.descuentoPercent) > 0) {
+            lineDisc = Number((lineGross * (Number(it.descuentoPercent) / 100)).toFixed(2));
+          }
+
+          const itemAppliesItbis = it.aplica_itbis !== undefined && it.aplica_itbis !== null
+            ? (it.aplica_itbis === 1 || it.aplica_itbis === true ? 1 : 0)
+            : (catMatch ? (Number(catMatch.aplica_itbis) === 1 ? 1 : 0) : 0);
+          const itemTaxRate = itemAppliesItbis === 1
+            ? (Number(it.tax_rate ?? catMatch?.tax_rate ?? 0.18) || 0.18)
+            : 0;
+          const itemTaxMode = String(it.tax_mode || catMatch?.tax_mode || 'exclusive').toLowerCase();
+
+          computedGrossSubtotal += lineGross;
+          computedLineDiscounts += lineDisc;
+
+          return {
+            ...it,
+            precioBase: basePrice,
+            precioAplicado: appliedPrice,
+            cantidad: qty,
+            descuento: lineDisc,
+            aplica_itbis: itemAppliesItbis,
+            tax_rate: itemTaxRate,
+            tax_mode: itemTaxMode,
+            categoria: it.categoria || catMatch?.categoria || 'General',
+            item_type: it.item_type || it.tipo_item || catMatch?.item_type || 'SERVICIO'
+          };
+        });
+
+        const rawReqDiscount = Number(descuento) || 0;
+        const effectiveTotalDiscount = Math.max(rawReqDiscount, Number(computedLineDiscounts.toFixed(2)));
+        const extraGlobalDisc = Math.max(0, Number((effectiveTotalDiscount - computedLineDiscounts).toFixed(2)));
+
+        parsedItemsList = parsedItemsList.map((it) => {
+          const lineGross = Number((it.precioAplicado * it.cantidad).toFixed(2));
+          const propGlobal = computedGrossSubtotal > 0 && extraGlobalDisc > 0
+            ? Number(((lineGross / computedGrossSubtotal) * extraGlobalDisc).toFixed(2))
+            : 0;
+          const lineNetAfterDisc = Math.max(0, Number((lineGross - (it.descuento || 0) - propGlobal).toFixed(2)));
+
+          let lineTaxableBase = lineNetAfterDisc;
+          let lineItbis = 0;
+          if (it.aplica_itbis === 1 && !it.isPlanWash && lineNetAfterDisc > 0 && it.tax_rate > 0) {
+            if (it.tax_mode === 'inclusive') {
+              lineTaxableBase = Number((lineNetAfterDisc / (1 + it.tax_rate)).toFixed(2));
+              lineItbis = Number((lineNetAfterDisc - lineTaxableBase).toFixed(2));
+            } else {
+              lineItbis = Number((lineNetAfterDisc * it.tax_rate).toFixed(2));
+            }
+          }
+          computedItbis += lineItbis;
+
+          return {
+            ...it,
+            taxable_base: lineTaxableBase,
+            itbis_amount: lineItbis
+          };
+        });
+      }
+
+      const finalSerializedItems = parsedItemsList.length > 0 ? JSON.stringify(parsedItemsList) : serializedItems;
+      const numSubtotal = Number(subtotal) > 0 ? Number(subtotal) : Number(computedGrossSubtotal.toFixed(2));
+      const numDescuento = parsedDescuento > 0 ? parsedDescuento : Number(computedLineDiscounts.toFixed(2));
+      const numItbis = req.body?.itbis !== undefined && Number(req.body.itbis) > 0
+        ? Number(req.body.itbis)
+        : Number(computedItbis.toFixed(2));
+      const numTotal = Number(total) > 0
+        ? Number(total)
+        : Math.max(0, Number((numSubtotal - numDescuento + numItbis).toFixed(2)));
+
       const subtotalCents = Math.round(numSubtotal * 100);
       const discountCents = Math.round(numDescuento * 100);
+      const itbisCents = Math.round(numItbis * 100);
       const totalCents = Math.round(numTotal * 100);
       const appliedPaymentsJson = JSON.stringify(
         buildCanonicalAppliedPayments({
@@ -1072,6 +1489,8 @@ function createVisitsRouter(pool, helpers = {}) {
              subtotal_cents = ?,
              descuento = ?,
              discount_cents = ?,
+             itbis = ?,
+             itbis_cents = ?,
              total = ?,
              total_cents = ?,
              currency = 'DOP',
@@ -1094,11 +1513,13 @@ function createVisitsRouter(pool, helpers = {}) {
             client_name || null,
             String(salon_id),
             serializedServices,
-            serializedItems,
+            finalSerializedItems,
             numSubtotal,
             subtotalCents,
             numDescuento,
             discountCents,
+            numItbis,
+            itbisCents,
             numTotal,
             totalCents,
             metodo_pago,
@@ -1120,12 +1541,12 @@ function createVisitsRouter(pool, helpers = {}) {
         await db.query(
           `INSERT INTO visits (
              id, tenant_id, ticket_number, client_id, client_name, salon_id,
-             servicios, items_detail, subtotal, subtotal_cents, descuento, discount_cents, total, total_cents, currency,
+             servicios, items_detail, subtotal, subtotal_cents, descuento, discount_cents, itbis, itbis_cents, total, total_cents, currency,
              metodo_pago, applied_payments,
              ncf, ncf_type, ncf_name, rnc_cliente, rzn_soc_cliente,
              empleado_peluquera, empleado_lava_pelo, empleado_manicurista,
              cash_register_id, status, visited_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DOP', ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DOP', ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())`,
           [
             id,
             tenantId,
@@ -1134,11 +1555,13 @@ function createVisitsRouter(pool, helpers = {}) {
             client_name || 'Cliente General',
             String(salon_id),
             serializedServices,
-            serializedItems,
+            finalSerializedItems,
             numSubtotal,
             subtotalCents,
             numDescuento,
             discountCents,
+            numItbis,
+            itbisCents,
             numTotal,
             totalCents,
             metodo_pago,
@@ -1179,8 +1602,73 @@ function createVisitsRouter(pool, helpers = {}) {
         }
       }
 
+      // 10b. Persistir consumo / descuento de empleado a nómina de forma idempotente (sin duplicación)
+      const empConsumptionReq = req.body?.employee_consumption;
+      const isPayrollMethod =
+        String(metodo_pago || '').toLowerCase().includes('nomina') ||
+        String(metodo_pago || '').toLowerCase().includes('nómina') ||
+        String(metodo_pago || '').toLowerCase().includes('consumo empleado') ||
+        Boolean(empConsumptionReq);
+
+      if (isPayrollMethod && numTotal > 0) {
+        const rawTargetEmpId = String(
+          empConsumptionReq?.employee_id ||
+          (String(targetClientId || '').startsWith('EMP-') ? String(targetClientId).replace('EMP-', '') : '')
+        ).trim();
+        const rawTargetEmpName = String(
+          empConsumptionReq?.employee_name || client_name || existingRows[0]?.client_name || ''
+        ).trim();
+
+        let matchedEmpRow = null;
+        if (rawTargetEmpId && !isNaN(Number(rawTargetEmpId))) {
+          const [eRows] = await db.query(
+            'SELECT id, nombre FROM staff_records WHERE id = ? AND tenant_id = ? LIMIT 1',
+            [Number(rawTargetEmpId), tenantId]
+          );
+          matchedEmpRow = eRows?.[0] || null;
+        }
+        if (!matchedEmpRow && rawTargetEmpName) {
+          const [eRows] = await db.query(
+            'SELECT id, nombre FROM staff_records WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?)) AND tenant_id = ? LIMIT 1',
+            [rawTargetEmpName, tenantId]
+          );
+          matchedEmpRow = eRows?.[0] || null;
+        }
+
+        if (matchedEmpRow) {
+          const [existingDisc] = await db.query(
+            'SELECT id FROM employee_discounts WHERE tenant_id = ? AND visit_id = ? LIMIT 1',
+            [tenantId, String(id)]
+          );
+          if (!existingDisc || existingDisc.length === 0) {
+            const deductionAmount = Number(empConsumptionReq?.monto || numTotal) || numTotal;
+            const servicesSummary = parsedItemsList.map((i) => i.nombre || i.service_name).filter(Boolean).join(', ') || 'Consumo POS';
+            const actorName = req.auth?.name || req.user?.name || recepcionista || 'Caja POS';
+            await db.query(
+              `INSERT INTO employee_discounts (
+                 tenant_id, visit_id, employee_id, employee_name, type, amount, discount_amount, date, notes, status, created_by, created_at
+               ) VALUES (?, ?, ?, ?, 'Consumo_Servicio', ?, ?, CURRENT_DATE, ?, 'Pendiente', ?, NOW())`,
+              [
+                tenantId,
+                String(id),
+                matchedEmpRow.id,
+                matchedEmpRow.nombre,
+                deductionAmount,
+                deductionAmount,
+                `Consumo en empresa Factura #${ticketNumber}: ${servicesSummary}`,
+                actorName
+              ]
+            );
+          }
+        }
+      }
+
       // 11. Comisiones del empleado dentro de la MISMA transacción
-      await processVisitCommissions(id, serializedItems, ticketNumber, new Date(), tenantId, db);
+      await processVisitCommissions(id, finalSerializedItems, ticketNumber, new Date(), tenantId, db, {
+        descuento: numDescuento,
+        empleado_peluquera: empleado_peluquera || existingRows[0]?.empleado_peluquera || null,
+        salon_id
+      });
 
       // 12. COMMIT ATÓMICO ÚNICO
       if (txConn) {
@@ -1202,6 +1690,12 @@ function createVisitsRouter(pool, helpers = {}) {
         id,
         ticket_number: ticketNumber,
         cash_register_id: activeRegisterId || null,
+        subtotal: numSubtotal,
+        subtotal_cents: subtotalCents,
+        descuento: numDescuento,
+        discount_cents: discountCents,
+        itbis: numItbis,
+        itbis_cents: itbisCents,
         total: numTotal,
         total_cents: totalCents,
         currency: 'DOP',
@@ -1432,9 +1926,9 @@ function createVisitsRouter(pool, helpers = {}) {
 
       try {
         await pool.query(
-          `INSERT INTO invoice_audit_logs (tenant_id, visit_id, action, reason, user_name, created_at)
-           VALUES (?, ?, 'VOID', ?, ?, NOW())`,
-          [tenantId, id, reason, effectiveVoidedBy]
+          `INSERT INTO audit_logs (tenant_id, entity_type, entity_id, action, reason, user_name, details, created_at)
+           VALUES (?, 'visit', ?, 'VOID', ?, ?, ?, NOW())`,
+          [tenantId, String(id), reason, effectiveVoidedBy, `Factura #${id} anulada: ${reason}`]
         );
       } catch (e) { }
 
@@ -1497,51 +1991,350 @@ function createVisitsRouter(pool, helpers = {}) {
     }
   });
 
-  // 10. PUT /api/visits/:id/commission-recipient - Reassign commission stylist on an invoice within the authenticated tenant
+  // 10. PUT /api/visits/:id/commission-recipient - Reassign commission stylist on an invoice within the authenticated tenant (Bloque 2)
   router.put('/:id/commission-recipient', async (req, res) => {
+    let txConn = null;
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      const { empleado_peluquera, empleado_manicurista, empleado_lava_pelo, items_detail, reason = 'Reasignación de comisionista', user_name = 'Admin' } = req.body;
+      const {
+        empleado_peluquera,
+        empleado_manicurista,
+        empleado_lava_pelo,
+        items_detail,
+        updatedItems,
+        reason,
+        user_name
+      } = req.body || {};
 
-      const [existing] = await pool.query('SELECT * FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
-      if (existing.length === 0) {
-        return res.status(404).json({ error: 'Factura no encontrada en esta empresa.' });
+      const actorRole = String(req.auth?.role || req.user?.role || '').toLowerCase();
+      const canEdit =
+        ['propietario', 'owner', 'admin', 'administrador', 'superadmin'].includes(actorRole) ||
+        Boolean(req.auth?.isSuperAdmin) ||
+        permissionMapGrants(req.auth?.permissions, 'pos.invoices.void') ||
+        permissionMapGrants(req.auth?.permissions, 'commissions.approve') ||
+        permissionMapGrants(req.auth?.permissions, 'staff.manage');
+
+      if (!canEdit) {
+        return res.status(403).json({
+          error: 'No tienes permisos para editar las comisiones de una factura emitida.',
+          code: 'COMMISSION_EDIT_FORBIDDEN'
+        });
       }
 
-      await pool.query(
+      const cleanReason = typeof reason === 'string' ? reason.trim() : '';
+      if (!cleanReason) {
+        return res.status(400).json({
+          error: 'Debe especificar un motivo válido para auditar la reasignación de comisión.',
+          code: 'REASON_REQUIRED'
+        });
+      }
+
+      const actorName = req.auth?.name || req.auth?.email || user_name || 'Administrador';
+      const actorId = req.auth?.userId || req.user?.id || null;
+
+      const [existingRows] = await pool.query('SELECT * FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
+      if (existingRows.length === 0) {
+        return res.status(404).json({ error: 'Factura no encontrada en esta empresa.', code: 'INVOICE_NOT_FOUND' });
+      }
+      const visit = existingRows[0];
+
+      if (visit.salon_id && !isBranchAuthorized(req, visit.salon_id)) {
+        return res.status(403).json({
+          error: 'No tienes autorización para modificar facturas de esta sucursal.',
+          code: 'BRANCH_ACCESS_DENIED'
+        });
+      }
+
+      if (['Anulado', 'Anulada'].includes(String(visit.status || '').trim())) {
+        return res.status(409).json({
+          error: 'No se pueden editar comisiones de una factura anulada.',
+          code: 'INVOICE_VOIDED'
+        });
+      }
+
+      // Verificar si las comisiones de esta factura ya fueron pagadas/liquidadas
+      const [prevCommRows] = await pool.query(
+        'SELECT id, employee_id, employee_name, service_name, monto_base, monto_comision, status, payout_id, rule_applied_description FROM employee_commissions_log WHERE visit_id = ? AND tenant_id = ? ORDER BY id ASC',
+        [String(id), tenantId]
+      );
+      const alreadyPaidComm = (prevCommRows || []).find(
+        (c) => ['Pagado', 'Pagada'].includes(String(c.status || '').trim()) || Boolean(c.payout_id)
+      );
+      if (alreadyPaidComm) {
+        return res.status(409).json({
+          error: 'No se puede modificar directamente la comisión porque ya fue pagada o liquidada. Registre un ajuste trazable en comisiones o nómina.',
+          code: 'COMMISSION_ALREADY_PAID'
+        });
+      }
+
+      // Verificar si la comisión ya fue incluida en una nómina aprobada/inmutable
+      const prevEmpIds = (prevCommRows || []).map((c) => String(c.employee_id || '')).filter(Boolean);
+      if (prevEmpIds.length > 0 && visit.visited_at) {
+        const visitDateStr = new Date(visit.visited_at).toISOString().slice(0, 10);
+        const phEmp = prevEmpIds.map(() => '?').join(', ');
+        const [approvedPayrolls] = await pool.query(
+          `SELECT pp.id, pp.period_name, pp.status
+           FROM payroll_periods pp
+           JOIN payroll_items pi ON pi.payroll_id = pp.id AND pi.tenant_id = pp.tenant_id
+           WHERE pp.tenant_id = ?
+             AND (pp.status IN ('Aprobada', 'Pagada') OR pp.is_immutable = 1)
+             AND ?::date BETWEEN pp.start_date AND pp.end_date
+             AND pi.employee_id::text IN (${phEmp})
+           LIMIT 1`,
+          [tenantId, visitDateStr, ...prevEmpIds]
+        );
+        if (approvedPayrolls && approvedPayrolls.length > 0) {
+          return res.status(409).json({
+            error: `No se puede modificar directamente la comisión porque ya está incluida en la nómina aprobada "${approvedPayrolls[0].period_name}". Realice un ajuste trazable en el siguiente período.`,
+            code: 'COMMISSION_IN_APPROVED_PAYROLL',
+            payroll_period: approvedPayrolls[0].period_name
+          });
+        }
+      }
+
+      // Parsear líneas originales de la factura (preservar conceptos, precios, impuestos, descuentos y totales intactos)
+      let dbItems = [];
+      try {
+        if (visit.items_detail) {
+          dbItems = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : visit.items_detail;
+        }
+      } catch (_) {
+        dbItems = [];
+      }
+      if (!Array.isArray(dbItems) || dbItems.length === 0) {
+        let servs = [];
+        try {
+          if (Array.isArray(visit.servicios)) servs = visit.servicios;
+          else if (typeof visit.servicios === 'string' && visit.servicios.startsWith('[')) servs = JSON.parse(visit.servicios);
+          else if (visit.servicios) servs = [visit.servicios];
+        } catch (_) {
+          servs = [visit.servicios || 'Servicio'];
+        }
+        dbItems = servs.map((s) => ({
+          nombre: typeof s === 'object' ? (s.nombre || s.name || 'Servicio') : String(s),
+          precioBase: Number(visit.total || 0) / Math.max(1, servs.length),
+          precioAplicado: Number(visit.total || 0) / Math.max(1, servs.length),
+          cantidad: 1,
+          descuento: 0,
+          empleado_id: null,
+          empleado_nombre: visit.empleado_peluquera || 'Sin Asignar'
+        }));
+      }
+
+      let incomingList = null;
+      if (Array.isArray(updatedItems)) {
+        incomingList = updatedItems;
+      } else if (Array.isArray(items_detail)) {
+        incomingList = items_detail;
+      } else if (typeof items_detail === 'string' && items_detail.trim().startsWith('[')) {
+        try { incomingList = JSON.parse(items_detail); } catch (_) { incomingList = null; }
+      }
+
+      // Validar colaboradores del tenant y sucursal
+      const [tenantStaff] = await pool.query(
+        'SELECT id, nombre, salon_id, localidad, status FROM staff_records WHERE tenant_id = ?',
+        [tenantId]
+      );
+      const [tenantBranches] = await pool.query(
+        'SELECT id::text as id, name FROM branches WHERE tenant_id = ?',
+        [tenantId]
+      ).catch(() => [[]]);
+      const branchIdSet = new Set((tenantBranches || []).map((b) => String(b.id)));
+      const branchNameToId = new Map((tenantBranches || []).map((b) => [String(b.name || '').trim().toLowerCase(), String(b.id)]));
+
+      const staffById = new Map((tenantStaff || []).map((s) => [String(s.id), s]));
+      const staffByName = new Map((tenantStaff || []).map((s) => [String(s.nombre || '').trim().toLowerCase(), s]));
+
+      const resolveAndValidateEmployee = (rawId, rawName) => {
+        const cleanId = rawId !== undefined && rawId !== null ? String(rawId).replace('EMP-', '').trim() : '';
+        const cleanName = rawName !== undefined && rawName !== null ? String(rawName).trim() : '';
+        const isUnassigned =
+          (!cleanId || cleanId === 'none' || cleanId === 'Sin Asignar') &&
+          (!cleanName || ['sin asignar', 'no asignada', 'no asignado', 'none', 'n/a', ''].includes(cleanName.toLowerCase()));
+        if (isUnassigned) {
+          return { empId: null, empName: 'Sin Asignar' };
+        }
+
+        let emp = null;
+        if (cleanId && staffById.has(cleanId)) {
+          emp = staffById.get(cleanId);
+        } else if (cleanName && staffByName.has(cleanName.toLowerCase())) {
+          emp = staffByName.get(cleanName.toLowerCase());
+        } else if (cleanId && staffByName.has(cleanId.toLowerCase())) {
+          emp = staffByName.get(cleanId.toLowerCase());
+        }
+
+        if (!emp) {
+          const err = new Error(`El colaborador "${cleanName || cleanId}" no existe o no pertenece a esta empresa.`);
+          err.statusCode = 404;
+          err.code = 'EMPLOYEE_NOT_FOUND';
+          throw err;
+        }
+
+        // Validar sucursal si tanto la factura como el colaborador están asociados a sucursales específicas distintas
+        const visitBranchId = visit.salon_id && branchIdSet.has(String(visit.salon_id)) ? String(visit.salon_id) : null;
+        let empBranchId = emp.salon_id && branchIdSet.has(String(emp.salon_id)) ? String(emp.salon_id) : null;
+        if (!empBranchId && emp.localidad) {
+          const locLower = String(emp.localidad).trim().toLowerCase();
+          if (branchNameToId.has(locLower)) empBranchId = branchNameToId.get(locLower);
+        }
+        if (visitBranchId && empBranchId && visitBranchId !== empBranchId) {
+          const err = new Error(`El colaborador "${emp.nombre}" pertenece a otra sucursal y no puede asignarse a una factura de esta sede.`);
+          err.statusCode = 400;
+          err.code = 'EMPLOYEE_BRANCH_MISMATCH';
+          throw err;
+        }
+
+        return { empId: emp.id, empName: emp.nombre };
+      };
+
+      const previousEmployeesAudit = [];
+      const newEmployeesAudit = [];
+
+      const safeUpdatedItems = dbItems.map((origItem, idx) => {
+        const prevId = origItem.empleado_id ?? origItem.employee_id ?? origItem.colaboradorId ?? null;
+        const prevName = origItem.empleado_nombre ?? origItem.employee_name ?? origItem.empleado ?? origItem.colaboradorNombre ?? 'Sin Asignar';
+        previousEmployeesAudit.push({
+          line_index: idx,
+          service_name: origItem.nombre || origItem.service_name || `Ítem #${idx + 1}`,
+          employee_id: prevId,
+          employee_name: prevName
+        });
+
+        const incoming = Array.isArray(incomingList) && incomingList[idx] ? incomingList[idx] : null;
+        let targetRawId = incoming
+          ? (incoming.empleado_id ?? incoming.employee_id ?? incoming.colaboradorId ?? null)
+          : (empleado_peluquera || prevId);
+        let targetRawName = incoming
+          ? (incoming.empleado_nombre ?? incoming.employee_name ?? incoming.empleado ?? incoming.colaboradorNombre ?? null)
+          : (empleado_peluquera || prevName);
+
+        const resolved = resolveAndValidateEmployee(targetRawId, targetRawName);
+        newEmployeesAudit.push({
+          line_index: idx,
+          service_name: origItem.nombre || origItem.service_name || `Ítem #${idx + 1}`,
+          employee_id: resolved.empId,
+          employee_name: resolved.empName
+        });
+
+        // Preservar todos los campos comerciales/fiscales de origItem intactos; modificar SOLO comisionista
+        return {
+          ...origItem,
+          empleado_id: resolved.empId,
+          empleado_nombre: resolved.empName,
+          empleado: resolved.empName,
+          employee_id: resolved.empId,
+          employee_name: resolved.empName
+        };
+      });
+
+      const primaryStylistName =
+        newEmployeesAudit.find((e) => e.employee_id !== null)?.employee_name ||
+        empleado_peluquera ||
+        visit.empleado_peluquera ||
+        'No asignada';
+
+      if (typeof pool.getConnection === 'function') {
+        txConn = await pool.getConnection();
+        await txConn.query('BEGIN');
+      }
+      const db = txConn || pool;
+
+      // Actualizar únicamente comisionista en visits (NCF, cliente, conceptos, impuestos, pagos y total permanecen inmutables)
+      await db.query(
         `UPDATE visits SET
-           empleado_peluquera = COALESCE(?, empleado_peluquera),
+           empleado_peluquera = ?,
            empleado_manicurista = COALESCE(?, empleado_manicurista),
            empleado_lava_pelo = COALESCE(?, empleado_lava_pelo),
-           items_detail = COALESCE(?, items_detail)
+           items_detail = ?::jsonb
          WHERE id = ? AND tenant_id = ?`,
         [
-          empleado_peluquera || null,
+          primaryStylistName,
           empleado_manicurista || null,
           empleado_lava_pelo || null,
-          items_detail ? (typeof items_detail === 'string' ? items_detail : JSON.stringify(items_detail)) : null,
+          JSON.stringify(safeUpdatedItems),
           id,
           tenantId
         ]
       );
 
-      const [updated] = await pool.query('SELECT * FROM visits WHERE id = ? AND tenant_id = ?', [id, tenantId]);
-      if (updated.length > 0) {
-        await processVisitCommissions(id, updated[0].items_detail, updated[0].ticket_number, updated[0].visited_at, tenantId);
+      // Recalcular comisiones de forma atómica e idempotente dentro de la transacción
+      await processVisitCommissions(id, safeUpdatedItems, visit.ticket_number, visit.visited_at, tenantId, db, {
+        descuento: Number(visit.descuento || 0),
+        empleado_peluquera: primaryStylistName,
+        salon_id: visit.salon_id
+      });
+
+      const [newCommRows] = await db.query(
+        'SELECT id, employee_id, employee_name, service_name, monto_base, monto_comision, status, scheme_id, rule_applied_description FROM employee_commissions_log WHERE visit_id = ? AND tenant_id = ? ORDER BY id ASC',
+        [String(id), tenantId]
+      );
+
+      const auditMetadata = {
+        visit_id: String(id),
+        ticket_number: visit.ticket_number,
+        actor_id: actorId,
+        actor_name: actorName,
+        reason: cleanReason,
+        previous_employees: previousEmployeesAudit,
+        new_employees: newEmployeesAudit,
+        previous_commissions: (prevCommRows || []).map((c) => ({
+          employee_id: c.employee_id,
+          employee_name: c.employee_name,
+          service_name: c.service_name,
+          monto_base: Number(c.monto_base || 0),
+          monto_comision: Number(c.monto_comision || 0),
+          rule: c.rule_applied_description || null
+        })),
+        new_commissions: (newCommRows || []).map((c) => ({
+          employee_id: c.employee_id,
+          employee_name: c.employee_name,
+          service_name: c.service_name,
+          monto_base: Number(c.monto_base || 0),
+          monto_comision: Number(c.monto_comision || 0),
+          rule: c.rule_applied_description || null
+        }))
+      };
+
+      const prevSummary = previousEmployeesAudit.map((e) => `${e.service_name}: ${e.employee_name}`).join(', ');
+      const newSummary = newEmployeesAudit.map((e) => `${e.service_name}: ${e.employee_name}`).join(', ');
+
+      await db.query(
+        `INSERT INTO audit_logs (tenant_id, entity_type, entity_id, action, reason, user_name, details, metadata, created_at)
+         VALUES (?, 'visit', ?, 'REASSIGN_COMMISSION', ?, ?, ?, ?::jsonb, NOW())`,
+        [
+          tenantId,
+          String(id),
+          cleanReason,
+          actorName,
+          `Reasignación de comisión en factura #${visit.ticket_number || id} (${prevSummary} -> ${newSummary})`,
+          JSON.stringify(auditMetadata)
+        ]
+      );
+
+      if (txConn) {
+        await txConn.query('COMMIT');
       }
 
-      try {
-        await pool.query(
-          `INSERT INTO invoice_audit_logs (tenant_id, visit_id, action, reason, user_name, created_at)
-           VALUES (?, ?, 'REASSIGN_COMMISSION', ?, ?, NOW())`,
-          [tenantId, id, reason, user_name]
-        );
-      } catch (e) { }
-
-      res.json({ success: true, message: 'Comisionista actualizado correctamente' });
+      res.json({
+        success: true,
+        message: 'Comisionista actualizado y comisiones recalculadas correctamente.',
+        commissions: newCommRows,
+        audit: auditMetadata
+      });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      if (txConn) {
+        try { await txConn.query('ROLLBACK'); } catch (_) {}
+      }
+      res.status(err.statusCode || 500).json({
+        error: err.message,
+        code: err.code || 'COMMISSION_REASSIGN_ERROR'
+      });
+    } finally {
+      if (txConn) {
+        try { txConn.release(); } catch (_) {}
+      }
     }
   });
 
@@ -1554,7 +2347,13 @@ function createVisitsRouter(pool, helpers = {}) {
       if (visitCheck.length === 0) {
         return res.status(404).json({ error: 'Visita no encontrada' });
       }
-      const [rows] = await pool.query('SELECT * FROM invoice_audit_logs WHERE tenant_id = ? AND visit_id = ? ORDER BY created_at DESC', [tenantId, id]);
+      const [rows] = await pool.query(
+        `SELECT id, entity_id as visit_id, action, reason, user_name, details, metadata, created_at
+         FROM audit_logs
+         WHERE tenant_id = ? AND entity_type = 'visit' AND entity_id = ?
+         ORDER BY created_at DESC, id DESC`,
+        [tenantId, String(id)]
+      );
       res.json(rows);
     } catch (err) {
       res.status(500).json({ error: err.message });

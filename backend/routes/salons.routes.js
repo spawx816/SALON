@@ -104,10 +104,10 @@ function createSalonsRouter(poolOrOptions, options = {}) {
         return res.status(503).json({ error: 'Servicio de cotización no disponible.', code: 'SERVICE_UNAVAILABLE' });
       }
 
-      const { wantsMembershipsAddon } = req.body || {};
+      // Regla de producto: el add-on de Membresías se contrata exclusivamente desde Mi suscripción → Add-on Suscripciones y Membresías.
       const quote = await checkoutService.calculateProratedBranchOrderAmounts({
         tenantId,
-        wantsMembershipsAddon: Boolean(wantsMembershipsAddon),
+        wantsMembershipsAddon: false,
       });
 
       let defaultPaymentMethod = null;
@@ -147,7 +147,8 @@ function createSalonsRouter(poolOrOptions, options = {}) {
       }
 
       const branchData = req.body?.branchData || req.body || {};
-      const wantsMembershipsAddon = Boolean(req.body?.wantsMembershipsAddon);
+      // El formulario de sucursales nunca contrata ni activa el add-on de Membresías
+      const wantsMembershipsAddon = false;
       const paymentMethodChoice = req.body?.paymentMethodChoice || req.body?.paymentOption || 'saved_card';
 
       if (!branchData || !branchData.name || !String(branchData.name).trim()) {

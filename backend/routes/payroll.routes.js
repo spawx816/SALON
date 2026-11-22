@@ -276,6 +276,59 @@ function createPayrollRouter(pool) {
         ORDER BY id ASC
       `, [id, tenantId]);
 
+      const startDate = periods[0].start_date ? String(periods[0].start_date).split('T')[0] : '';
+      const endDate = periods[0].end_date ? String(periods[0].end_date).split('T')[0] : '';
+      const evalStaff = await evaluateTenantStaffForPayrollPeriod(pool, tenantId, {
+        start_date: startDate,
+        end_date: endDate,
+        sucursal: periods[0].sucursal || 'Todas',
+        departamento: periods[0].departamento || 'Todos',
+      });
+
+      // Si el período está en borrador editable, incorporar colaboradores elegibles recién creados en staff_records que aún no tengan fila en payroll_items
+      const isDraftPeriod = PAYROLL_DRAFT_STATUSES.has(String(periods[0].status || '')) && Number(periods[0].is_immutable) !== 1;
+      const existingEmpIds = new Set(items.map((it) => String(it.employee_id)));
+      const missingEligibleStaff = isDraftPeriod
+        ? evalStaff.eligible.filter((emp) => !existingEmpIds.has(String(emp.id)))
+        : [];
+
+      if (missingEligibleStaff.length > 0) {
+        for (const emp of missingEligibleStaff) {
+          const itemData = await calculateEmployeePayrollValues(pool, emp, startDate, endDate, tenantId);
+          itemData.payroll_id = parseInt(id, 10);
+          const [resItem] = await pool.query(`
+            INSERT INTO payroll_items (
+              payroll_id, employee_id, employee_name, posicion, sucursal, departamento,
+              salario_fijo, comisiones, feriados, horas_extras, otros_ingresos, total_ingresos,
+              tss, servicios, prestamos, ausencias, tardanzas, otros_descuentos, total_descuentos,
+              neto_pagar, detalles_json, tenant_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [
+            itemData.payroll_id, itemData.employee_id, itemData.employee_name, itemData.posicion, itemData.sucursal, itemData.departamento,
+            itemData.salario_fijo, itemData.comisiones, itemData.feriados, itemData.horas_extras, itemData.otros_ingresos, itemData.total_ingresos,
+            itemData.tss, itemData.servicios, itemData.prestamos, itemData.ausencias, itemData.tardanzas, itemData.otros_descuentos, itemData.total_descuentos,
+            itemData.neto_pagar, JSON.stringify(itemData.detalles_json), tenantId
+          ]);
+          itemData.id = resItem.insertId || resItem[0]?.id;
+          items.push(itemData);
+        }
+
+        let sumIng = 0, sumDesc = 0, sumNeto = 0;
+        for (const it of items) {
+          sumIng = Number((sumIng + Number(it.total_ingresos || 0)).toFixed(2));
+          sumDesc = Number((sumDesc + Number(it.total_descuentos || 0)).toFixed(2));
+          sumNeto = Number((sumNeto + Number(it.neto_pagar || 0)).toFixed(2));
+        }
+        await pool.query(
+          'UPDATE payroll_periods SET total_ingresos = ?, total_descuentos = ?, total_neto = ?, total_empleados = ? WHERE id = ? AND tenant_id = ?',
+          [sumIng, sumDesc, sumNeto, items.length, id, tenantId]
+        );
+        periods[0].total_ingresos = sumIng;
+        periods[0].total_descuentos = sumDesc;
+        periods[0].total_neto = sumNeto;
+        periods[0].total_empleados = items.length;
+      }
+
       const parsedItems = items.map(item => ({
         ...item,
         detalles_json: typeof item.detalles_json === 'string' ? JSON.parse(item.detalles_json || '{}') : (item.detalles_json || {})
@@ -284,6 +337,7 @@ function createPayrollRouter(pool) {
       return res.json({
         period: periods[0],
         items: parsedItems,
+        excluded_employees: evalStaff.excluded,
         review_summary: buildReviewSummary(parsedItems),
       });
     } catch (err) {
@@ -1138,6 +1192,165 @@ function createPayrollRouter(pool) {
     };
   }
 
+  /**
+   * Evalúa todos los colaboradores de staff_records del tenant frente a un período de nómina
+   * sin exigir cuenta de usuario (users) facturable y devolviendo motivos explícitos de exclusión.
+   */
+  async function evaluateTenantStaffForPayrollPeriod(executor, tenantId, { start_date, end_date, sucursal = 'Todas', departamento = 'Todos' }) {
+    const [allStaff] = await executor.query(
+      `SELECT s.*,
+              b.name AS branch_name,
+              sal.name AS salon_ref_name
+       FROM staff_records s
+       LEFT JOIN branches b ON s.salon_id::text = b.id::text AND b.tenant_id = s.tenant_id
+       LEFT JOIN salons sal ON s.salon_id::text = sal.id::text AND sal.tenant_id = s.tenant_id
+       WHERE s.tenant_id = ?
+       ORDER BY s.id ASC`,
+      [tenantId]
+    );
+
+    const eligible = [];
+    const excluded = [];
+
+    const normText = (v) => String(v || '').trim().toLowerCase();
+    const stripBranchPrefix = (v) => {
+      const s = normText(v);
+      const parts = s.split(' - ');
+      return parts[parts.length - 1].trim();
+    };
+
+    const filterSuc = normText(sucursal);
+    const hasSucFilter = Boolean(filterSuc && filterSuc !== 'todas' && filterSuc !== 'all');
+    const filterSucShort = stripBranchPrefix(sucursal);
+
+    const filterDept = normText(departamento);
+    const hasDeptFilter = Boolean(filterDept && filterDept !== 'todos' && filterDept !== 'todas' && filterDept !== 'all');
+
+    for (const emp of (allStaff || [])) {
+      const empId = String(emp.id);
+      const empName = emp.nombre || 'Colaborador';
+      const posicion = emp.posicion || 'General';
+      const empBranchLabel = emp.branch_name || emp.salon_ref_name || emp.localidad || 'Principal';
+      const rawStatus = String(emp.status || 'Activo').trim();
+      const statusLower = rawStatus.toLowerCase();
+      const hireDate = toIsoDateOnly(emp.fecha_entrada);
+      const termDate = toIsoDateOnly(emp.fecha_salida);
+
+      // 1. Validar estado laboral y fecha de salida
+      const isActiveStatus = statusLower === 'activo' || statusLower === 'active' || statusLower === '';
+      const hasExitInPeriod = Boolean(termDate && start_date && end_date && termDate >= start_date && termDate <= end_date);
+
+      if (!isActiveStatus && !hasExitInPeriod) {
+        excluded.push({
+          employee_id: empId,
+          employee_name: empName,
+          posicion,
+          sucursal: empBranchLabel,
+          status: rawStatus,
+          fecha_entrada: hireDate,
+          fecha_salida: termDate,
+          reason_code: 'INACTIVE_STATUS',
+          reason: termDate && start_date && termDate < start_date
+            ? `Excluido: Fecha de salida (${termDate}) anterior al inicio del período (${start_date}).`
+            : `Excluido: Estado laboral "${rawStatus}" (no activo durante el período ${start_date} al ${end_date}).`,
+        });
+        continue;
+      }
+
+      if (termDate && start_date && termDate < start_date) {
+        excluded.push({
+          employee_id: empId,
+          employee_name: empName,
+          posicion,
+          sucursal: empBranchLabel,
+          status: rawStatus,
+          fecha_entrada: hireDate,
+          fecha_salida: termDate,
+          reason_code: 'TERMINATED_BEFORE_PERIOD',
+          reason: `Excluido: Fecha de salida (${termDate}) anterior al inicio del período (${start_date}).`,
+        });
+        continue;
+      }
+
+      // 2. Validar fecha de ingreso frente al cierre del período
+      if (hireDate && end_date && hireDate > end_date) {
+        excluded.push({
+          employee_id: empId,
+          employee_name: empName,
+          posicion,
+          sucursal: empBranchLabel,
+          status: rawStatus,
+          fecha_entrada: hireDate,
+          fecha_salida: termDate,
+          reason_code: 'HIRED_AFTER_PERIOD_END',
+          reason: `Excluido: Fecha de ingreso (${hireDate}) posterior al cierre del período seleccionado (${end_date}).`,
+        });
+        continue;
+      }
+
+      // 3. Validar filtro de sucursal
+      if (hasSucFilter) {
+        const candidates = [
+          String(emp.salon_id || ''),
+          emp.localidad,
+          emp.branch_name,
+          emp.salon_ref_name,
+          stripBranchPrefix(emp.localidad),
+          stripBranchPrefix(emp.branch_name),
+        ].map(normText).filter(Boolean);
+
+        const matchesBranch = candidates.some((c) =>
+          c === filterSuc ||
+          c === filterSucShort ||
+          c.includes(filterSuc) ||
+          filterSuc.includes(c) ||
+          (filterSucShort && (c.includes(filterSucShort) || filterSucShort.includes(c)))
+        );
+
+        if (!matchesBranch) {
+          excluded.push({
+            employee_id: empId,
+            employee_name: empName,
+            posicion,
+            sucursal: empBranchLabel,
+            status: rawStatus,
+            fecha_entrada: hireDate,
+            fecha_salida: termDate,
+            reason_code: 'BRANCH_FILTER_MISMATCH',
+            reason: `Excluido por filtro de sucursal: asignado a "${empBranchLabel}" (período filtrado por "${sucursal}").`,
+          });
+          continue;
+        }
+      }
+
+      // 4. Validar filtro de departamento / cargo
+      if (hasDeptFilter) {
+        const posNorm = normText(emp.posicion);
+        if (!posNorm.includes(filterDept) && !filterDept.includes(posNorm)) {
+          excluded.push({
+            employee_id: empId,
+            employee_name: empName,
+            posicion,
+            sucursal: empBranchLabel,
+            status: rawStatus,
+            fecha_entrada: hireDate,
+            fecha_salida: termDate,
+            reason_code: 'DEPARTMENT_FILTER_MISMATCH',
+            reason: `Excluido por filtro de cargo/departamento: "${posicion}" no coincide con "${departamento}".`,
+          });
+          continue;
+        }
+      }
+
+      eligible.push({
+        ...emp,
+        localidad: empBranchLabel,
+      });
+    }
+
+    return { allStaff: allStaff || [], eligible, excluded };
+  }
+
   // 3. Generar / Procesar Nómina Automática con Datos Reales (Atómico con lock por empresa y anti-duplicado)
   router.post('/generate', requirePermission('payroll.generate'), async (req, res) => {
     const conn = await pool.getConnection();
@@ -1183,22 +1396,24 @@ function createPayrollRouter(pool) {
         });
       }
 
-      // 1. Obtener empleados activos o que salieron durante este período (para no omitir liquidaciones parciales)
-      let staffQuery = "SELECT * FROM staff_records WHERE tenant_id = ? AND ((status = 'Activo' OR status = 'Active' OR status IS NULL) OR (fecha_salida IS NOT NULL AND fecha_salida BETWEEN ? AND ?))";
-      const staffParams = [tenantId, start_date, end_date];
-      if (sucursal && sucursal !== 'Todas') {
-        staffQuery += " AND (salon_id::text = ? OR localidad LIKE ?)";
-        staffParams.push(String(sucursal), `%${sucursal}%`);
-      }
-      if (departamento && departamento !== 'Todos') {
-        staffQuery += " AND (posicion LIKE ?)";
-        staffParams.push(`%${departamento}%`);
-      }
-      let [staffList] = await conn.query(staffQuery, staffParams);
+      // 1. Evaluar todos los colaboradores de staff_records del tenant (sin exigir cuenta en users) y registrar motivos de exclusión
+      const evalStaff = await evaluateTenantStaffForPayrollPeriod(conn, tenantId, {
+        start_date,
+        end_date,
+        sucursal,
+        departamento,
+      });
+      const staffList = evalStaff.eligible;
 
       if (staffList.length === 0) {
         await conn.rollback();
-        return res.status(400).json({ error: 'No se encontraron colaboradores registrados en esta empresa para procesar la nómina.' });
+        const exclusionSummary = evalStaff.excluded.length > 0
+          ? ` Se evaluaron ${evalStaff.allStaff.length} colaborador(es), pero quedaron excluidos: ${evalStaff.excluded.map((e) => `${e.employee_name} (${e.reason})`).join('; ')}`
+          : '';
+        return res.status(400).json({
+          error: `No se encontraron colaboradores elegibles para procesar la nómina en este período.${exclusionSummary}`,
+          excluded_employees: evalStaff.excluded,
+        });
       }
 
       // 2. Crear registro del período con tenant_id
@@ -1274,7 +1489,8 @@ function createPayrollRouter(pool) {
           total_neto: sumTotalNeto,
           total_empleados: generatedItems.length
         },
-        items: generatedItems
+        items: generatedItems,
+        excluded_employees: evalStaff.excluded
       });
     } catch (err) {
       await conn.rollback().catch(() => { });
@@ -1746,17 +1962,13 @@ function createPayrollRouter(pool) {
       const startDate = period.start_date ? String(period.start_date).split('T')[0] : '';
       const endDate = period.end_date ? String(period.end_date).split('T')[0] : '';
 
-      let staffQuery = "SELECT * FROM staff_records WHERE tenant_id = ? AND ((status = 'Activo' OR status = 'Active' OR status IS NULL) OR (fecha_salida IS NOT NULL AND fecha_salida BETWEEN ? AND ?))";
-      const staffParams = [tenantId, startDate, endDate];
-      if (period.sucursal && period.sucursal !== 'Todas') {
-        staffQuery += " AND (salon_id::text = ? OR localidad LIKE ?)";
-        staffParams.push(String(period.sucursal), `%${period.sucursal}%`);
-      }
-      if (period.departamento && period.departamento !== 'Todos') {
-        staffQuery += " AND (posicion LIKE ?)";
-        staffParams.push(`%${period.departamento}%`);
-      }
-      let [staffList] = await conn.query(staffQuery, staffParams);
+      const evalStaff = await evaluateTenantStaffForPayrollPeriod(conn, tenantId, {
+        start_date: startDate,
+        end_date: endDate,
+        sucursal: period.sucursal || 'Todas',
+        departamento: period.departamento || 'Todos',
+      });
+      let staffList = evalStaff.eligible;
 
       if (staffList.length === 0) {
         const [existingItems] = await conn.query(
@@ -1875,7 +2087,8 @@ function createPayrollRouter(pool) {
           total_neto: sumTotalNeto,
           total_empleados: generatedItems.length
         },
-        items: generatedItems
+        items: generatedItems,
+        excluded_employees: evalStaff.excluded
       });
     } catch (err) {
       await conn.rollback().catch(() => { });

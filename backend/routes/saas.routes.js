@@ -534,6 +534,10 @@ function createSaasRouter(pool, options = {}) {
           VALUES (?, ?, ?, ?, ?, ?, ?, 'owner', true, 'Activo')
         `, [userId, tenantId, branchId, cleanOwnerName, cleanOwnerName, cleanEmail, passwordHash]);
 
+        // Instalar roles predefinidos por empresa automáticamente en el alta (sin crear usuarios adicionales)
+        const { installPredefinedRolesForTenant } = require('../services/role_templates.service');
+        await installPredefinedRolesForTenant(conn, tenantId, { explicitInstall: false });
+
         const { computeNextPeriodEnd } = require('../services/calendar_billing.utils');
         const subStart = new Date();
         const anchorDay = subStart.getUTCDate();

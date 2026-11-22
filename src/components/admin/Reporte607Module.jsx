@@ -6,9 +6,13 @@ import {
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useNotification } from '../../context/NotificationContext';
+import { useAuth } from '../../context/AuthContext';
+import { hasUiPermission } from '../../utils/rbacCatalog';
 
 export default function Reporte607Module() {
   const { showNotification } = useNotification();
+  const { user } = useAuth();
+  const canExportAccounting = hasUiPermission(user, 'accounting.export');
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState({
     header: {
@@ -264,69 +268,72 @@ export default function Reporte607Module() {
 
         {/* Action Buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          
-          <button
-            onClick={handleExportExcel}
-            disabled={loading || filteredRecords.length === 0}
-            className="admin-btn"
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.5rem', 
-              background: '#16a34a', 
-              color: '#ffffff',
-              border: 'none', 
-              padding: '0.65rem 1.25rem', 
-              borderRadius: '10px', 
-              cursor: (loading || filteredRecords.length === 0) ? 'not-allowed' : 'pointer',
-              fontWeight: 800
-            }}
-          >
-            <FileSpreadsheet size={16} />
-            <span>Exportar Excel</span>
-          </button>
+          {canExportAccounting && (
+            <>
+              <button
+                onClick={handleExportExcel}
+                disabled={loading || filteredRecords.length === 0}
+                className="admin-btn"
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '0.5rem', 
+                  background: '#16a34a', 
+                  color: '#ffffff',
+                  border: 'none', 
+                  padding: '0.65rem 1.25rem', 
+                  borderRadius: '10px', 
+                  cursor: (loading || filteredRecords.length === 0) ? 'not-allowed' : 'pointer',
+                  fontWeight: 800
+                }}
+              >
+                <FileSpreadsheet size={16} />
+                <span>Exportar Excel</span>
+              </button>
 
-          <button
-            onClick={handlePrint}
-            disabled={loading || filteredRecords.length === 0}
-            className="admin-btn"
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.5rem', 
-              background: '#2563eb', 
-              color: '#ffffff',
-              border: 'none', 
-              padding: '0.65rem 1.25rem', 
-              borderRadius: '10px', 
-              cursor: (loading || filteredRecords.length === 0) ? 'not-allowed' : 'pointer',
-              fontWeight: 800
-            }}
-          >
-            <Printer size={16} />
-            <span>Imprimir / PDF</span>
-          </button>
+              <button
+                onClick={handlePrint}
+                disabled={loading || filteredRecords.length === 0}
+                className="admin-btn"
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '0.5rem', 
+                  background: '#2563eb', 
+                  color: '#ffffff',
+                  border: 'none', 
+                  padding: '0.65rem 1.25rem', 
+                  borderRadius: '10px', 
+                  cursor: (loading || filteredRecords.length === 0) ? 'not-allowed' : 'pointer',
+                  fontWeight: 800
+                }}
+              >
+                <Printer size={16} />
+                <span>Imprimir / PDF</span>
+              </button>
 
-          <button
-            onClick={handleDownloadTxt}
-            disabled={loading || filteredRecords.length === 0}
-            className="admin-btn"
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.5rem', 
-              background: '#475569', 
-              color: '#ffffff',
-              border: 'none', 
-              padding: '0.65rem 1.25rem', 
-              borderRadius: '10px', 
-              cursor: (loading || filteredRecords.length === 0) ? 'not-allowed' : 'pointer',
-              fontWeight: 800
-            }}
-          >
-            <FileText size={16} />
-            <span>TXT 607</span>
-          </button>
+              <button
+                onClick={handleDownloadTxt}
+                disabled={loading || filteredRecords.length === 0}
+                className="admin-btn"
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '0.5rem', 
+                  background: '#475569', 
+                  color: '#ffffff',
+                  border: 'none', 
+                  padding: '0.65rem 1.25rem', 
+                  borderRadius: '10px', 
+                  cursor: (loading || filteredRecords.length === 0) ? 'not-allowed' : 'pointer',
+                  fontWeight: 800
+                }}
+              >
+                <FileText size={16} />
+                <span>TXT 607</span>
+              </button>
+            </>
+          )}
 
           <button
             onClick={fetchReport}

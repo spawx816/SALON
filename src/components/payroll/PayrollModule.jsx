@@ -25,6 +25,7 @@ export default function PayrollModule({ initialTab }) {
   const [periods, setPeriods] = useState([]);
   const [currentPeriod, setCurrentPeriod] = useState(null);
   const [items, setItems] = useState([]);
+  const [excludedEmployees, setExcludedEmployees] = useState([]);
   const [concepts, setConcepts] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
 
@@ -81,12 +82,22 @@ export default function PayrollModule({ initialTab }) {
 
   const [showNewPeriodModal, setShowNewPeriodModal] = useState(false);
   const [generatingPeriod, setGeneratingPeriod] = useState(false);
-  const [newPeriodForm, setNewPeriodForm] = useState({
-    period_name: '1ra quincena · Octubre 2026',
-    start_date: '2026-10-01',
-    end_date: '2026-10-15',
-    sucursal: 'Todas',
-    departamento: 'Todos'
+  const [newPeriodForm, setNewPeriodForm] = useState(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const monthIdx = now.getMonth();
+    const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const isFirstHalf = now.getDate() <= 15;
+    const startDay = isFirstHalf ? '01' : '16';
+    const lastDay = isFirstHalf ? '15' : String(new Date(year, monthIdx + 1, 0).getDate()).padStart(2, '0');
+    const monthStr = String(monthIdx + 1).padStart(2, '0');
+    return {
+      period_name: `${isFirstHalf ? '1ra' : '2da'} quincena · ${monthNames[monthIdx]} ${year}`,
+      start_date: `${year}-${monthStr}-${startDay}`,
+      end_date: `${year}-${monthStr}-${lastDay}`,
+      sucursal: 'Todas',
+      departamento: 'Todos'
+    };
   });
 
   // Modal de Aprobación de Nómina
@@ -488,6 +499,7 @@ export default function PayrollModule({ initialTab }) {
       if (res && res.period) {
         setCurrentPeriod(res.period);
         setItems(res.items || []);
+        setExcludedEmployees(Array.isArray(res.excluded_employees) ? res.excluded_employees : []);
         setSelectedItemIds([]);
         setCurrentPage(1);
         setUndoStack([]); // Reset undo stack al cambiar de período
@@ -539,8 +551,6 @@ export default function PayrollModule({ initialTab }) {
       if (!name || typeof name !== 'string') return '';
       const clean = name.trim();
       if (clean.toLowerCase().includes('disponible')) return 'Disponibles (*)';
-      if (clean.toLowerCase().includes('villa mella') || clean.toLowerCase().includes('mella')) return 'Abatte Peluquería Sirena Villa Mella';
-      if (clean.toLowerCase().includes('san vicente') || clean.toLowerCase().includes('vicente')) return 'Abatte Peluquería San Vicente';
       return clean;
     };
 
@@ -555,12 +565,6 @@ export default function PayrollModule({ initialTab }) {
         set.add(normalizeSucursal(it.sucursal));
       }
     });
-    // Fallback if empty
-    if (set.size === 0) {
-      set.add('Abatte Peluquería San Vicente');
-      set.add('Abatte Peluquería Sirena Villa Mella');
-      set.add('Disponibles (*)');
-    }
     return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b, 'es'));
   }, [salonsList, items]);
 
@@ -1166,7 +1170,8 @@ export default function PayrollModule({ initialTab }) {
       if (res && res.period) {
         setCurrentPeriod(res.period);
         setItems(res.items || []);
-        showNotification('¡Comisiones y descuentos sincronizados desde la base de datos en tiempo real!', 'success');
+        setExcludedEmployees(Array.isArray(res.excluded_employees) ? res.excluded_employees : []);
+        showNotification('¡Colaboradores, comisiones y descuentos sincronizados desde la base de datos en tiempo real!', 'success');
         const logs = await dataService.getPayrollAuditLogs(currentPeriod.id);
         setAuditLogs(logs || []);
       }
@@ -1629,7 +1634,10 @@ export default function PayrollModule({ initialTab }) {
             {/* BOTONES DE ACCIÓN SUPERIORES */}
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
               {currentPeriod?.status !== 'Aprobada' && (
-                <div
+                <button
+                  type="button"
+                  onClick={handleSyncRealData}
+                  disabled={loading}
                   style={{
                     background: '#f0fdf4',
                     border: '1.5px solid #86efac',
@@ -1641,13 +1649,14 @@ export default function PayrollModule({ initialTab }) {
                     borderRadius: '12px',
                     fontWeight: 800,
                     fontSize: '0.82rem',
+                    cursor: loading ? 'wait' : 'pointer',
                     boxShadow: '0 2px 6px rgba(34, 197, 94, 0.08)'
                   }}
-                  title="Los cambios en ponches, horarios, comisiones y descuentos se reflejan automáticamente en tiempo real"
+                  title="Haz clic para sincronizar nuevos colaboradores, ponches, comisiones y descuentos en tiempo real"
                 >
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }}></span>
-                  <span>Sincronización en tiempo real activa</span>
-                </div>
+                  <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                  <span>Sincronizar Datos Reales</span>
+                </button>
               )}
 
               <button
@@ -1732,6 +1741,37 @@ export default function PayrollModule({ initialTab }) {
               </button>
             </div>
           </div>
+
+          {/* PANEL DE COLABORADORES EXCLUIDOS CON MOTIVOS COMPRENSIBLES */}
+          {excludedEmployees.length > 0 && (
+            <div
+              data-testid="payroll-excluded-employees-banner"
+              style={{
+                background: '#fef2f2',
+                border: '1.5px solid #fecaca',
+                borderRadius: '14px',
+                padding: '0.85rem 1.15rem',
+                marginBottom: '1rem',
+                color: '#991b1b',
+                fontSize: '0.82rem',
+                lineHeight: 1.5
+              }}
+            >
+              <div style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                <AlertCircle size={16} color="#dc2626" />
+                <span>Colaboradores excluidos de este período ({excludedEmployees.length})</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {excludedEmployees.map((ex, idx) => (
+                  <div key={ex.employee_id || idx} style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <strong>• {ex.employee_name}</strong>
+                    <span style={{ color: '#7f1d1d' }}>({ex.posicion || 'Colaborador'} · {ex.sucursal || 'Principal'}):</span>
+                    <span>{ex.reason}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ADVERTENCIA VISIBLE DE PARÁMETROS LEGALES PENDIENTES */}
           <div style={{
@@ -4159,7 +4199,38 @@ export default function PayrollModule({ initialTab }) {
                 </div>
               </div>
 
-              {/* ADVERTENCIA VISIBLE DE PARÁMETROS LEGALES PENDIENTES */}
+              {/* PANEL DE COLABORADORES EXCLUIDOS CON MOTIVOS COMPRENSIBLES */}
+          {excludedEmployees.length > 0 && (
+            <div
+              data-testid="payroll-excluded-employees-banner"
+              style={{
+                background: '#fef2f2',
+                border: '1.5px solid #fecaca',
+                borderRadius: '14px',
+                padding: '0.85rem 1.15rem',
+                marginBottom: '1rem',
+                color: '#991b1b',
+                fontSize: '0.82rem',
+                lineHeight: 1.5
+              }}
+            >
+              <div style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                <AlertCircle size={16} color="#dc2626" />
+                <span>Colaboradores excluidos de este período ({excludedEmployees.length})</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {excludedEmployees.map((ex, idx) => (
+                  <div key={ex.employee_id || idx} style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <strong>• {ex.employee_name}</strong>
+                    <span style={{ color: '#7f1d1d' }}>({ex.posicion || 'Colaborador'} · {ex.sucursal || 'Principal'}):</span>
+                    <span>{ex.reason}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ADVERTENCIA VISIBLE DE PARÁMETROS LEGALES PENDIENTES */}
               <div style={{ background: '#fffbeb', border: '1.5px solid #f59e0b', borderRadius: '14px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.7rem', alignItems: 'flex-start', marginBottom: '1rem' }}>
                 <AlertCircle size={18} color="#d97706" style={{ flexShrink: 0, marginTop: '2px' }} />
                 <div style={{ fontSize: '0.78rem', color: '#78350f', lineHeight: 1.5 }}>

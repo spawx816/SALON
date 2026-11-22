@@ -272,6 +272,10 @@ function createPublicRouter(pool, options = {}) {
         VALUES (?, ?, ?, ?, ?, ?, ?, 'owner', true, 'Activo')
       `, [userId, tenantId, branchId, owner_name || 'Administrador', owner_name || 'Administrador', owner_email.trim(), passwordHash]);
 
+      // Instalar roles predefinidos por empresa automáticamente en el alta (sin crear usuarios adicionales)
+      const { installPredefinedRolesForTenant } = require('../services/role_templates.service');
+      await installPredefinedRolesForTenant(conn, tenantId, { explicitInstall: false });
+
       // No crear datos operativos de ejemplo ni planes B2C si no corresponden al alta SaaS
 
       // Inserción atómica de Suscripción Inicial en espera de pago CardNet (NUNCA 'active' sin cobro verificado)

@@ -20,7 +20,7 @@ import {
 import { dataService } from '../../utils/dataService';
 import { useEntitlements } from '../../context/EntitlementsContext';
 import { loadCardNetScript } from '../../utils/cardnetScriptLoader';
-import SaasCheckoutPanel from './SaasCheckoutPanel';
+import SaasCheckoutPanel, { executeCardnetCheckout } from './SaasCheckoutPanel';
 import './SaasBillingModule.css';
 
 function ensureCardnetMethodForm(formId = 'etereas_cardnet_method_form') {
@@ -115,6 +115,18 @@ export default function SaasBillingModule() {
   const [branches, setBranches] = useState([]);
   const [selectedBranchIds, setSelectedBranchIds] = useState([]);
   const [requestingAddon, setRequestingAddon] = useState(false);
+  const [addonQuote, setAddonQuote] = useState(null);
+  const [addonQuoteLoading, setAddonQuoteLoading] = useState(false);
+  const [addonQuoteError, setAddonQuoteError] = useState('');
+  const [addonPaymentChoice, setAddonPaymentChoice] = useState('saved_card');
+
+  const [showExtraUsersModal, setShowExtraUsersModal] = useState(false);
+  const [extraSeatsToBuy, setExtraSeatsToBuy] = useState(1);
+  const [seatsQuote, setSeatsQuote] = useState(null);
+  const [seatsQuoteLoading, setSeatsQuoteLoading] = useState(false);
+  const [seatsQuoteError, setSeatsQuoteError] = useState('');
+  const [seatsPaymentChoice, setSeatsPaymentChoice] = useState('saved_card');
+  const [contractingSeats, setContractingSeats] = useState(false);
 
   const [showAddCardModal, setShowAddCardModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -172,36 +184,169 @@ export default function SaasBillingModule() {
     loadBillingData();
   }, [loadBillingData]);
 
+  const fetchAddonQuote = useCallback(async (branchIdsToQuote) => {
+    if (!Array.isArray(branchIdsToQuote) || branchIdsToQuote.length === 0) {
+      setAddonQuote(null);
+      setAddonQuoteError('');
+      return;
+    }
+    setAddonQuoteLoading(true);
+    setAddonQuoteError('');
+    try {
+      const res = await dataService.quoteSaasAddon('memberships', branchIdsToQuote);
+      setAddonQuote(res.quote || null);
+      if (res.defaultPaymentMethod) {
+        setAddonPaymentChoice('saved_card');
+      } else {
+        setAddonPaymentChoice('cardnet');
+      }
+    } catch (err) {
+      setAddonQuote(null);
+      setAddonQuoteError(err.message || 'No se pudo calcular la cotización del add-on.');
+    } finally {
+      setAddonQuoteLoading(false);
+    }
+  }, []);
+
+  const handleOpenAddonModal = async () => {
+    const initialIds = Array.isArray(membershipsAddon?.branchIds) && membershipsAddon.branchIds.length > 0
+      ? membershipsAddon.branchIds.map(String)
+      : (branches.length > 0 ? [String(branches[0].id)] : []);
+    setSelectedBranchIds(initialIds);
+    setAddonQuoteError('');
+    setShowAddonModal(true);
+    if (initialIds.length > 0) {
+      await fetchAddonQuote(initialIds);
+    }
+  };
+
   const toggleAddonBranch = (branchId) => {
-    setSelectedBranchIds((prev) =>
-      prev.includes(branchId) ? prev.filter((id) => id !== branchId) : [...prev, branchId]
-    );
+    setSelectedBranchIds((prev) => {
+      const next = prev.includes(branchId) ? prev.filter((id) => id !== branchId) : [...prev, branchId];
+      fetchAddonQuote(next);
+      return next;
+    });
   };
 
   const handleRequestAddon = async (e) => {
     e.preventDefault();
     if (branches.length > 0 && selectedBranchIds.length === 0) {
-      setError('Selecciona al menos una sucursal para solicitar el módulo adicional.');
+      setError('Selecciona al menos una sucursal con licencia para habilitar el módulo.');
       return;
     }
     try {
       setRequestingAddon(true);
       setError(null);
-      const res = await dataService.requestSaasAddon('memberships', {
-        note: addonNote.trim(),
+      setAddonQuoteError('');
+      const res = await dataService.contractSaasAddon('memberships', {
         branchIds: selectedBranchIds,
+        paymentMethodChoice: addonPaymentChoice,
       });
-      setSuccessMsg(
-        res?.message ||
-          'Solicitud registrada. Nuestro equipo comercial te contactará para coordinar la activación del módulo adicional.'
-      );
-      setShowAddonModal(false);
-      setAddonNote('');
-      setSelectedBranchIds([]);
+
+      if (res.withinAcquiredCapacity || (res.paid && res.activated)) {
+        setSuccessMsg(
+          res.message ||
+            'Add-on de Suscripciones y Membresías B2C actualizado y habilitado exitosamente.'
+        );
+        setShowAddonModal(false);
+        setAddonNote('');
+        await Promise.all([loadBillingData(), refetchEntitlements()]);
+        return;
+      }
+
+      if (res.needsCheckout && res.checkout && res.order) {
+        await executeCardnetCheckout({
+          orderId: res.order.id,
+          order: res.order,
+          checkout: res.checkout,
+          onVerifying: () => {},
+          onActivated: async () => {
+            setSuccessMsg('¡Pago verificado y Add-on de Membresías B2C activado exitosamente!');
+            setShowAddonModal(false);
+            await Promise.all([loadBillingData(), refetchEntitlements()]);
+          },
+          onError: (errMsg) => {
+            setAddonQuoteError('Error en pago CardNet: ' + errMsg);
+          },
+          onCheckoutClosed: async () => {
+            await Promise.all([loadBillingData(), refetchEntitlements()]);
+          },
+        });
+      }
     } catch (err) {
-      setError(err.message || 'No se pudo enviar la solicitud.');
+      setAddonQuoteError(err.message || 'No se pudo procesar la contratación del add-on.');
+      setError(err.message || 'No se pudo procesar la contratación del add-on.');
     } finally {
       setRequestingAddon(false);
+    }
+  };
+
+  const fetchSeatsQuote = useCallback(async (count) => {
+    const num = Math.max(1, parseInt(count, 10) || 1);
+    setSeatsQuoteLoading(true);
+    setSeatsQuoteError('');
+    try {
+      const res = await dataService.quoteSaasExtraSeats(num);
+      setSeatsQuote(res.quote || null);
+      if (res.defaultPaymentMethod) {
+        setSeatsPaymentChoice('saved_card');
+      } else {
+        setSeatsPaymentChoice('cardnet');
+      }
+    } catch (err) {
+      setSeatsQuote(null);
+      setSeatsQuoteError(err.message || 'No se pudo cotizar los usuarios adicionales.');
+    } finally {
+      setSeatsQuoteLoading(false);
+    }
+  }, []);
+
+  const handleOpenExtraUsersModal = async () => {
+    setExtraSeatsToBuy(1);
+    setSeatsQuoteError('');
+    setShowExtraUsersModal(true);
+    await fetchSeatsQuote(1);
+  };
+
+  const handleContractExtraSeats = async (e) => {
+    e.preventDefault();
+    try {
+      setContractingSeats(true);
+      setSeatsQuoteError('');
+      setError(null);
+      const res = await dataService.contractSaasExtraSeats({
+        additionalSeats: extraSeatsToBuy,
+        paymentMethodChoice: seatsPaymentChoice,
+      });
+      if (res.paid && res.activated) {
+        setSuccessMsg(res.message || 'Usuarios adicionales contratados y activados con éxito.');
+        setShowExtraUsersModal(false);
+        await Promise.all([loadBillingData(), refetchEntitlements()]);
+        return;
+      }
+      if (res.needsCheckout && res.checkout && res.order) {
+        await executeCardnetCheckout({
+          orderId: res.order.id,
+          order: res.order,
+          checkout: res.checkout,
+          onVerifying: () => {},
+          onActivated: async () => {
+            setSuccessMsg('¡Pago verificado y usuarios adicionales activados!');
+            setShowExtraUsersModal(false);
+            await Promise.all([loadBillingData(), refetchEntitlements()]);
+          },
+          onError: (errMsg) => {
+            setSeatsQuoteError('Error en pago CardNet: ' + errMsg);
+          },
+          onCheckoutClosed: async () => {
+            await Promise.all([loadBillingData(), refetchEntitlements()]);
+          },
+        });
+      }
+    } catch (err) {
+      setSeatsQuoteError(err.message || 'No se pudo contratar usuarios adicionales.');
+    } finally {
+      setContractingSeats(false);
     }
   };
 
@@ -883,6 +1028,13 @@ export default function SaasBillingModule() {
               <span>Usuarios</span>
               <ExternalLink size={14} />
             </button>
+            <button
+              type="button"
+              className="sb-btn sb-btn-primary"
+              onClick={handleOpenExtraUsersModal}
+            >
+              <span>+ Contratar usuarios adicionales</span>
+            </button>
           </div>
         </section>
 
@@ -966,44 +1118,84 @@ export default function SaasBillingModule() {
             <p className="sb-meta-text" style={{ margin: '4px 0 0' }}>
               Módulo adicional para ofrecer planes mensuales, contratos digitales y cobros recurrentes a los clientes de tu empresa.
             </p>
+            <p className="sb-meta-text" style={{ margin: '4px 0 0', fontWeight: 700, color: '#0f172a' }}>
+              US$99/mes por bloque de capacidad de hasta 3 sucursales habilitadas (1–3 sucursales: US$99/mes · 4–6: US$198/mes · 7–9: US$297/mes) + implementación e integración con pasarela de pago por separado.
+            </p>
+
+            {/* Resumen de Capacidad Adquirida, Utilizada y Disponible */}
+            <div
+              data-testid="memberships-addon-capacity-summary"
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '12px',
+                marginTop: '8px',
+                padding: '8px 12px',
+                borderRadius: '10px',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                fontSize: '12.5px',
+                color: '#334155',
+              }}
+            >
+              <span>
+                <strong>Capacidad adquirida:</strong>{' '}
+                {Number(membershipsAddon?.acquiredBranchCapacity || 0)} sucursales ({Number(membershipsAddon?.acquiredBlocks || 0)} {Number(membershipsAddon?.acquiredBlocks || 0) === 1 ? 'bloque' : 'bloques'})
+              </span>
+              <span>·</span>
+              <span>
+                <strong>Capacidad utilizada:</strong>{' '}
+                {Number(membershipsAddon?.usedBranchCapacity || membershipsAddon?.enabledBranchCount || 0)} sucursales
+              </span>
+              <span>·</span>
+              <span>
+                <strong>Capacidad disponible:</strong>{' '}
+                {Number(membershipsAddon?.availableBranchCapacity || 0)} sucursales
+              </span>
+            </div>
+
             {hasMembershipsAddon && isLegacyTransition && (
-              <p className="sb-meta-text" style={{ margin: '4px 0 0', color: '#92400e', fontWeight: 600 }}>
+              <p className="sb-meta-text" style={{ margin: '6px 0 0', color: '#92400e', fontWeight: 600 }}>
                 Procedencia: {membershipsAddon?.reason || 'Permiso heredado de transición'} · Vigencia:{' '}
                 {membershipsAddon?.expiresAt
                   ? new Date(membershipsAddon.expiresAt).toLocaleDateString('es-DO')
-                  : 'Sin fecha de expiración definida'} (no corresponde a contratación pagada adicional).
+                  : 'Sin fecha de expiración definida'} (se respetan condiciones previas sin modificar retroactivamente facturas ni autorizaciones).
               </p>
             )}
             {hasMembershipsAddon && Array.isArray(membershipsAddon?.branches) && membershipsAddon.branches.length > 0 && (
-              <p className="sb-meta-text" style={{ margin: '4px 0 0', color: '#047857', fontWeight: 600 }}>
+              <p className="sb-meta-text" style={{ margin: '6px 0 0', color: '#047857', fontWeight: 600 }}>
                 Sucursales habilitadas ({membershipsAddon.branches.length}): {membershipsAddon.branches.map(b => b.name).join(', ')}
               </p>
             )}
-            <p className="sb-meta-text" style={{ margin: '4px 0 0', fontWeight: 600, color: '#0f172a' }}>
-              {subPricing?.addons?.memberships?.pricingDisplay ||
-                entPricing?.addons?.memberships?.pricingDisplay ||
-                'US$99/mes por sucursal + implementación e integración con pasarela de pago'}
-            </p>
           </div>
         </div>
 
-        <div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           {hasMembershipsAddon ? (
-            <button
-              type="button"
-              className="sb-btn"
-              onClick={() => navigate('/planes')}
-            >
-              Ver módulo
-            </button>
+            <>
+              <button
+                type="button"
+                className="sb-btn"
+                onClick={handleOpenAddonModal}
+              >
+                Gestionar sucursales / Capacidad
+              </button>
+              <button
+                type="button"
+                className="sb-btn sb-btn-primary"
+                onClick={() => navigate('/planes')}
+              >
+                Configurar módulo
+              </button>
+            </>
           ) : (
             <button
               type="button"
               className="sb-btn sb-btn-primary"
-              onClick={() => setShowAddonModal(true)}
+              onClick={handleOpenAddonModal}
             >
               <Sparkles size={15} />
-              <span>Solicitar contratación</span>
+              <span>Contratar Add-on Membresías</span>
             </button>
           )}
         </div>
@@ -1135,7 +1327,7 @@ export default function SaasBillingModule() {
         )}
       </div>
 
-      {/* Add-on Request Modal */}
+      {/* Add-on Contracting & Capacity Assignment Modal (Blocks of up to 3 branches) */}
       {showAddonModal && (
         <div
           className="sb-modal-backdrop"
@@ -1143,9 +1335,11 @@ export default function SaasBillingModule() {
           aria-modal="true"
           aria-labelledby="sb-addon-modal-title"
         >
-          <div className="sb-modal-card">
+          <div className="sb-modal-card" style={{ maxWidth: '580px' }}>
             <div className="sb-modal-header">
-              <h3 id="sb-addon-modal-title">Solicitar add-on de Membresías B2C</h3>
+              <h3 id="sb-addon-modal-title">
+                {hasMembershipsAddon ? 'Gestionar sucursales y capacidad de Membresías' : 'Contratar Add-on Suscripciones y Membresías B2C'}
+              </h3>
               <button
                 type="button"
                 className="sb-modal-close"
@@ -1156,21 +1350,19 @@ export default function SaasBillingModule() {
               </button>
             </div>
 
-            <p className="sb-meta-text" style={{ marginBottom: '12px' }}>
-              Este módulo adicional habilita la creación de planes de membresía B2C, contratos digitales y cobros recurrentes para los clientes de tu empresa.
+            <p className="sb-meta-text" style={{ marginBottom: '10px' }}>
+              Habilita planes mensuales de membresía B2C, contratos digitales y cobros recurrentes en las sucursales con licencia principal que elijas.
             </p>
-            <p className="sb-meta-text" style={{ marginBottom: '14px', fontWeight: 600, color: '#0f172a' }}>
-              {subPricing?.addons?.memberships?.pricingDisplay ||
-                entPricing?.addons?.memberships?.pricingDisplay ||
-                'US$99/mes por sucursal + implementación e integración con pasarela de pago'}
-            </p>
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '10px 12px', marginBottom: '14px', fontSize: '12.5px', color: '#1e40af', lineHeight: 1.45 }}>
+              <strong>Regla de bloques de capacidad:</strong> <strong>US$99/mes por bloque de hasta 3 sucursales habilitadas</strong> (1 a 3 sucursales = US$99/mes · 4 a 6 sucursales = US$198/mes · 7 a 9 sucursales = US$297/mes). La implementación y pasarela B2C se cotizan por separado.
+            </div>
 
             <form onSubmit={handleRequestAddon}>
               <div className="sb-field" style={{ marginBottom: '14px' }}>
-                <label>Sucursales donde deseas habilitar el add-on</label>
+                <label>Elige las sucursales con licencia que usarán Membresías ({selectedBranchIds.length} seleccionadas)</label>
                 {branches.length === 0 ? (
                   <p className="sb-meta-text" style={{ margin: '6px 0 0' }}>
-                    No se detectaron sucursales adicionales; nuestro equipo confirmará la sucursal a habilitar antes de activar el servicio.
+                    No se detectaron sucursales activas.
                   </p>
                 ) : (
                   <div
@@ -1183,6 +1375,8 @@ export default function SaasBillingModule() {
                       border: '1px solid #e2e8f0',
                       borderRadius: '10px',
                       background: '#f8fafc',
+                      maxHeight: '200px',
+                      overflowY: 'auto',
                     }}
                   >
                     {branches.map((branch) => {
@@ -1208,8 +1402,8 @@ export default function SaasBillingModule() {
                             />
                             <span>{branch.name}</span>
                           </span>
-                          <span style={{ fontSize: '0.85rem', color: '#475569' }}>
-                            US${subPricing?.addons?.memberships?.usd ?? 99}/mes
+                          <span style={{ fontSize: '0.78rem', color: '#047857', fontWeight: 700 }}>
+                            Licencia principal activa
                           </span>
                         </label>
                       );
@@ -1218,54 +1412,102 @@ export default function SaasBillingModule() {
                 )}
               </div>
 
-              <div
-                style={{
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '10px',
-                  padding: '12px',
-                  background: '#ffffff',
-                  marginBottom: '14px',
-                  fontSize: '0.88rem',
-                }}
-              >
-                <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-                  Desglose antes de confirmar
+              {addonQuoteError && (
+                <div className="sb-alert sb-alert-error" role="alert" style={{ marginBottom: '12px' }}>
+                  <AlertCircle size={16} />
+                  <span>{addonQuoteError}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', color: '#334155' }}>
-                  <span>Sucursales seleccionadas</span>
-                  <strong>{selectedBranchIds.length}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', color: '#334155' }}>
-                  <span>Tarifa por sucursal habilitada</span>
-                  <span>US${subPricing?.addons?.memberships?.usd ?? 99}/mes</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px solid #e2e8f0', marginBottom: '6px', color: '#0f172a' }}>
-                  <strong>Total mensual estimado del add-on</strong>
-                  <strong>
-                    US${selectedBranchIds.length * (subPricing?.addons?.memberships?.usd ?? 99)}/mes
-                  </strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', color: '#475569', fontSize: '0.82rem' }}>
-                  <span>Implementación e integración con pasarela de pago</span>
-                  <span style={{ textAlign: 'right', fontWeight: 600 }}>Cotización por separado</span>
-                </div>
-              </div>
+              )}
 
-              <div className="sb-field">
-                <label htmlFor="sb-addon-note">Comentarios o consulta (opcional)</label>
-                <textarea
-                  id="sb-addon-note"
-                  rows={3}
-                  className="sb-input"
-                  value={addonNote}
-                  onChange={(e) => setAddonNote(e.target.value)}
-                  placeholder="Cuéntanos sobre tus necesidades de membresías o sucursales..."
-                />
-              </div>
+              {addonQuoteLoading ? (
+                <div style={{ padding: '14px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                  Calculando bloques de capacidad y cotización...
+                </div>
+              ) : addonQuote ? (
+                <div
+                  style={{
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '10px',
+                    padding: '12px',
+                    background: '#ffffff',
+                    marginBottom: '14px',
+                    fontSize: '0.86rem',
+                  }}
+                >
+                  <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                    Cotización por bloques de capacidad (hasta 3 sucursales por bloque)
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', color: '#334155' }}>
+                    <span>Capacidad actual adquirida</span>
+                    <strong>{addonQuote.currentAcquiredCapacity} sucursales ({addonQuote.currentAcquiredBlocks} {addonQuote.currentAcquiredBlocks === 1 ? 'bloque' : 'bloques'})</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', color: '#334155' }}>
+                    <span>Sucursales seleccionadas (utilizadas)</span>
+                    <strong>{addonQuote.selectedBranchesCount} de {addonQuote.newAcquiredCapacity} sucursales</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', color: '#334155' }}>
+                    <span>Capacidad disponible resultante</span>
+                    <strong>{addonQuote.newAvailableCapacity} sucursales libres</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', color: '#334155' }}>
+                    <span>Bloques requeridos ({Math.ceil(addonQuote.selectedBranchesCount / 3)} × US${addonQuote.blockMonthlyUsd}/mes)</span>
+                    <strong>US${addonQuote.newAddonMonthlyUsd}/mes</strong>
+                  </div>
 
-              <p className="sb-meta-text" style={{ margin: '8px 0 12px' }}>
-                Esta solicitud no genera cargos automáticos; nuestro equipo comercial confirmará la cotización de implementación y activación contigo.
-              </p>
+                  {addonQuote.withinAcquiredCapacity ? (
+                    <div style={{ marginTop: '8px', padding: '8px 10px', borderRadius: '8px', background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', fontWeight: 700, fontSize: '12.5px' }}>
+                      ✓ Cubierto por tu capacidad ya adquirida ({addonQuote.currentAcquiredBlocks} {addonQuote.currentAcquiredBlocks === 1 ? 'bloque' : 'bloques'} = hasta {addonQuote.currentAcquiredCapacity} sucursales). Costo adicional hoy: US$0.00.
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px solid #e2e8f0', marginTop: '6px', color: '#0f172a' }}>
+                        <span>Bloques adicionales a contratar hoy (+{addonQuote.additionalBlocksToBuy} {addonQuote.additionalBlocksToBuy === 1 ? 'bloque' : 'bloques'}, prorrateo {addonQuote.remainingDays} días)</span>
+                        <strong>{formatMinor(addonQuote.totalUsdMinor, 'USD')}</strong>
+                      </div>
+                      {addonQuote.fxRate?.rateFormatted && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', color: '#475569', fontSize: '12px' }}>
+                          <span>Total a cobrar hoy en DOP (Tasa {addonQuote.fxRate.rateFormatted})</span>
+                          <strong style={{ color: '#0f172a', fontSize: '14px' }}>{formatMinor(addonQuote.totalDopMinor, 'DOP')} DOP</strong>
+                        </div>
+                      )}
+
+                      <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
+                        <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#475569', marginBottom: '6px', textTransform: 'uppercase' }}>
+                          Método de pago para confirmar contratación
+                        </div>
+                        {defaultPm ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', cursor: 'pointer' }}>
+                              <input
+                                type="radio"
+                                name="addonPmChoice"
+                                value="saved_card"
+                                checked={addonPaymentChoice === 'saved_card'}
+                                onChange={() => setAddonPaymentChoice('saved_card')}
+                              />
+                              <span>Tarjeta guardada: {String(defaultPm.brand || 'CARD').toUpperCase()} •••• {defaultPm.last4}</span>
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', cursor: 'pointer' }}>
+                              <input
+                                type="radio"
+                                name="addonPmChoice"
+                                value="cardnet"
+                                checked={addonPaymentChoice === 'cardnet'}
+                                onChange={() => setAddonPaymentChoice('cardnet')}
+                              />
+                              <span>Pagar con otra tarjeta vía pasarela CardNet</span>
+                            </label>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '12px', color: '#475569' }}>
+                            Se abrirá la pasarela oficial CardNet para completar el pago.
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : null}
 
               <div className="sb-modal-footer">
                 <button
@@ -1273,7 +1515,6 @@ export default function SaasBillingModule() {
                   className="sb-btn"
                   onClick={() => {
                     setShowAddonModal(false);
-                    setSelectedBranchIds([]);
                   }}
                   disabled={requestingAddon}
                 >
@@ -1282,9 +1523,112 @@ export default function SaasBillingModule() {
                 <button
                   type="submit"
                   className="sb-btn sb-btn-primary"
-                  disabled={requestingAddon || (branches.length > 0 && selectedBranchIds.length === 0)}
+                  disabled={requestingAddon || addonQuoteLoading || selectedBranchIds.length === 0}
                 >
-                  {requestingAddon ? 'Enviando...' : 'Confirmar solicitud'}
+                  {requestingAddon
+                    ? 'Procesando...'
+                    : addonQuote?.withinAcquiredCapacity
+                      ? 'Guardar sucursales asignadas (Sin cargo)'
+                      : addonQuote
+                        ? `Confirmar y contratar (${formatMinor(addonQuote.totalDopMinor, 'DOP')})`
+                        : 'Confirmar contratación'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Extra User Seats Contracting Modal */}
+      {showExtraUsersModal && (
+        <div
+          className="sb-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sb-extra-users-modal-title"
+        >
+          <div className="sb-modal-card" style={{ maxWidth: '520px' }}>
+            <div className="sb-modal-header">
+              <h3 id="sb-extra-users-modal-title">Contratar usuarios adicionales</h3>
+              <button
+                type="button"
+                className="sb-modal-close"
+                onClick={() => !contractingSeats && setShowExtraUsersModal(false)}
+                aria-label="Cerrar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="sb-meta-text" style={{ marginBottom: '12px' }}>
+              Cada licencia de sucursal incluye 3 usuarios facturables. Puedes ampliar tu capacidad contratando asientos de usuario adicionales (+US$30/mes por usuario).
+            </p>
+
+            <form onSubmit={handleContractExtraSeats}>
+              <div className="sb-field" style={{ marginBottom: '14px' }}>
+                <label htmlFor="sb-extra-seats-input">Cantidad de usuarios adicionales a contratar</label>
+                <input
+                  id="sb-extra-seats-input"
+                  type="number"
+                  min={1}
+                  max={50}
+                  className="sb-input"
+                  value={extraSeatsToBuy}
+                  onChange={(e) => {
+                    const val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                    setExtraSeatsToBuy(val);
+                    fetchSeatsQuote(val);
+                  }}
+                />
+              </div>
+
+              {seatsQuoteError && (
+                <div className="sb-alert sb-alert-error" role="alert" style={{ marginBottom: '12px' }}>
+                  <AlertCircle size={16} />
+                  <span>{seatsQuoteError}</span>
+                </div>
+              )}
+
+              {seatsQuoteLoading ? (
+                <div style={{ padding: '12px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                  Calculando cotización prorrateada...
+                </div>
+              ) : seatsQuote ? (
+                <div style={{ border: '1px solid #cbd5e1', borderRadius: '10px', padding: '12px', background: '#f8fafc', marginBottom: '14px', fontSize: '0.86rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span>Capacidad actual de usuarios</span>
+                    <strong>{seatsQuote.currentMaxUsers} usuarios</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span>Nueva capacidad tras contratar (+{seatsQuote.additionalSeats})</span>
+                    <strong>{seatsQuote.newMaxUsers} usuarios</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span>Importe prorrateado ({seatsQuote.remainingDays} días restantes)</span>
+                    <strong>{formatMinor(seatsQuote.totalUsdMinor, 'USD')}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px solid #e2e8f0', marginTop: '6px' }}>
+                    <strong>Total a cobrar hoy (Tasa {seatsQuote.fxRate?.rateFormatted})</strong>
+                    <strong>{formatMinor(seatsQuote.totalDopMinor, 'DOP')} DOP</strong>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="sb-modal-footer">
+                <button
+                  type="button"
+                  className="sb-btn"
+                  onClick={() => setShowExtraUsersModal(false)}
+                  disabled={contractingSeats}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="sb-btn sb-btn-primary"
+                  disabled={contractingSeats || seatsQuoteLoading || !seatsQuote}
+                >
+                  {contractingSeats ? 'Procesando...' : 'Confirmar y contratar'}
                 </button>
               </div>
             </form>

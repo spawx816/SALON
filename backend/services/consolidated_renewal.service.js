@@ -90,7 +90,19 @@ class ConsolidatedRenewalService {
     );
 
     let addonBranches = Math.max(0, Number(sub.addon_branches_count || 0));
-    if (addonBranches === 0) {
+    let addonBlocks = Math.max(0, Number(sub.addon_blocks_count || 0));
+    const [ovRows] = await this.pool.query(
+      `SELECT is_enabled, enabled_branch_ids, COALESCE(acquired_blocks, 0) AS acquired_blocks
+       FROM tenant_feature_overrides
+       WHERE tenant_id = ? AND feature_key = ? AND (expires_at IS NULL OR expires_at > NOW())
+       LIMIT 1`,
+      [tenantId, SAAS_ADDONS.MEMBERSHIPS]
+    ).catch(() => [[]]);
+    if (ovRows?.[0]?.is_enabled) {
+      const ovBranches = Array.isArray(ovRows[0].enabled_branch_ids) ? ovRows[0].enabled_branch_ids.length : addonBranches;
+      addonBranches = Math.max(addonBranches, ovBranches);
+      addonBlocks = Math.max(addonBlocks, Number(ovRows[0].acquired_blocks || 0));
+    } else if (addonBranches === 0) {
       const [entRows] = await this.pool.query(
         `SELECT enabled FROM tenant_entitlements WHERE tenant_id = ? AND feature_code = ? LIMIT 1`,
         [tenantId, SAAS_ADDONS.MEMBERSHIPS]
@@ -100,15 +112,19 @@ class ConsolidatedRenewalService {
       }
     }
     addonBranches = Math.min(billableBranches, addonBranches);
+    if (addonBranches > 0 || addonBlocks > 0) {
+      addonBlocks = Math.max(addonBlocks, Math.ceil(Math.max(1, addonBranches) / 3));
+    }
+    const addonBranchCapacity = addonBlocks * 3;
 
     const pricing = getConfiguredPricing();
     const branchUsd = Number(pricing?.principal?.usd ?? 99);
     const extraUserUsd = Number(pricing?.principal?.extraUserUsd ?? 30);
-    const addonUsd = Number(pricing?.addons?.memberships?.usd ?? 99);
+    const addonBlockUsd = Number(pricing?.addons?.memberships?.usd ?? 99);
 
     const branchUsdMinor = BigInt(Math.round(branchUsd * 100)) * BigInt(billableBranches);
     const extraUserUsdMinor = BigInt(Math.round(extraUserUsd * 100)) * BigInt(extraUsers);
-    const addonUsdMinor = BigInt(Math.round(addonUsd * 100)) * BigInt(addonBranches);
+    const addonUsdMinor = BigInt(Math.round(addonBlockUsd * 100)) * BigInt(addonBlocks);
     const subtotalUsdMinor = branchUsdMinor + extraUserUsdMinor + addonUsdMinor;
 
     const fxRate = fxRateOverride || (await this.fxRateService.requireCurrentRate('USD_DOP'));
@@ -147,7 +163,7 @@ class ConsolidatedRenewalService {
     if (addonDopMinor > 0n) {
       lineItems.push({
         item_type: 'ADDON_MEMBERSHIPS',
-        description: `Add-on Membresías B2C (${addonBranches} ${addonBranches === 1 ? 'sucursal' : 'sucursales'})`,
+        description: `Add-on Membresías B2C (${addonBlocks} ${addonBlocks === 1 ? 'bloque' : 'bloques'} · hasta ${addonBranchCapacity} sucursales)`,
         amount_minor: addonDopMinor,
         usd_minor: addonUsdMinor.toString(),
       });
@@ -182,6 +198,8 @@ class ConsolidatedRenewalService {
       billableBranches,
       extraUsers,
       addonBranches,
+      addonBlocks,
+      addonBranchCapacity,
       fxSnapshot: {
         pair: 'USD_DOP',
         rate: parsedRate.rateNumber,

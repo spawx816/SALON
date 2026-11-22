@@ -7,9 +7,16 @@ import {
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useNotification } from '../../context/NotificationContext';
+import { useAuth } from '../../context/AuthContext';
+import { hasUiPermission } from '../../utils/rbacCatalog';
 
 export default function ExpensesModule() {
   const { showNotification } = useNotification();
+  const { user } = useAuth();
+  const canManageExpenses = hasUiPermission(user, 'accounting.expenses.manage');
+  const canPayExpenses = hasUiPermission(user, 'accounting.expenses.pay');
+  const canVoidExpenses = hasUiPermission(user, 'accounting.expenses.void');
+  const canWriteExpenses = canManageExpenses || canPayExpenses;
   const formRef = useRef(null);
 
   // Estados de carga y datos
@@ -510,7 +517,8 @@ export default function ExpensesModule() {
         </span>
       </div>
 
-      {/* 2. CARD TOP: Formulario «Nuevo egreso» */}
+      {/* 2. CARD TOP: Formulario «Nuevo egreso» (solo si tiene permiso de crear/editar o pagar) */}
+      {canWriteExpenses && (
       <div ref={formRef} style={{
         background: '#ffffff',
         borderRadius: '20px',
@@ -1200,6 +1208,7 @@ export default function ExpensesModule() {
           </div>
         </div>
       </div>
+      )}
 
       {/* 3. CARD BOTTOM: Listado «Egresos registrados» */}
       <div style={{
@@ -1217,31 +1226,33 @@ export default function ExpensesModule() {
             </h2>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              if (formRef.current) {
-                formRef.current.scrollIntoView({ behavior: 'smooth' });
-              }
-            }}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              padding: '0.55rem 1.15rem',
-              borderRadius: '10px',
-              border: 'none',
-              background: '#0284c7',
-              color: '#ffffff',
-              fontSize: '0.88rem',
-              fontWeight: 800,
-              cursor: 'pointer',
-              boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)'
-            }}
-          >
-            <Plus size={16} strokeWidth={2.5} />
-            <span>Nuevo egreso</span>
-          </button>
+          {canWriteExpenses && (
+            <button
+              type="button"
+              onClick={() => {
+                if (formRef.current) {
+                  formRef.current.scrollIntoView({ behavior: 'smooth' });
+                }
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.55rem 1.15rem',
+                borderRadius: '10px',
+                border: 'none',
+                background: '#0284c7',
+                color: '#ffffff',
+                fontSize: '0.88rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)'
+              }}
+            >
+              <Plus size={16} strokeWidth={2.5} />
+              <span>Nuevo egreso</span>
+            </button>
+          )}
         </div>
 
         {/* Barra de filtros idéntica al boceto */}
@@ -1513,50 +1524,54 @@ export default function ExpensesModule() {
 
                             {!isVoided && (
                               <>
-                                <button
-                                  type="button"
-                                  onClick={() => handleEditClick(r)}
-                                  style={{
-                                    width: '100%',
-                                    padding: '0.5rem 0.85rem',
-                                    background: 'none',
-                                    border: 'none',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.5rem',
-                                    fontSize: '0.82rem',
-                                    fontWeight: 600,
-                                    color: '#0284c7',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  <Edit3 size={14} /> Editar
-                                </button>
+                                {canWriteExpenses && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditClick(r)}
+                                    style={{
+                                      width: '100%',
+                                      padding: '0.5rem 0.85rem',
+                                      background: 'none',
+                                      border: 'none',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.5rem',
+                                      fontSize: '0.82rem',
+                                      fontWeight: 600,
+                                      color: '#0284c7',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    <Edit3 size={14} /> Editar
+                                  </button>
+                                )}
 
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setOpenActionMenuId(null);
-                                    setVoidingExpense(r);
-                                    setVoidReason('');
-                                    setShowVoidModal(true);
-                                  }}
-                                  style={{
-                                    width: '100%',
-                                    padding: '0.5rem 0.85rem',
-                                    background: 'none',
-                                    border: 'none',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.5rem',
-                                    fontSize: '0.82rem',
-                                    fontWeight: 600,
-                                    color: '#dc2626',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  <Trash2 size={14} /> Anular
-                                </button>
+                                  {canVoidExpenses && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenActionMenuId(null);
+                                        setVoidingExpense(r);
+                                        setVoidReason('');
+                                        setShowVoidModal(true);
+                                      }}
+                                      style={{
+                                        width: '100%',
+                                        padding: '0.5rem 0.85rem',
+                                        background: 'none',
+                                        border: 'none',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem',
+                                        fontSize: '0.82rem',
+                                        fontWeight: 600,
+                                        color: '#dc2626',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      <Trash2 size={14} /> Anular
+                                    </button>
+                                  )}
                               </>
                             )}
                           </div>

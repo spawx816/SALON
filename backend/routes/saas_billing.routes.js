@@ -197,12 +197,12 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
         hasEligiblePaymentMethod,
         paymentMethod: defaultPm
           ? {
-              id: defaultPm.id,
-              brand: defaultPm.brand,
-              last4: defaultPm.last4,
-              expMonth: defaultPm.exp_month,
-              expYear: defaultPm.exp_year,
-            }
+            id: defaultPm.id,
+            brand: defaultPm.brand,
+            last4: defaultPm.last4,
+            expMonth: defaultPm.exp_month,
+            expYear: defaultPm.exp_year,
+          }
           : null,
         workerEnabled,
         gatewayConfigured,
@@ -305,7 +305,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
          SET status = 'cancelled', locked_until = NULL, updated_at = NOW()
          WHERE tenant_id = ? AND status IN ('pending', 'retry_scheduled', 'reconciling')`,
         [tenantId]
-      ).catch(() => {});
+      ).catch(() => { });
 
       res.json({
         success: true,
@@ -334,13 +334,19 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
         : [];
 
       let tenantBranches = [];
+      let licensedBranches = 1;
       if (pool && typeof pool.query === 'function') {
+        const [tRows] = await pool.query(
+          'SELECT COALESCE(licensed_branches, max_branches, 1) AS licensed_branches FROM tenants WHERE id = ? LIMIT 1',
+          [tenantId]
+        );
+        licensedBranches = Math.max(1, Number(tRows?.[0]?.licensed_branches || 1));
         const [rows] = await pool.query(
-          'SELECT id::text as id, name FROM branches WHERE tenant_id = ? AND COALESCE(is_active, true) = true ORDER BY is_main DESC, name ASC',
+          'SELECT id::text as id, name, COALESCE(is_active, true) as is_active FROM branches WHERE tenant_id = ? ORDER BY is_main DESC, name ASC',
           [tenantId]
         );
         if (Array.isArray(rows)) {
-          tenantBranches = rows.map((r) => ({ id: String(r.id), name: r.name }));
+          tenantBranches = rows.map((r) => ({ id: String(r.id), name: r.name, is_active: Boolean(r.is_active) }));
         }
       }
 
@@ -352,19 +358,36 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
           code: 'INVALID_BRANCH_SELECTION',
         });
       }
+      const inactiveBranch = requestedIds.find((id) => !tenantBranchMap.get(id)?.is_active);
+      if (inactiveBranch) {
+        return res.status(400).json({
+          error: 'Cada sucursal seleccionada para Membresías debe tener una licencia principal válida.',
+          code: 'BRANCH_LICENSE_REQUIRED',
+        });
+      }
 
-      if (tenantBranches.length > 0 && requestedIds.length === 0) {
+      const activeBranches = tenantBranches.filter((b) => b.is_active);
+      if (activeBranches.length > 0 && requestedIds.length === 0) {
         return res.status(400).json({
           error: 'Debes seleccionar al menos una sucursal habilitada para solicitar el módulo.',
           code: 'BRANCH_SELECTION_REQUIRED',
         });
       }
+      if (requestedIds.length > licensedBranches) {
+        return res.status(400).json({
+          error: `Seleccionaste ${requestedIds.length} sucursales, pero tu cuenta tiene ${licensedBranches} licencia(s) principal(es) contratada(s).`,
+          code: 'BRANCH_LICENSE_REQUIRED',
+        });
+      }
 
-      const selectedBranches = requestedIds.map((id) => tenantBranchMap.get(id));
+      const selectedBranches = requestedIds.map((id) => ({ id, name: tenantBranchMap.get(id).name }));
       const pricing = getConfiguredPricing();
-      const unitPriceUsd = pricing?.addons?.memberships?.usd ?? 99;
+      const unitBlockPriceUsd = pricing?.addons?.memberships?.usd ?? 99;
+      const branchesPerBlock = pricing?.addons?.memberships?.branchesPerBlock ?? 3;
       const branchCount = selectedBranches.length;
-      const monthlyUsd = branchCount * unitPriceUsd;
+      const blocksRequired = Math.max(1, Math.ceil(Math.max(1, branchCount) / branchesPerBlock));
+      const maxBranchesCapacity = blocksRequired * branchesPerBlock;
+      const monthlyUsd = blocksRequired * unitBlockPriceUsd;
 
       const sub = await lifecycleService.getSubscription(tenantId);
       const actorId = req.user?.id || 'owner';
@@ -380,7 +403,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
           sub?.plan_code || 'PRINCIPAL',
           sub?.status || 'active',
           sub?.status || 'active',
-          `addon_request:${addonCode}: branches=[${branchSummary}] monthly_usd=${monthlyUsd} | ${note}`,
+          `addon_request:${addonCode}: blocks=${blocksRequired} capacity=${maxBranchesCapacity} branches=[${branchSummary}] monthly_usd=${monthlyUsd} | ${note}`,
           actorId,
         ]
       );
@@ -388,18 +411,157 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
         success: true,
         breakdown: {
           addonCode,
-          unitPriceUsd,
+          billingUnit: 'per_block_up_to_3_branches',
+          branchesPerBlock,
+          blocksRequired,
+          maxBranchesCapacity,
+          availableBranchSlots: Math.max(0, maxBranchesCapacity - branchCount),
+          unitPriceUsd: unitBlockPriceUsd,
+          unitBlockPriceUsd,
           branchCount,
           monthlyUsd,
           branches: selectedBranches,
           setupFeeQuotedSeparately: true,
           pricingDisplay: pricing?.addons?.memberships?.pricingDisplay,
         },
-        message: `Solicitud registrada para ${branchCount} sucursal(es) (US$${monthlyUsd}/mes + implementación e integración con pasarela de pago por separado). Nuestro equipo comercial te contactará para coordinar la activación.`,
+        message: `Solicitud registrada para ${branchCount} sucursal(es) (${blocksRequired} ${blocksRequired === 1 ? 'bloque' : 'bloques'} de hasta ${maxBranchesCapacity} sucursales · US$${monthlyUsd}/mes + implementación e integración con pasarela de pago por separado).`,
       });
     } catch (err) {
       console.error('[SAAS ADDON REQUEST ERROR]:', err);
       res.status(500).json({ error: 'No se pudo registrar la solicitud del módulo adicional.' });
+    }
+  });
+
+  // 1c. Cotizar contratación o ampliación de capacidad del add-on Suscripciones/Membresías B2C por bloques de hasta 3 sucursales
+  router.post('/addons/:addonCode/quote', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
+      const { addonCode } = req.params;
+      if (addonCode !== SAAS_ADDONS.MEMBERSHIPS) {
+        return res.status(400).json({ error: 'Add-on no reconocido', code: 'INVALID_ADDON_CODE' });
+      }
+      if (!checkoutService || typeof checkoutService.calculateProratedAddonBlocksQuote !== 'function') {
+        return res.status(503).json({ error: 'Servicio de cotización no disponible', code: 'SERVICE_UNAVAILABLE' });
+      }
+      const quote = await checkoutService.calculateProratedAddonBlocksQuote({
+        tenantId,
+        branchIds: req.body?.branchIds || [],
+      });
+      let defaultPaymentMethod = null;
+      if (billingRepo && typeof billingRepo.getDefaultPaymentMethod === 'function') {
+        const pm = await billingRepo.getDefaultPaymentMethod(tenantId);
+        if (pm && pm.token_reference) {
+          defaultPaymentMethod = {
+            id: pm.id,
+            brand: pm.brand,
+            last4: pm.last4,
+            expMonth: pm.exp_month,
+            expYear: pm.exp_year,
+          };
+        }
+      }
+      res.json({ success: true, quote, defaultPaymentMethod });
+    } catch (err) {
+      res.status(err.statusCode || 400).json({
+        success: false,
+        error: err.message,
+        code: err.code || 'ADDON_QUOTE_FAILED',
+      });
+    }
+  });
+
+  // 1d. Contratar o actualizar sucursales habilitadas del add-on Suscripciones/Membresías B2C por bloques de hasta 3 sucursales
+  router.post('/addons/:addonCode/contract', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
+      const { addonCode } = req.params;
+      if (addonCode !== SAAS_ADDONS.MEMBERSHIPS) {
+        return res.status(400).json({ error: 'Add-on no reconocido', code: 'INVALID_ADDON_CODE' });
+      }
+      if (!checkoutService || typeof checkoutService.contractMembershipsAddonBlocks !== 'function') {
+        return res.status(503).json({ error: 'Servicio de contratación no disponible', code: 'SERVICE_UNAVAILABLE' });
+      }
+      const origin = req.headers.origin || (req.headers.host ? `${req.protocol}://${req.headers.host}` : null);
+      const result = await checkoutService.contractMembershipsAddonBlocks({
+        tenantId,
+        branchIds: req.body?.branchIds || [],
+        paymentMethodChoice: req.body?.paymentMethodChoice || 'saved_card',
+        actorUserId: req.auth?.userId || req.user?.id || 'owner',
+        clientIp: req.ip,
+        returnBaseUrl: origin,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.statusCode || 400).json({
+        success: false,
+        error: err.message,
+        code: err.code || 'ADDON_CONTRACT_FAILED',
+        requiresAlternativePayment: err.statusCode === 402,
+      });
+    }
+  });
+
+  // 1e. Cotizar y contratar asientos de usuarios adicionales (+US$30/mes por asiento)
+  router.post('/seats/quote', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
+      if (!checkoutService || typeof checkoutService.calculateProratedExtraSeatsQuote !== 'function') {
+        return res.status(503).json({ error: 'Servicio de cotización no disponible', code: 'SERVICE_UNAVAILABLE' });
+      }
+      const quote = await checkoutService.calculateProratedExtraSeatsQuote({
+        tenantId,
+        additionalSeats: req.body?.additionalSeats || 1,
+      });
+      let defaultPaymentMethod = null;
+      if (billingRepo && typeof billingRepo.getDefaultPaymentMethod === 'function') {
+        const pm = await billingRepo.getDefaultPaymentMethod(tenantId);
+        if (pm && pm.token_reference) {
+          defaultPaymentMethod = {
+            id: pm.id,
+            brand: pm.brand,
+            last4: pm.last4,
+            expMonth: pm.exp_month,
+            expYear: pm.exp_year,
+          };
+        }
+      }
+      res.json({ success: true, quote, defaultPaymentMethod });
+    } catch (err) {
+      res.status(err.statusCode || 400).json({
+        success: false,
+        error: err.message,
+        code: err.code || 'SEATS_QUOTE_FAILED',
+      });
+    }
+  });
+
+  router.post('/seats/contract', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
+      if (!checkoutService || typeof checkoutService.contractExtraSeats !== 'function') {
+        return res.status(503).json({ error: 'Servicio de contratación no disponible', code: 'SERVICE_UNAVAILABLE' });
+      }
+      const origin = req.headers.origin || (req.headers.host ? `${req.protocol}://${req.headers.host}` : null);
+      const result = await checkoutService.contractExtraSeats({
+        tenantId,
+        additionalSeats: req.body?.additionalSeats || 1,
+        paymentMethodChoice: req.body?.paymentMethodChoice || 'saved_card',
+        actorUserId: req.auth?.userId || req.user?.id || 'owner',
+        clientIp: req.ip,
+        returnBaseUrl: origin,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.statusCode || 400).json({
+        success: false,
+        error: err.message,
+        code: err.code || 'SEATS_CONTRACT_FAILED',
+        requiresAlternativePayment: err.statusCode === 402,
+      });
     }
   });
 

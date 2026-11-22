@@ -40,6 +40,8 @@ const { up: upPrintTemplatesAndTurnTickets } = require('./20261116_print_templat
 const { up: upKioskDevicesHardening } = require('./20261117_kiosk_devices_hardening.cjs');
 const { up: upScheduleOverridesUnique } = require('./20261120_schedule_overrides_unique_tenant_emp_date.cjs');
 const { up: upReconcileSaasBillingDrift } = require('./20261121_reconcile_saas_billing_schema_drift.cjs');
+const { up: upOperationalAccountingAndAddonBlocks } = require('./20261122_operational_accounting_and_addon_blocks.cjs');
+const { up: upRbacAccountingAndRoleTemplates } = require('./20261123_rbac_accounting_and_role_templates.cjs');
 
 const MIGRATION_SOURCE_FILES = Object.freeze({
   '20261100_canonical_baseline_schema': path.resolve(__dirname, '../backups/independent_schema.sql'),
@@ -69,7 +71,9 @@ const MIGRATION_SOURCE_FILES = Object.freeze({
   '20261116_print_templates_and_turn_tickets': path.resolve(__dirname, './20261116_print_templates_and_turn_tickets.cjs'),
   '20261117_kiosk_devices_hardening': path.resolve(__dirname, './20261117_kiosk_devices_hardening.cjs'),
   '20261120_schedule_overrides_unique_tenant_emp_date': path.resolve(__dirname, './20261120_schedule_overrides_unique_tenant_emp_date.cjs'),
-  '20261121_reconcile_saas_billing_schema_drift': path.resolve(__dirname, './20261121_reconcile_saas_billing_schema_drift.cjs')
+  '20261121_reconcile_saas_billing_schema_drift': path.resolve(__dirname, './20261121_reconcile_saas_billing_schema_drift.cjs'),
+  '20261122_operational_accounting_and_addon_blocks': path.resolve(__dirname, './20261122_operational_accounting_and_addon_blocks.cjs'),
+  '20261123_rbac_accounting_and_role_templates': path.resolve(__dirname, './20261123_rbac_accounting_and_role_templates.cjs')
 });
 
 function computeMigrationChecksum(version, customContent = null) {
@@ -337,6 +341,20 @@ const MIGRATIONS_REGISTRY = [
     description: 'Reconciliación incremental de deriva de esquema SaaS billing, backfills seguros sin activar recurrencia, saas_renewal_runs, saas_checkout_orders y checksums',
     execute: async (targetPool, targetSchema) => {
       return upReconcileSaasBillingDrift(targetPool, targetSchema);
+    }
+  },
+  {
+    version: '20261122_operational_accounting_and_addon_blocks',
+    description: 'Contabilidad operativa (expenses, visits.itbis_cents, services.tax_rate/tax_mode) y bloques de capacidad de hasta 3 sucursales para Add-on Membresías',
+    execute: async (targetPool, targetSchema) => {
+      return upOperationalAccountingAndAddonBlocks(targetPool, targetSchema);
+    }
+  },
+  {
+    version: '20261123_rbac_accounting_and_role_templates',
+    description: 'Metadatos estables de plantillas de roles predefinidos por empresa (template_key, template_version, is_customized)',
+    execute: async (targetPool, targetSchema) => {
+      return upRbacAccountingAndRoleTemplates(targetPool, targetSchema);
     }
   }
 ];

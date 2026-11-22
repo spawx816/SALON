@@ -1,14 +1,15 @@
 'use strict';
 
 /**
- * Catálogo Canónico de Permisos, Alias de Roles y Políticas de Delegación RBAC — Etereas
+ * Catálogo Canónico de Permisos, Alias de Roles, Plantillas Predefinidas y Políticas RBAC — Etereas
  *
  * Principios de diseño:
  * 1. Separación estricta: Rol de Sistema (users.role) vs Permisos Personalizados (roles.permisos)
  *    vs Alcance de Sucursales (authorized_branch_ids / all_branches_access) vs Add-ons (entitlements).
  * 2. Fail-closed: cualquier permiso desconocido o estructura inválida se ignora / deniega.
  * 3. Ningún permiso personalizado concede SuperAdmin, propiedad de empresa (Owner),
- *    gestión comercial SaaS ni activación de add-ons no contratados.
+ *    gestión comercial SaaS ni activación de add-ons o integraciones electrónicas no contratadas.
+ * 4. Consultar (*.view) NUNCA concede crear, editar, pagar, aprobar, anular, configurar ni exportar.
  */
 
 const KIOSK_SYSTEM_ROLE = 'kiosco_asistencia';
@@ -107,8 +108,8 @@ const PERMISSION_MODULES = Object.freeze([
       { key: 'clients.view', action: 'view', label: 'Consultar Directorio de Clientes', legacyKey: 'manage_clients' },
       { key: 'clients.create', action: 'create', label: 'Registrar Clientes', legacyKey: 'manage_clients', dependsOn: ['clients.view'] },
       { key: 'clients.edit', action: 'edit', label: 'Editar Perfil de Clientes', legacyKey: 'manage_clients', dependsOn: ['clients.view'] },
-      { key: 'memberships.plans.manage', action: 'edit', label: 'Administrar Planes y Membresías (requiere add-on)', legacyKey: 'manage_plans', requiresAddon: 'memberships' },
-      { key: 'memberships.contracts.view', action: 'view', label: 'Visualizar Contratos Digitales (requiere add-on)', legacyKey: 'view_contracts', requiresAddon: 'memberships' },
+      { key: 'memberships.plans.manage', action: 'edit', label: 'Administrar Planes y Membresías (Add-on)', legacyKey: 'manage_plans', requiresAddon: 'memberships' },
+      { key: 'memberships.contracts.view', action: 'view', label: 'Visualizar Contratos Digitales (Add-on)', legacyKey: 'view_contracts', requiresAddon: 'memberships' },
       { key: 'surveys.manage', action: 'edit', label: 'Ver y Gestionar Encuestas', legacyKey: 'manage_surveys' },
     ],
   },
@@ -120,8 +121,8 @@ const PERMISSION_MODULES = Object.freeze([
       { key: 'services.manage', action: 'edit', label: 'Crear, Editar y Eliminar Servicios', legacyKey: 'manage_services', dependsOn: ['services.view'] },
       { key: 'inventory.view', action: 'view', label: 'Consultar Inventario y Stock', legacyKey: 'manage_inventory' },
       { key: 'inventory.manage', action: 'edit', label: 'Movimientos, Compras y Transferencias de Inventario', legacyKey: 'manage_inventory', dependsOn: ['inventory.view'] },
-      { key: 'marketing.view', action: 'view', label: 'Consultar Campañas de Marketing (requiere add-on)', legacyKey: 'manage_marketing', requiresAddon: 'marketing' },
-      { key: 'marketing.manage', action: 'edit', label: 'Crear y Enviar Campañas (requiere add-on)', legacyKey: 'manage_marketing', requiresAddon: 'marketing', dependsOn: ['marketing.view'] },
+      { key: 'marketing.view', action: 'view', label: 'Consultar Campañas de Marketing', legacyKey: 'manage_marketing', includedInPlan: 'Plan Principal' },
+      { key: 'marketing.manage', action: 'edit', label: 'Crear y Enviar Campañas de Marketing', legacyKey: 'manage_marketing', includedInPlan: 'Plan Principal', dependsOn: ['marketing.view'] },
     ],
   },
   {
@@ -141,6 +142,22 @@ const PERMISSION_MODULES = Object.freeze([
     ],
   },
   {
+    module: 'accounting',
+    label: 'Contabilidad',
+    description: 'Consultar solo permite visualización; crear, editar, pagar, anular, configurar y exportar requieren permisos explícitos independientes.',
+    permissions: [
+      { key: 'accounting.view', action: 'view', label: 'Consultar Contabilidad (Egresos, Bancos, Préstamos, Notas de Crédito, Secuencias y Reportes 606/607/IT-1)', legacyKey: null },
+      { key: 'accounting.expenses.manage', action: 'edit', label: 'Crear y Editar Egresos, Conceptos, Bancos, Cuentas y Préstamos', legacyKey: null, dependsOn: ['accounting.view'] },
+      { key: 'accounting.expenses.pay', action: 'approve', label: 'Aprobar y Registrar Pagos de Egresos y Préstamos', legacyKey: null, sensitive: true, dependsOn: ['accounting.view'] },
+      { key: 'accounting.expenses.void', action: 'delete', label: 'Anular Egresos y Eliminar Registros de Compras 606', legacyKey: null, sensitive: true, dependsOn: ['accounting.view'] },
+      { key: 'accounting.purchases_606.manage', action: 'edit', label: 'Registrar y Editar Compras y Proveedores (Reporte 606)', legacyKey: null, dependsOn: ['accounting.view'] },
+      { key: 'accounting.credit_notes.manage', action: 'create', label: 'Gestionar Notas de Crédito (sin transmisión electrónica DGII)', legacyKey: null, sensitive: true, dependsOn: ['accounting.view'] },
+      { key: 'accounting.sequences.manage', action: 'configure', label: 'Configurar Secuencias de Comprobantes (NCF)', legacyKey: null, sensitive: true, dependsOn: ['accounting.view'] },
+      { key: 'accounting.it1.manage', action: 'configure', label: 'Configurar Parámetros y Guardar Borradores IT-1', legacyKey: null, dependsOn: ['accounting.view'] },
+      { key: 'accounting.export', action: 'export', label: 'Exportar Reportes Contables y Fiscales (606, 607, IT-1, CSV/TXT/PDF)', legacyKey: null, sensitive: true, dependsOn: ['accounting.view'] },
+    ],
+  },
+  {
     module: 'admin_analytics',
     label: 'Reportes, Sucursales y Seguridad',
     permissions: [
@@ -152,6 +169,153 @@ const PERMISSION_MODULES = Object.freeze([
     ],
   },
 ]);
+
+/**
+ * Plantillas Canónicas de Roles Predefinidos por Empresa (Principio de Mínimo Privilegio).
+ * - Identificador estable `template_key` y versión `template_version`.
+ * - Nunca incluyen gestión de roles/seguridad crítica ni facturación SaaS.
+ * - Separan la generación de nómina (RRHH) de su aprobación y pago (Contabilidad / Propietario).
+ */
+const PREDEFINED_ROLE_TEMPLATES = Object.freeze([
+  {
+    template_key: 'operational_admin',
+    template_version: 1,
+    nombre: 'Administrador operativo',
+    description: 'Supervisión operativa diaria de ventas, clientes, inventario, personal y reportes sin gestión de roles, seguridad crítica ni facturación SaaS.',
+    permissions: {
+      'pos.visits.view': true,
+      'pos.visits.create': true,
+      'pos.cash_registers.view': true,
+      'pos.cash_registers.manage': true,
+      'pos.discounts.apply': true,
+      'pos.invoices.view': true,
+      'pos.invoices.void': true,
+      'clients.view': true,
+      'clients.create': true,
+      'clients.edit': true,
+      'surveys.manage': true,
+      'services.view': true,
+      'services.manage': true,
+      'inventory.view': true,
+      'inventory.manage': true,
+      'marketing.view': true,
+      'marketing.manage': true,
+      'staff.view': true,
+      'staff.manage': true,
+      'commissions.view': true,
+      'commissions.approve': true,
+      'payroll.view': true,
+      'payroll.generate': true,
+      'attendance.view': true,
+      'attendance.manage': true,
+      'accounting.view': true,
+      'accounting.expenses.manage': true,
+      'accounting.purchases_606.manage': true,
+      'accounting.export': true,
+      'analytics.view': true,
+      'analytics.export': true,
+      'branches.manage': true,
+    },
+  },
+  {
+    template_key: 'reception_cashier',
+    template_version: 1,
+    nombre: 'Recepción/Cajero',
+    description: 'Cobro en POS, apertura/cierre de caja asignada, registro de clientes y consulta de catálogo e inventario sin anulaciones ni contabilidad.',
+    permissions: {
+      'pos.visits.view': true,
+      'pos.visits.create': true,
+      'pos.cash_registers.view': true,
+      'pos.cash_registers.manage': true,
+      'pos.invoices.view': true,
+      'clients.view': true,
+      'clients.create': true,
+      'clients.edit': true,
+      'services.view': true,
+      'inventory.view': true,
+      'attendance.view': true,
+    },
+  },
+  {
+    template_key: 'inventory_manager',
+    template_version: 1,
+    nombre: 'Encargado de inventario',
+    description: 'Gestión de stock, movimientos, compras, transferencias y catálogo de productos/servicios sin acceso a caja, nómina ni seguridad.',
+    permissions: {
+      'inventory.view': true,
+      'inventory.manage': true,
+      'services.view': true,
+      'services.manage': true,
+      'accounting.view': true,
+      'accounting.purchases_606.manage': true,
+    },
+  },
+  {
+    template_key: 'human_resources',
+    template_version: 1,
+    nombre: 'Recursos humanos',
+    description: 'Administración de colaboradores, asistencia, consulta de comisiones y generación de borradores de nómina (sin aprobar ni registrar pagos de nómina).',
+    permissions: {
+      'staff.view': true,
+      'staff.manage': true,
+      'attendance.view': true,
+      'attendance.manage': true,
+      'commissions.view': true,
+      'payroll.view': true,
+      'payroll.generate': true,
+    },
+  },
+  {
+    template_key: 'accounting',
+    template_version: 1,
+    nombre: 'Contabilidad',
+    description: 'Gestión contable y fiscal completa (egresos, compras 606, 607, IT-1, secuencias NCF, notas de crédito, exportaciones y aprobación/pago de nómina) sin gestión de seguridad ni SaaS.',
+    permissions: {
+      'accounting.view': true,
+      'accounting.expenses.manage': true,
+      'accounting.expenses.pay': true,
+      'accounting.expenses.void': true,
+      'accounting.purchases_606.manage': true,
+      'accounting.credit_notes.manage': true,
+      'accounting.sequences.manage': true,
+      'accounting.it1.manage': true,
+      'accounting.export': true,
+      'pos.invoices.view': true,
+      'pos.cash_registers.view': true,
+      'payroll.view': true,
+      'payroll.approve': true,
+      'payroll.pay': true,
+      'commissions.view': true,
+      'commissions.approve': true,
+      'analytics.view': true,
+      'analytics.export': true,
+    },
+  },
+  {
+    template_key: 'reports_viewer',
+    template_version: 1,
+    nombre: 'Consulta de reportes',
+    description: 'Solo lectura de tableros BI, contabilidad, facturas, inventario y nómina. No permite crear, editar, aprobar, pagar, anular ni exportar.',
+    permissions: {
+      'analytics.view': true,
+      'accounting.view': true,
+      'pos.invoices.view': true,
+      'pos.visits.view': true,
+      'pos.cash_registers.view': true,
+      'inventory.view': true,
+      'services.view': true,
+      'clients.view': true,
+      'payroll.view': true,
+      'commissions.view': true,
+      'staff.view': true,
+      'attendance.view': true,
+    },
+  },
+]);
+
+const PREDEFINED_TEMPLATE_MAP = new Map(
+  PREDEFINED_ROLE_TEMPLATES.map((tpl) => [tpl.template_key, tpl])
+);
 
 const ALL_CANONICAL_PERMISSIONS = Object.freeze(
   PERMISSION_MODULES.flatMap((m) => m.permissions)
@@ -251,6 +415,31 @@ function expandEffectivePermissions(rawPermissions) {
   return expanded;
 }
 
+function getPredefinedTemplate(templateKey) {
+  if (!templateKey) return null;
+  return PREDEFINED_TEMPLATE_MAP.get(String(templateKey).trim()) || null;
+}
+
+function arePermissionMapsEqual(a, b) {
+  const cleanA = sanitizePermissionsPayload(a);
+  const cleanB = sanitizePermissionsPayload(b);
+  const keysA = Object.keys(cleanA).sort();
+  const keysB = Object.keys(cleanB).sort();
+  if (keysA.length !== keysB.length) return false;
+  return keysA.every((k, idx) => k === keysB[idx] && cleanA[k] === cleanB[k]);
+}
+
+function computePermissionDiff(currentPerms, targetPerms) {
+  const cur = sanitizePermissionsPayload(currentPerms);
+  const tgt = sanitizePermissionsPayload(targetPerms);
+  const curSet = new Set(Object.keys(cur));
+  const tgtSet = new Set(Object.keys(tgt));
+  const added = [...tgtSet].filter((k) => !curSet.has(k)).sort();
+  const removed = [...curSet].filter((k) => !tgtSet.has(k)).sort();
+  const unchanged = [...tgtSet].filter((k) => curSet.has(k)).sort();
+  return { added, removed, unchanged, hasChanges: added.length > 0 || removed.length > 0 };
+}
+
 module.exports = {
   KIOSK_SYSTEM_ROLE,
   NON_BILLABLE_SYSTEM_ROLES,
@@ -258,6 +447,7 @@ module.exports = {
   VERIFIED_ROLE_ALIASES,
   ROLE_HIERARCHY,
   PERMISSION_MODULES,
+  PREDEFINED_ROLE_TEMPLATES,
   ALL_CANONICAL_PERMISSIONS,
   VALID_CANONICAL_KEYS,
   VALID_LEGACY_KEYS,
@@ -267,4 +457,7 @@ module.exports = {
   sanitizePermissionsPayload,
   permissionMapGrants,
   expandEffectivePermissions,
+  getPredefinedTemplate,
+  arePermissionMapsEqual,
+  computePermissionDiff,
 };

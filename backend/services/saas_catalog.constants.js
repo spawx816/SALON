@@ -84,8 +84,37 @@ const PRINCIPAL_PLAN_DEFAULT_USD = 99;
 const PRINCIPAL_PLAN_REFERENCE_USD = 149;
 const EXTRA_USER_DEFAULT_USD = 30;
 const MEMBERSHIPS_ADDON_DEFAULT_USD = 99;
+const MEMBERSHIPS_ADDON_BRANCHES_PER_BLOCK = 3;
 const MEMBERSHIPS_ADDON_PRICING_DISPLAY =
-  'US$99/mes por sucursal + implementación e integración con pasarela de pago';
+  'US$99/mes por bloque de capacidad de hasta 3 sucursales habilitadas + implementación e integración con pasarela de pago';
+
+function calculateMembershipsAddonBlocks(enabledBranchesCount = 0) {
+  const count = Math.max(0, parseInt(enabledBranchesCount, 10) || 0);
+  if (count <= 0) {
+    return {
+      enabledBranchesCount: 0,
+      blocksRequired: 0,
+      branchesPerBlock: MEMBERSHIPS_ADDON_BRANCHES_PER_BLOCK,
+      maxBranchesCapacity: 0,
+      availableBranchSlots: 0,
+      unitBlockPriceUsd: MEMBERSHIPS_ADDON_DEFAULT_USD,
+      monthlyTotalUsd: 0,
+    };
+  }
+  const blocksRequired = Math.ceil(count / MEMBERSHIPS_ADDON_BRANCHES_PER_BLOCK);
+  const maxBranchesCapacity = blocksRequired * MEMBERSHIPS_ADDON_BRANCHES_PER_BLOCK;
+  const availableBranchSlots = Math.max(0, maxBranchesCapacity - count);
+  const unitPrice = readConfiguredPrice('SAAS_MEMBERSHIPS_ADDON_PRICE_USD') ?? MEMBERSHIPS_ADDON_DEFAULT_USD;
+  return {
+    enabledBranchesCount: count,
+    blocksRequired,
+    branchesPerBlock: MEMBERSHIPS_ADDON_BRANCHES_PER_BLOCK,
+    maxBranchesCapacity,
+    availableBranchSlots,
+    unitBlockPriceUsd: unitPrice,
+    monthlyTotalUsd: blocksRequired * unitPrice,
+  };
+}
 
 function getConfiguredPricing() {
   const principalUsd =
@@ -110,8 +139,10 @@ function getConfiguredPricing() {
     addons: {
       memberships: {
         usd: membershipsAddonUsd,
+        usdPerBlock: membershipsAddonUsd,
+        branchesPerBlock: MEMBERSHIPS_ADDON_BRANCHES_PER_BLOCK,
         dop: membershipsAddonDop,
-        billingUnit: 'per_enabled_branch',
+        billingUnit: 'per_block_up_to_3_branches',
         setupFeeQuotedSeparately: true,
         pricingDisplay: MEMBERSHIPS_ADDON_PRICING_DISPLAY,
         isConfigured: true,
@@ -145,11 +176,12 @@ const ADDONS_CATALOG = Object.freeze([
     name: 'Suscripciones y Membresías B2C',
     price_monthly: readConfiguredPrice('SAAS_MEMBERSHIPS_ADDON_PRICE_USD') ?? MEMBERSHIPS_ADDON_DEFAULT_USD,
     price_monthly_dop: readConfiguredPrice('SAAS_MEMBERSHIPS_ADDON_PRICE_DOP'),
-    billing_unit: 'per_enabled_branch',
+    billing_unit: 'per_block_up_to_3_branches',
+    branches_per_block: MEMBERSHIPS_ADDON_BRANCHES_PER_BLOCK,
     setup_fee_quoted_separately: true,
     pricing_display: MEMBERSHIPS_ADDON_PRICING_DISPLAY,
     description:
-      'Módulo independiente para crear planes de membresía para tus clientes, gestionar contratos digitales y procesar cobros recurrentes B2C.',
+      'Módulo independiente por bloques de capacidad de hasta 3 sucursales habilitadas para crear planes de membresía, gestionar contratos digitales y procesar cobros recurrentes B2C.',
   },
 ]);
 
@@ -198,7 +230,11 @@ module.exports = {
   ADDONS_CATALOG,
   PRINCIPAL_PLAN_DEFAULT_USD,
   PRINCIPAL_PLAN_REFERENCE_USD,
+  EXTRA_USER_DEFAULT_USD,
   MEMBERSHIPS_ADDON_DEFAULT_USD,
+  MEMBERSHIPS_ADDON_BRANCHES_PER_BLOCK,
+  MEMBERSHIPS_ADDON_PRICING_DISPLAY,
+  calculateMembershipsAddonBlocks,
   getConfiguredPricing,
   normalizePlanCode,
   isValidPlanCode,

@@ -7,13 +7,18 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
   const router = express.Router();
 
   // --- Sincronización manual / background de comisiones (Batch O(1) queries) ---
+  // Por seguridad histórica, NO sobrescribe facturas que ya tienen comisiones calculadas a menos que se solicite force_recalculate=true explícitamente.
   router.post('/sync', async (req, res) => {
     try {
       const tenantId = req.tenantId;
+      const forceRecalculate = req.body?.force_recalculate === true || req.query?.force_recalculate === 'true';
       const [visitsToProcess] = await pool.query(`
         SELECT v.id, v.ticket_number, v.items_detail, v.visited_at 
         FROM visits v 
-        WHERE v.tenant_id = ? AND v.status = 'Facturado' AND v.items_detail IS NOT NULL 
+        WHERE v.tenant_id = ?
+          AND v.status = 'Facturado'
+          AND v.items_detail IS NOT NULL
+          ${forceRecalculate ? '' : 'AND NOT EXISTS (SELECT 1 FROM employee_commissions_log c WHERE c.visit_id = v.id AND c.tenant_id = v.tenant_id)'}
         ORDER BY v.visited_at DESC LIMIT 200
       `, [tenantId]);
 
@@ -24,7 +29,7 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
           await processVisitCommissions(uv.id, uv.items_detail, uv.ticket_number, uv.visited_at, tenantId);
         }
       }
-      res.json({ success: true, message: 'Comisiones sincronizadas correctamente', count: visitsToProcess.length });
+      res.json({ success: true, message: 'Comisiones sincronizadas correctamente', count: visitsToProcess.length, force_recalculate: forceRecalculate });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -276,6 +281,23 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
       } = req.body;
       if (!rule_type) return res.status(400).json({ error: 'El tipo de regla es obligatorio.' });
 
+      const cleanRuleType = String(rule_type).trim().toLowerCase();
+      const isCategoria = cleanRuleType === 'categoria';
+      const isServicio = cleanRuleType === 'servicio';
+      const isEspecial = cleanRuleType === 'especial';
+
+      const finalCategoryName = isCategoria ? (category_name ? String(category_name).trim() : null) : null;
+      const finalServiceName = (isServicio || isEspecial) ? (service_name ? String(service_name).trim() : null) : null;
+      const finalOperacion = isEspecial ? (operacion || 'Restar') : null;
+      const finalMontoAjuste = isEspecial && (finalOperacion === 'Restar' || finalOperacion === 'Sumar')
+        ? (parseFloat(monto_ajuste) || 0)
+        : 0;
+      const finalPorcentajeComision = isEspecial && finalOperacion !== 'Contar'
+        ? (parseFloat(porcentaje_comision) || parseFloat(valor) || 0)
+        : (isCategoria || isServicio ? (parseFloat(valor) || 0) : 0);
+      const finalCantidadMeta = isEspecial && finalOperacion === 'Contar' ? (parseInt(cantidad_meta, 10) || 0) : 0;
+      const finalBonoMonto = isEspecial && finalOperacion === 'Contar' ? (parseFloat(bono_monto) || 0) : 0;
+
       await pool.query(
         `INSERT INTO commission_scheme_rules (
           tenant_id, scheme_id, rule_type, category_name, service_name, tipo_calculo, valor, prioridad,
@@ -285,17 +307,17 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
         [
           tenantId,
           id,
-          rule_type,
-          category_name || null,
-          service_name || null,
+          cleanRuleType,
+          finalCategoryName,
+          finalServiceName,
           tipo_calculo || 'Porcentaje',
           parseFloat(valor) || 0,
           parseInt(prioridad) || 1,
-          operacion || (rule_type === 'especial' ? 'Restar' : null),
-          parseFloat(monto_ajuste) || 0,
-          parseFloat(porcentaje_comision) || (rule_type === 'especial' && operacion !== 'Contar' ? parseFloat(valor) || 0 : 0),
-          parseInt(cantidad_meta) || 0,
-          parseFloat(bono_monto) || 0,
+          finalOperacion,
+          finalMontoAjuste,
+          finalPorcentajeComision,
+          finalCantidadMeta,
+          finalBonoMonto,
           bono_tipo || 'Fijo',
           periodo || 'Mensual',
           repeticion || 'Una vez por período',

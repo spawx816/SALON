@@ -16,6 +16,7 @@ import { EntitlementsProvider, useEntitlements } from './context/EntitlementsCon
 import { TenantBrandingProvider, useTenantBranding } from './context/TenantBrandingContext';
 import { LanguageProvider, useTranslation } from './context/LanguageContext';
 import { NotificationProvider, useNotification } from './context/NotificationContext';
+import { hasUiPermission } from './utils/rbacCatalog';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import FeatureForbiddenGate from './components/common/FeatureForbiddenGate';
 import NotFoundPage from './components/common/NotFoundPage';
@@ -136,9 +137,24 @@ const AppContent = () => {
 
   const isSuperAdmin = user?.role?.toLowerCase() === 'superadmin' || user?.role_name?.toLowerCase()?.includes('superadmin');
   const isOwner = !isSuperAdmin && (user?.role?.toLowerCase() === 'owner' || user?.role?.toLowerCase() === 'propietario');
-  const isAdmin = !isSuperAdmin && (isOwner || user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador');
+  const isAdmin = !isSuperAdmin && (isOwner || (!user?.role_id && (user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador')));
   const isClient = user?.role?.toLowerCase() === 'client' || user?.role?.toLowerCase() === 'cliente';
-  const isAccountant = user?.role?.toLowerCase() === 'contador' || user?.role_name?.toLowerCase() === 'contador';
+  const isAccountant = !user?.role_id && (user?.role?.toLowerCase() === 'contador' || user?.role_name?.toLowerCase() === 'contador');
+  const canAccessAccounting = isAdmin || isAccountant || hasUiPermission(
+    user,
+    'accounting.view',
+    'accounting.expenses.manage',
+    'accounting.expenses.pay',
+    'accounting.expenses.void',
+    'accounting.purchases_606.manage',
+    'accounting.credit_notes.manage',
+    'accounting.sequences.manage',
+    'accounting.it1.manage',
+    'accounting.export'
+  );
+  const canViewSecurity = isAdmin || hasUiPermission(user, 'security.view', 'security.manage', 'manage_security');
+  const canViewPayroll = isAdmin || hasUiPermission(user, 'payroll.view', 'payroll.generate', 'payroll.approve', 'payroll.pay', 'manage_payroll', 'staff.view', 'commissions.view');
+  const canViewAnalytics = isAdmin || hasUiPermission(user, 'analytics.view', 'analytics.export', 'view_analytics');
 
   // Dynamic Entitlements State from SaaS Engine
   const { hasMembershipsAddon, membershipsAddon, isSuspended, hasFeature } = useEntitlements();
@@ -838,7 +854,7 @@ const AppContent = () => {
               <p className="nav-group-title">{t('menu.admin')}</p>
               
               {/* Menú Desplegable Administración */}
-              {(isAdmin || user?.permissions?.manage_security) && (
+              {(isAdmin || canViewSecurity || hasUiPermission(user, 'branches.manage')) && (
                 <div style={{ margin: '0.2rem 0' }}>
                   <button
                     type="button"
@@ -933,7 +949,7 @@ const AppContent = () => {
               )}
 
               {/* Menú Desplegable Nómina */}
-              {(isAdmin || user?.permissions?.manage_staff || user?.permissions?.manage_commissions) && (
+              {canViewPayroll && (
                 <div style={{ margin: '0.2rem 0' }}>
                   <button
                     type="button"
@@ -1005,7 +1021,7 @@ const AppContent = () => {
 
               
               {/* Menú Desplegable Inteligencia de Negocios (BI) */}
-              {(isAdmin || user?.permissions?.view_analytics) && (
+              {canViewAnalytics && (
                 <div style={{ margin: '0.2rem 0' }}>
                   <button
                     type="button"
@@ -1045,8 +1061,8 @@ const AppContent = () => {
             </>
           )}
 
-          {/* Módulo Contable para Administrador y Contador (Independiente del bloque de administración operativa) */}
-          {(isAdmin || isAccountant) && (
+          {/* Módulo Contable controlado por permisos granulares de Contabilidad */}
+          {canAccessAccounting && (
             <>
               {isAccountant && <p className="nav-group-title">Módulo Contable</p>}
               {/* Menú Desplegable Contabilidad */}
@@ -1075,48 +1091,60 @@ const AppContent = () => {
                     flexDirection: 'column',
                     gap: '0.25rem'
                   }}>
-                    <SidebarLink 
-                      to="/secuencias-dgii" 
-                      icon={Receipt} 
-                      label="Secuencias DGII e-CF" 
-                      active={location.pathname === '/secuencias-dgii'} 
-                      onClick={closeMobileMenu} 
-                    />
-                    <SidebarLink 
-                      to="/contabilidad/notas-credito" 
-                      icon={ArrowDownLeft} 
-                      label="Notas de Crédito" 
-                      active={location.pathname === '/contabilidad/notas-credito' || location.pathname === '/notas-credito'} 
-                      onClick={closeMobileMenu} 
-                    />
-                    <SidebarLink 
-                      to="/contabilidad/reporte-607" 
-                      icon={FileSpreadsheet} 
-                      label="Reporte 607 DGII" 
-                      active={location.pathname === '/contabilidad/reporte-607' || location.pathname === '/reporte-607'} 
-                      onClick={closeMobileMenu} 
-                    />
-                    <SidebarLink 
-                      to="/contabilidad/reporte-606" 
-                      icon={FileSpreadsheet} 
-                      label="Reporte 606 DGII" 
-                      active={location.pathname === '/contabilidad/reporte-606' || location.pathname === '/reporte-606'} 
-                      onClick={closeMobileMenu} 
-                    />
-                    <SidebarLink 
-                      to="/contabilidad/itbis-it1" 
-                      icon={Landmark} 
-                      label="ITBIS (IT-1)" 
-                      active={location.pathname === '/contabilidad/itbis-it1' || location.pathname === '/itbis-it1'} 
-                      onClick={closeMobileMenu} 
-                    />
-                    <SidebarLink 
-                      to="/contabilidad/egresos" 
-                      icon={ArrowDownCircle} 
-                      label="Egresos" 
-                      active={location.pathname === '/contabilidad/egresos' || location.pathname === '/egresos'} 
-                      onClick={closeMobileMenu} 
-                    />
+                    {(isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.sequences.manage')) && (
+                      <SidebarLink 
+                        to="/secuencias-dgii" 
+                        icon={Receipt} 
+                        label="Secuencias DGII e-CF" 
+                        active={location.pathname === '/secuencias-dgii'} 
+                        onClick={closeMobileMenu} 
+                      />
+                    )}
+                    {(isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.credit_notes.manage')) && (
+                      <SidebarLink 
+                        to="/contabilidad/notas-credito" 
+                        icon={ArrowDownLeft} 
+                        label="Notas de Crédito" 
+                        active={location.pathname === '/contabilidad/notas-credito' || location.pathname === '/notas-credito'} 
+                        onClick={closeMobileMenu} 
+                      />
+                    )}
+                    {(isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.export')) && (
+                      <SidebarLink 
+                        to="/contabilidad/reporte-607" 
+                        icon={FileSpreadsheet} 
+                        label="Reporte 607 DGII" 
+                        active={location.pathname === '/contabilidad/reporte-607' || location.pathname === '/reporte-607'} 
+                        onClick={closeMobileMenu} 
+                      />
+                    )}
+                    {(isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.purchases_606.manage', 'accounting.export')) && (
+                      <SidebarLink 
+                        to="/contabilidad/reporte-606" 
+                        icon={FileSpreadsheet} 
+                        label="Reporte 606 DGII" 
+                        active={location.pathname === '/contabilidad/reporte-606' || location.pathname === '/reporte-606'} 
+                        onClick={closeMobileMenu} 
+                      />
+                    )}
+                    {(isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.it1.manage', 'accounting.export')) && (
+                      <SidebarLink 
+                        to="/contabilidad/itbis-it1" 
+                        icon={Landmark} 
+                        label="ITBIS (IT-1)" 
+                        active={location.pathname === '/contabilidad/itbis-it1' || location.pathname === '/itbis-it1'} 
+                        onClick={closeMobileMenu} 
+                      />
+                    )}
+                    {(isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.expenses.manage', 'accounting.expenses.pay', 'accounting.expenses.void')) && (
+                      <SidebarLink 
+                        to="/contabilidad/egresos" 
+                        icon={ArrowDownCircle} 
+                        label="Egresos" 
+                        active={location.pathname === '/contabilidad/egresos' || location.pathname === '/egresos'} 
+                        onClick={closeMobileMenu} 
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -1205,18 +1233,18 @@ const AppContent = () => {
                   <Route path="/analitica" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.view_analytics) ? <AnalyticsContainer /> : <Navigate to="/" />)} />
                   <Route path="/bi" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.view_analytics) ? <Navigate to="/analitica?tab=bi_executive" replace /> : <Navigate to="/" />)} />
                   <Route path="/inteligencia-negocios" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.view_analytics) ? <Navigate to="/analitica?tab=bi_executive" replace /> : <Navigate to="/" />)} />
-                  <Route path="/contabilidad" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <Navigate to="/egresos" replace /> : <Navigate to="/" />)} />
-                  <Route path="/secuencias-dgii" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <DgiiSequencesModule /> : <Navigate to="/" />)} />
-                  <Route path="/contabilidad/notas-credito" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <CreditNotesModule /> : <Navigate to="/" />)} />
-                  <Route path="/notas-credito" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <CreditNotesModule /> : <Navigate to="/" />)} />
-                  <Route path="/contabilidad/reporte-607" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <Reporte607Module /> : <Navigate to="/" />)} />
-                  <Route path="/reporte-607" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <Reporte607Module /> : <Navigate to="/" />)} />
-                  <Route path="/contabilidad/reporte-606" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <Reporte606Module /> : <Navigate to="/" />)} />
-                  <Route path="/reporte-606" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <Reporte606Module /> : <Navigate to="/" />)} />
-                  <Route path="/contabilidad/itbis-it1" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <ReporteIT1Module /> : <Navigate to="/" />)} />
-                  <Route path="/itbis-it1" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <ReporteIT1Module /> : <Navigate to="/" />)} />
-                  <Route path="/contabilidad/egresos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <ExpensesModule /> : <Navigate to="/" />)} />
-                  <Route path="/egresos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <ExpensesModule /> : <Navigate to="/" />)} />
+                  <Route path="/contabilidad" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (canAccessAccounting ? <Navigate to="/egresos" replace /> : <Navigate to="/" />)} />
+                  <Route path="/secuencias-dgii" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.sequences.manage')) ? <DgiiSequencesModule /> : <Navigate to="/" />)} />
+                  <Route path="/contabilidad/notas-credito" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.credit_notes.manage')) ? <CreditNotesModule /> : <Navigate to="/" />)} />
+                  <Route path="/notas-credito" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.credit_notes.manage')) ? <CreditNotesModule /> : <Navigate to="/" />)} />
+                  <Route path="/contabilidad/reporte-607" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.export')) ? <Reporte607Module /> : <Navigate to="/" />)} />
+                  <Route path="/reporte-607" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.export')) ? <Reporte607Module /> : <Navigate to="/" />)} />
+                  <Route path="/contabilidad/reporte-606" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.purchases_606.manage', 'accounting.export')) ? <Reporte606Module /> : <Navigate to="/" />)} />
+                  <Route path="/reporte-606" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.purchases_606.manage', 'accounting.export')) ? <Reporte606Module /> : <Navigate to="/" />)} />
+                  <Route path="/contabilidad/itbis-it1" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.it1.manage', 'accounting.export')) ? <ReporteIT1Module /> : <Navigate to="/" />)} />
+                  <Route path="/itbis-it1" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.it1.manage', 'accounting.export')) ? <ReporteIT1Module /> : <Navigate to="/" />)} />
+                  <Route path="/contabilidad/egresos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.expenses.manage', 'accounting.expenses.pay', 'accounting.expenses.void')) ? <ExpensesModule /> : <Navigate to="/" />)} />
+                  <Route path="/egresos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant || hasUiPermission(user, 'accounting.view', 'accounting.expenses.manage', 'accounting.expenses.pay', 'accounting.expenses.void')) ? <ExpensesModule /> : <Navigate to="/" />)} />
                   <Route path="/configuracion" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <SettingsModule /> : <Navigate to="/" />)} />
                   <Route path="/contratos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" replace /> : (!(isAdmin || user?.permissions?.view_contracts) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El add-on de Contratos Digitales de Membresías" /> : <DigitalContract />)))} />
                   <Route path="/admin/asistencia" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.manage_attendance || user?.role?.toLowerCase() === 'recepcion' || user?.role?.toLowerCase() === 'recepcionista' || user?.role_name?.toLowerCase()?.includes('recep')) ? <AttendanceLogs /> : <Navigate to="/" />)} />

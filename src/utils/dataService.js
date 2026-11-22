@@ -534,9 +534,13 @@ export const dataService = {
     }
   },
 
-  getServices: async (activeOnly = false) => {
+  getServices: async (activeOnly = false, salonId = null) => {
     try {
-      const url = activeOnly ? `${API_URL}/services?active_only=1` : `${API_URL}/services`;
+      const params = new URLSearchParams();
+      if (activeOnly) params.set('active_only', '1');
+      if (salonId && salonId !== 'all') params.set('salon_id', String(salonId));
+      const qs = params.toString();
+      const url = qs ? `${API_URL}/services?${qs}` : `${API_URL}/services`;
       const res = await fetch(url);
       if (!res.ok) return [];
       return await res.json();
@@ -1535,6 +1539,40 @@ export const dataService = {
     } catch {
       return null;
     }
+  },
+
+  installRoleTemplates: async (templateKeys = null) => {
+    const res = await fetch(`${API_URL}/roles/install-templates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(templateKeys ? { template_keys: templateKeys } : {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Error ${res.status} al instalar roles predefinidos`);
+    }
+    return data;
+  },
+
+  getRoleRestorePreview: async (roleId) => {
+    const res = await fetch(`${API_URL}/roles/${roleId}/restore-preview`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Error ${res.status} al consultar vista previa de plantilla`);
+    }
+    return data;
+  },
+
+  restoreRoleTemplate: async (roleId) => {
+    const res = await fetch(`${API_URL}/roles/${roleId}/restore-template`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Error ${res.status} al restaurar plantilla del rol`);
+    }
+    return data;
   },
 
   saveRole: async (role) => {
@@ -3935,6 +3973,54 @@ export const dataService = {
     });
     const resData = await res.json();
     if (!res.ok) throw new Error(resData.error || 'Error al solicitar contratación del módulo');
+    return resData;
+  },
+
+  quoteSaasAddon: async (addonCode, branchIds = []) => {
+    const res = await fetch(`${API_URL}/saas/billing/addons/${encodeURIComponent(addonCode)}/quote`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branchIds }),
+    });
+    const resData = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(resData.error || 'Error al cotizar add-on');
+    return resData;
+  },
+
+  contractSaasAddon: async (addonCode, { branchIds = [], paymentMethodChoice = 'saved_card' } = {}) => {
+    const res = await fetch(`${API_URL}/saas/billing/addons/${encodeURIComponent(addonCode)}/contract`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branchIds, paymentMethodChoice }),
+    });
+    const resData = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(resData.error || 'Error al contratar add-on');
+    return resData;
+  },
+
+  quoteSaasExtraSeats: async (additionalSeats = 1) => {
+    const res = await fetch(`${API_URL}/saas/billing/seats/quote`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ additionalSeats }),
+    });
+    const resData = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(resData.error || 'Error al cotizar usuarios adicionales');
+    return resData;
+  },
+
+  contractSaasExtraSeats: async ({ additionalSeats = 1, paymentMethodChoice = 'saved_card' } = {}) => {
+    const res = await fetch(`${API_URL}/saas/billing/seats/contract`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ additionalSeats, paymentMethodChoice }),
+    });
+    const resData = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(resData.error || 'Error al contratar usuarios adicionales');
     return resData;
   },
 

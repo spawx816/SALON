@@ -25,6 +25,7 @@ const crypto = require('crypto');
 const { validateTestEnvironment, createIsolatedTestPool } = require('../utils/test_env_guard.cjs');
 const { migrateAll, MIGRATIONS_REGISTRY, computeMigrationChecksum } = require('../migrations/migrate_all.cjs');
 const { up: upReconcileSaasBillingDrift } = require('../migrations/20261121_reconcile_saas_billing_schema_drift.cjs');
+const { up: upOperationalAccountingAndAddonBlocks } = require('../migrations/20261122_operational_accounting_and_addon_blocks.cjs');
 const {
   CANONICAL_MIGRATIONS,
   CANONICAL_101_TABLES,
@@ -156,7 +157,9 @@ async function runVerifySchemaParity() {
         DROP COLUMN recurring_consent_at,
         DROP COLUMN recurring_consent_version,
         DROP COLUMN extra_users_count,
-        DROP COLUMN addon_branches_count;
+        DROP COLUMN addon_branches_count,
+        DROP COLUMN addon_blocks_count,
+        DROP COLUMN addon_branches_capacity;
     `);
     await conn.query(`
       ALTER TABLE "${upgradeSchema}".saas_invoices
@@ -187,8 +190,9 @@ async function runVerifySchemaParity() {
       [crypto.randomUUID(), synthTenantActive, crypto.randomUUID(), synthTenantPending]
     );
 
-    // Ejecutar la migración incremental 20261121 sobre el esquema representativo de staging
+    // Ejecutar las migraciones incrementales 20261121 y 20261122 sobre el esquema representativo de staging
     await upReconcileSaasBillingDrift(pool, upgradeSchema);
+    await upOperationalAccountingAndAddonBlocks(pool, upgradeSchema);
 
     // Verificar invariantes de backfill seguro sobre las filas preexistentes
     const [upgradedSubs] = await conn.query(

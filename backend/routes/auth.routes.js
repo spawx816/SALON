@@ -14,11 +14,16 @@ const {
 const { requireRole, requirePermission, getEffectiveRole, canManageRole, normalizeRole } = require('../middleware/rbac.middleware');
 const {
   PERMISSION_MODULES,
+  PREDEFINED_ROLE_TEMPLATES,
   isReservedRoleName,
   sanitizePermissionsPayload,
   expandEffectivePermissions,
   permissionMapGrants,
+  getPredefinedTemplate,
+  arePermissionMapsEqual,
+  computePermissionDiff,
 } = require('../domain/rbac_catalog');
+const { installPredefinedRolesForTenant } = require('../services/role_templates.service');
 
 function getClientIp(req) {
   return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
@@ -1499,8 +1504,72 @@ function createAuthRouter(pool, options = {}) {
       const canManageRoles = await canManageRolesPolicy(req);
       res.json({
         modules: PERMISSION_MODULES,
+        templates: PREDEFINED_ROLE_TEMPLATES,
         allowAdminDelegation,
         canManageRoles,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/roles/templates', rejectControlPlaneOnTenantUsers, requirePermission('security.view'), async (_req, res) => {
+    try {
+      res.json({ templates: PREDEFINED_ROLE_TEMPLATES });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/roles/install-templates', rejectControlPlaneOnTenantUsers, async (req, res) => {
+    try {
+      const allowed = await canManageRolesPolicy(req);
+      if (!allowed) {
+        return res.status(403).json({
+          error: 'Solo el Propietario de la empresa puede instalar roles predefinidos.',
+          code: 'OWNER_ONLY_ROLE_MANAGEMENT'
+        });
+      }
+
+      const tenantId = req.tenantId;
+      const requestedKeys = Array.isArray(req.body?.template_keys) ? req.body.template_keys : null;
+
+      // Validar delegación para cada plantilla solicitada
+      const targetTemplates = requestedKeys && requestedKeys.length > 0
+        ? PREDEFINED_ROLE_TEMPLATES.filter((t) => requestedKeys.includes(t.template_key))
+        : PREDEFINED_ROLE_TEMPLATES;
+      for (const tpl of targetTemplates) {
+        const delegCheck = validateRoleDelegation(req, tpl.permissions);
+        if (!delegCheck.allowed) {
+          return res.status(403).json({
+            error: `No puedes instalar la plantilla '${tpl.nombre}' porque excede tus permisos: ${delegCheck.forbidden.join(', ')}`,
+            code: 'DELEGATION_EXCEEDS_ACTOR_PRIVILEGES'
+          });
+        }
+      }
+
+      const result = await installPredefinedRolesForTenant(pool, tenantId, {
+        templateKeys: requestedKeys,
+        explicitInstall: true,
+      });
+
+      if (result.installed.length > 0) {
+        await logSecurityAudit(
+          String(req.auth?.id || 'SYSTEM'),
+          req.auth?.name || 'Owner',
+          'ROLE_TEMPLATES_INSTALLED',
+          `Roles predefinidos instalados (${result.installed.length}): ${result.installed.map((r) => r.nombre).join(', ')}`,
+          req,
+          tenantId
+        );
+      }
+
+      res.json({
+        success: true,
+        installed: result.installed,
+        skipped: result.skipped,
+        installedCount: result.installed.length,
+        skippedCount: result.skipped.length,
       });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -1522,10 +1591,15 @@ function createAuthRouter(pool, options = {}) {
 
       res.json(rows.map(r => {
         const sanitizedPerms = sanitizePermissionsPayload(r.permisos);
+        const tpl = r.template_key ? getPredefinedTemplate(r.template_key) : null;
         return {
           ...r,
           descripcion: r.description ?? r.descripcion ?? '',
           permisos: sanitizedPerms,
+          template_key: r.template_key || null,
+          template_version: r.template_version || (tpl ? tpl.template_version : null),
+          is_customized: Boolean(r.is_customized),
+          has_template_diff: tpl ? computePermissionDiff(sanitizedPerms, tpl.permissions).hasChanges : false,
           assigned_users_count: countMap.get(String(r.id)) || 0,
         };
       }));
@@ -1544,7 +1618,7 @@ function createAuthRouter(pool, options = {}) {
         });
       }
 
-      const { nombre, descripcion, description, permisos } = req.body;
+      const { nombre, descripcion, description, permisos, template_key } = req.body;
       const cleanName = String(nombre || '').trim();
       if (!cleanName) {
         return res.status(400).json({ error: 'El nombre del rol es requerido.' });
@@ -1566,21 +1640,46 @@ function createAuthRouter(pool, options = {}) {
       }
 
       const tenantId = req.tenantId;
+      let resolvedTemplateKey = null;
+      let resolvedTemplateVersion = null;
+      let resolvedIsCustomized = false;
+
+      if (template_key) {
+        const tpl = getPredefinedTemplate(template_key);
+        if (!tpl) {
+          return res.status(400).json({ error: `Plantilla de rol desconocida: ${template_key}`, code: 'UNKNOWN_ROLE_TEMPLATE' });
+        }
+        const [dupTpl] = await pool.query(
+          'SELECT id FROM roles WHERE tenant_id = ? AND template_key = ? LIMIT 1',
+          [tenantId, tpl.template_key]
+        );
+        if (!dupTpl || dupTpl.length === 0) {
+          resolvedTemplateKey = tpl.template_key;
+          resolvedTemplateVersion = tpl.template_version || 1;
+          resolvedIsCustomized = !arePermissionMapsEqual(sanitizedPerms, tpl.permissions);
+        } else {
+          // Si la plantilla ya existe en la empresa, el nuevo rol se guarda como rol personalizado independiente
+          resolvedIsCustomized = true;
+        }
+      }
+
       const roleDesc = String(description ?? descripcion ?? '').trim();
       const [result] = await pool.query(
-        'INSERT INTO roles (nombre, description, permisos, tenant_id) VALUES (?, ?, ?, ?) RETURNING id',
-        [cleanName, roleDesc, JSON.stringify(sanitizedPerms), tenantId]
+        'INSERT INTO roles (nombre, description, permisos, tenant_id, template_key, template_version, is_customized) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id',
+        [cleanName, roleDesc, JSON.stringify(sanitizedPerms), tenantId, resolvedTemplateKey, resolvedTemplateVersion, resolvedIsCustomized]
       );
       const newRoleId = result.insertId || result[0]?.id;
 
-      try {
-        await pool.query(`
-          INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
-          VALUES (?, ?, 'ROLE_CREATED', ?, ?)
-        `, [String(req.auth?.id || 'SYSTEM'), req.auth?.name || 'Owner', `Rol creado: ${cleanName} (id=${newRoleId})`, tenantId]);
-      } catch { }
+      await logSecurityAudit(
+        String(req.auth?.id || 'SYSTEM'),
+        req.auth?.name || 'Owner',
+        'ROLE_CREATED',
+        `Rol creado: ${cleanName} (id=${newRoleId}${resolvedTemplateKey ? `, plantilla=${resolvedTemplateKey}` : ''})`,
+        req,
+        tenantId
+      );
 
-      res.json({ id: newRoleId, success: true });
+      res.json({ id: newRoleId, success: true, template_key: resolvedTemplateKey, is_customized: resolvedIsCustomized });
     } catch (err) {
       if (err?.code === '23505') {
         return res.status(409).json({ error: 'Ya existe un rol con este nombre en tu empresa.' });
@@ -1602,13 +1701,14 @@ function createAuthRouter(pool, options = {}) {
       const { id } = req.params;
       const tenantId = req.tenantId;
       const [existingRoles] = await pool.query(
-        'SELECT id, nombre FROM roles WHERE id = ? AND tenant_id = ? LIMIT 1',
+        'SELECT id, nombre, template_key, template_version, is_customized, permisos FROM roles WHERE id = ? AND tenant_id = ? LIMIT 1',
         [id, tenantId]
       );
       if (!existingRoles || existingRoles.length === 0) {
         return res.status(404).json({ error: 'Rol no encontrado en esta empresa.' });
       }
-      if (isReservedRoleName(existingRoles[0].nombre)) {
+      const existingRole = existingRoles[0];
+      if (isReservedRoleName(existingRole.nombre)) {
         return res.status(403).json({ error: 'Los roles reservados del sistema no pueden ser modificados.', code: 'RESERVED_ROLE_PROTECTED' });
       }
 
@@ -1633,32 +1733,145 @@ function createAuthRouter(pool, options = {}) {
         });
       }
 
+      const tpl = existingRole.template_key ? getPredefinedTemplate(existingRole.template_key) : null;
+      const nextIsCustomized = tpl
+        ? !arePermissionMapsEqual(sanitizedPerms, tpl.permissions)
+        : Boolean(existingRole.is_customized);
+
       const roleDesc = String(description ?? descripcion ?? '').trim();
       await pool.query(
-        'UPDATE roles SET nombre = ?, description = ?, permisos = ? WHERE id = ? AND tenant_id = ?',
-        [cleanName, roleDesc, JSON.stringify(sanitizedPerms), id, tenantId]
+        'UPDATE roles SET nombre = ?, description = ?, permisos = ?, is_customized = ? WHERE id = ? AND tenant_id = ?',
+        [cleanName, roleDesc, JSON.stringify(sanitizedPerms), nextIsCustomized, id, tenantId]
       );
 
-      // Invalidar tokens/sesiones de usuarios con este rol para aplicar revocación inmediata
+      // Invalidar tokens y sesiones activas de usuarios con este rol para aplicar cambios de inmediato
       try {
         await pool.query(
           'UPDATE users SET token_version = COALESCE(token_version, 1) + 1 WHERE role_id = ? AND tenant_id = ?',
           [id, tenantId]
         );
+        await pool.query(
+          'DELETE FROM user_sessions WHERE tenant_id = ? AND user_id IN (SELECT id::text FROM users WHERE role_id = ? AND tenant_id = ?)',
+          [tenantId, id, tenantId]
+        );
       } catch { }
 
-      try {
-        await pool.query(`
-          INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
-          VALUES (?, ?, 'ROLE_UPDATED', ?, ?)
-        `, [String(req.auth?.id || 'SYSTEM'), req.auth?.name || 'Owner', `Rol actualizado: ${cleanName} (id=${id})`, tenantId]);
-      } catch { }
+      await logSecurityAudit(
+        String(req.auth?.id || 'SYSTEM'),
+        req.auth?.name || 'Owner',
+        'ROLE_UPDATED',
+        `Rol actualizado: ${cleanName} (id=${id}${existingRole.template_key ? `, plantilla=${existingRole.template_key}, personalizado=${nextIsCustomized}` : ''})`,
+        req,
+        tenantId
+      );
 
-      res.json({ success: true });
+      res.json({ success: true, is_customized: nextIsCustomized });
     } catch (err) {
       if (err?.code === '23505') {
         return res.status(409).json({ error: 'Ya existe un rol con este nombre en tu empresa.' });
       }
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/roles/:id/restore-preview', rejectControlPlaneOnTenantUsers, requirePermission('security.view'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const tenantId = req.tenantId;
+      const [rows] = await pool.query(
+        'SELECT id, nombre, permisos, template_key, template_version, is_customized FROM roles WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [id, tenantId]
+      );
+      if (!rows || rows.length === 0) {
+        return res.status(404).json({ error: 'Rol no encontrado en esta empresa.' });
+      }
+      const role = rows[0];
+      const tpl = role.template_key ? getPredefinedTemplate(role.template_key) : null;
+      if (!tpl) {
+        return res.status(400).json({ error: 'Este rol no está asociado a una plantilla predefinida.', code: 'ROLE_WITHOUT_TEMPLATE' });
+      }
+      const currentPerms = sanitizePermissionsPayload(role.permisos);
+      const diff = computePermissionDiff(currentPerms, tpl.permissions);
+      res.json({
+        role: { id: role.id, nombre: role.nombre, template_key: role.template_key, is_customized: Boolean(role.is_customized) },
+        template: { template_key: tpl.template_key, template_version: tpl.template_version, nombre: tpl.nombre, description: tpl.description, permissions: tpl.permissions },
+        diff,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/roles/:id/restore-template', rejectControlPlaneOnTenantUsers, async (req, res) => {
+    try {
+      const allowed = await canManageRolesPolicy(req);
+      if (!allowed) {
+        return res.status(403).json({
+          error: 'Solo el Propietario de la empresa puede restaurar plantillas de roles.',
+          code: 'OWNER_ONLY_ROLE_MANAGEMENT'
+        });
+      }
+
+      const { id } = req.params;
+      const tenantId = req.tenantId;
+      const [rows] = await pool.query(
+        'SELECT id, nombre, permisos, template_key, template_version FROM roles WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [id, tenantId]
+      );
+      if (!rows || rows.length === 0) {
+        return res.status(404).json({ error: 'Rol no encontrado en esta empresa.' });
+      }
+      const role = rows[0];
+      const tpl = role.template_key ? getPredefinedTemplate(role.template_key) : null;
+      if (!tpl) {
+        return res.status(400).json({ error: 'Este rol no está asociado a una plantilla predefinida.', code: 'ROLE_WITHOUT_TEMPLATE' });
+      }
+
+      const sanitizedTplPerms = sanitizePermissionsPayload(tpl.permissions);
+      const delegCheck = validateRoleDelegation(req, sanitizedTplPerms);
+      if (!delegCheck.allowed) {
+        return res.status(403).json({
+          error: `No puedes restaurar esta plantilla porque excede tus permisos: ${delegCheck.forbidden.join(', ')}`,
+          code: 'DELEGATION_EXCEEDS_ACTOR_PRIVILEGES'
+        });
+      }
+
+      const diff = computePermissionDiff(role.permisos, sanitizedTplPerms);
+
+      await pool.query(
+        'UPDATE roles SET permisos = ?, template_version = ?, is_customized = FALSE WHERE id = ? AND tenant_id = ?',
+        [JSON.stringify(sanitizedTplPerms), tpl.template_version || 1, id, tenantId]
+      );
+
+      // Invalidar tokens y sesiones activas de usuarios con este rol
+      try {
+        await pool.query(
+          'UPDATE users SET token_version = COALESCE(token_version, 1) + 1 WHERE role_id = ? AND tenant_id = ?',
+          [id, tenantId]
+        );
+        await pool.query(
+          'DELETE FROM user_sessions WHERE tenant_id = ? AND user_id IN (SELECT id::text FROM users WHERE role_id = ? AND tenant_id = ?)',
+          [tenantId, id, tenantId]
+        );
+      } catch { }
+
+      await logSecurityAudit(
+        String(req.auth?.id || 'SYSTEM'),
+        req.auth?.name || 'Owner',
+        'ROLE_TEMPLATE_RESTORED',
+        `Plantilla restaurada para rol ${role.nombre} (id=${id}, plantilla=${tpl.template_key}, +${diff.added.length}/-${diff.removed.length} permisos)`,
+        req,
+        tenantId
+      );
+
+      res.json({
+        success: true,
+        permisos: sanitizedTplPerms,
+        template_version: tpl.template_version || 1,
+        is_customized: false,
+        diff,
+      });
+    } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
@@ -1676,7 +1889,7 @@ function createAuthRouter(pool, options = {}) {
       const { id } = req.params;
       const tenantId = req.tenantId;
       const [existingRoles] = await pool.query(
-        'SELECT id, nombre FROM roles WHERE id = ? AND tenant_id = ? LIMIT 1',
+        'SELECT id, nombre, template_key FROM roles WHERE id = ? AND tenant_id = ? LIMIT 1',
         [id, tenantId]
       );
       if (!existingRoles || existingRoles.length === 0) {
@@ -1701,12 +1914,14 @@ function createAuthRouter(pool, options = {}) {
 
       await pool.query('DELETE FROM roles WHERE id = ? AND tenant_id = ?', [id, tenantId]);
 
-      try {
-        await pool.query(`
-          INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
-          VALUES (?, ?, 'ROLE_DELETED', ?, ?)
-        `, [String(req.auth?.id || 'SYSTEM'), req.auth?.name || 'Owner', `Rol eliminado: ${existingRoles[0].nombre} (id=${id})`, tenantId]);
-      } catch { }
+      await logSecurityAudit(
+        String(req.auth?.id || 'SYSTEM'),
+        req.auth?.name || 'Owner',
+        'ROLE_DELETED',
+        `Rol eliminado: ${existingRoles[0].nombre} (id=${id}${existingRoles[0].template_key ? `, plantilla=${existingRoles[0].template_key}` : ''})`,
+        req,
+        tenantId
+      );
 
       res.json({ success: true });
     } catch (err) {

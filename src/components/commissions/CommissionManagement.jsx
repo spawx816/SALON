@@ -239,15 +239,15 @@ const CommissionManagement = () => {
     const firstService = allServices[0];
     setRuleForm({
       rule_type: initialTab, // 'categoria' | 'servicio' | 'especial'
-      category_name: categories[0]?.nombre || '',
-      service_name: firstService ? firstService.nombre : '',
-      service_id: firstService ? firstService.id : '',
+      category_name: initialTab === 'categoria' ? (categories[0]?.nombre || '') : '',
+      service_name: (initialTab === 'servicio' || initialTab === 'especial') ? (firstService ? firstService.nombre : '') : '',
+      service_id: (initialTab === 'servicio' || initialTab === 'especial') ? (firstService ? firstService.id : '') : '',
       tipo_calculo: 'Porcentaje',
       valor: '20',
       prioridad: 1,
       // Special Rule fields (matching user mockup)
-      operacion: 'Restar', // 'Restar' | 'Sumar' | 'Contar'
-      monto_ajuste: 100,
+      operacion: initialTab === 'especial' ? 'Restar' : '',
+      monto_ajuste: initialTab === 'especial' ? 100 : 0,
       porcentaje_comision: 20,
       cantidad_meta: 100,
       bono_monto: 2000,
@@ -1288,7 +1288,15 @@ const CommissionManagement = () => {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr 1fr', gap: '0.4rem', background: '#f8fafc', padding: '4px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                     <button
                       type="button"
-                      onClick={() => setRuleForm({ ...ruleForm, rule_type: 'categoria' })}
+                      onClick={() => setRuleForm({
+                        ...ruleForm,
+                        rule_type: 'categoria',
+                        category_name: ruleForm.category_name || categories[0]?.nombre || '',
+                        service_name: '',
+                        service_id: '',
+                        operacion: '',
+                        monto_ajuste: 0
+                      })}
                       style={{
                         padding: '0.55rem 0.4rem',
                         borderRadius: '8px',
@@ -1306,7 +1314,15 @@ const CommissionManagement = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setRuleForm({ ...ruleForm, rule_type: 'servicio' })}
+                      onClick={() => setRuleForm({
+                        ...ruleForm,
+                        rule_type: 'servicio',
+                        category_name: '',
+                        service_name: ruleForm.service_name || allServices[0]?.nombre || '',
+                        service_id: ruleForm.service_id || allServices[0]?.id || '',
+                        operacion: '',
+                        monto_ajuste: 0
+                      })}
                       style={{
                         padding: '0.55rem 0.4rem',
                         borderRadius: '8px',
@@ -1324,7 +1340,15 @@ const CommissionManagement = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setRuleForm({ ...ruleForm, rule_type: 'especial' })}
+                      onClick={() => setRuleForm({
+                        ...ruleForm,
+                        rule_type: 'especial',
+                        category_name: '',
+                        service_name: ruleForm.service_name || allServices[0]?.nombre || '',
+                        service_id: ruleForm.service_id || allServices[0]?.id || '',
+                        operacion: ruleForm.operacion || 'Restar',
+                        monto_ajuste: ruleForm.monto_ajuste || 100
+                      })}
                       style={{
                         padding: '0.55rem 0.4rem',
                         borderRadius: '8px',

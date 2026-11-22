@@ -15,9 +15,10 @@ export default function InvoiceHistory() {
   const { user } = useAuth();
   const { hasFeature, loading: entitlementsLoading } = useEntitlements();
   const hasMemberships = hasFeature('memberships');
-  const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
-  const canVoid = isAdmin || Boolean(user?.permissions?.void_invoices) || Boolean(user?.permissions?.manage_staff);
-  const canEditCommission = isAdmin || Boolean(user?.permissions?.manage_staff) || Boolean(user?.permissions?.void_invoices) || Boolean(user?.permissions?.edit_invoices) || Boolean(user?.permissions?.manage_commissions);
+  const normRole = String(user?.role || user?.rol || '').trim().toLowerCase();
+  const isAdmin = ['admin', 'administrador', 'propietario', 'owner', 'superadmin'].includes(normRole);
+  const canVoid = isAdmin || Boolean(user?.permissions?.void_invoices) || Boolean(user?.permissions?.['pos.invoices.void']) || Boolean(user?.permissions?.manage_staff) || Boolean(user?.permissions?.['staff.manage']);
+  const canEditCommission = isAdmin || Boolean(user?.permissions?.manage_staff) || Boolean(user?.permissions?.['staff.manage']) || Boolean(user?.permissions?.void_invoices) || Boolean(user?.permissions?.['pos.invoices.void']) || Boolean(user?.permissions?.edit_invoices) || Boolean(user?.permissions?.manage_commissions) || Boolean(user?.permissions?.['commissions.approve']);
 
   const [visits, setVisits] = useState([]);
   const [salons, setSalons] = useState([]);
@@ -2171,6 +2172,25 @@ export default function InvoiceHistory() {
                                     <span style={{ color: '#16a34a', fontWeight: 800 }}>{ch.new_employee?.name || 'Sin Asignar'}</span>
                                   </div>
                                 ))}
+                              </div>
+                            )}
+
+                            {!Array.isArray(meta.changes) && Array.isArray(meta.previous_employees) && Array.isArray(meta.new_employees) && (
+                              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0.5rem', marginTop: '0.35rem' }}>
+                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '0.2rem' }}>
+                                  Detalle de reasignación por línea:
+                                </span>
+                                {meta.new_employees.map((ne, cIdx) => {
+                                  const pe = meta.previous_employees[cIdx] || {};
+                                  return (
+                                    <div key={cIdx} style={{ fontSize: '0.7rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap', padding: '2px 0' }}>
+                                      <span style={{ fontWeight: 700 }}>{ne.nombre || pe.nombre || `Línea #${cIdx + 1}`}:</span>
+                                      <span style={{ color: '#dc2626', textDecoration: 'line-through' }}>{pe.empleado_nombre || 'Sin Asignar'}</span>
+                                      <span>➔</span>
+                                      <span style={{ color: '#16a34a', fontWeight: 800 }}>{ne.empleado_nombre || 'Sin Asignar'}</span>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>

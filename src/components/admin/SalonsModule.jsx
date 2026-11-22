@@ -643,58 +643,51 @@ const SalonsModule = () => {
                           <>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '12px' }}>
                               <div>
-                                <span style={{ color: '#64748b' }}>Sucursales:</span>{' '}
-                                <strong>{quote.currentBranches} actuales → {quote.newBranchesCount} tras contratar</strong>
+                                <span style={{ color: '#64748b' }}>Incremento de sucursales:</span>{' '}
+                                <strong>{quote.currentBranches} actuales → {quote.newBranchesCount} tras contratar (+1 sede)</strong>
                               </div>
                               <div>
-                                <span style={{ color: '#64748b' }}>Precio mensual base:</span>{' '}
+                                <span style={{ color: '#64748b' }}>Precio mensual licencia:</span>{' '}
                                 <strong>US$ {Number(quote.branchMonthlyUsd).toFixed(2)}/mes</strong>
                               </div>
                               <div>
                                 <span style={{ color: '#64748b' }}>Usuarios incluidos:</span>{' '}
-                                <strong>+3 usuarios (+1 sucursal)</strong>
+                                <strong>+3 usuarios facturables (+1 sucursal)</strong>
                               </div>
                               <div>
-                                <span style={{ color: '#64748b' }}>Vigencia ciclo:</span>{' '}
+                                <span style={{ color: '#64748b' }}>Prorrateo del ciclo:</span>{' '}
                                 <strong>{quote.remainingDays} días restantes</strong>
                               </div>
                             </div>
 
-                            {/* Add-on Membresías Opcional */}
-                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', background: 'white', borderRadius: '10px', border: '1px solid #cbd5e1', cursor: 'pointer', fontSize: '12px', color: '#0f172a' }}>
-                              <input 
-                                type="checkbox"
-                                checked={wantsMembershipsAddon}
-                                onChange={e => handleToggleAddon(e.target.checked)}
-                                disabled={submittingPayment}
-                                style={{ marginTop: '2px' }}
-                              />
-                              <div>
-                                <strong>Contratar Add-on Suscripciones y Membresías B2C (+US$ 99.00/mes)</strong>
-                                <div style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>
-                                  Módulo para contratos digitales y cobros recurrentes de clientas. La implementación se cotiza por separado.
-                                </div>
-                              </div>
-                            </label>
+                            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '10px 12px', fontSize: '11.5px', color: '#1e40af', lineHeight: 1.45 }}>
+                              <strong>Nota sobre Membresías B2C:</strong> El módulo adicional de Suscripciones y Membresías se gestiona y contrata exclusivamente desde <em>Mi suscripción → Add-on Suscripciones y Membresías</em> (por bloques de hasta 3 sucursales). Crear una sucursal aquí solo contrata la licencia del Plan Principal.
+                            </div>
 
                             {/* Desglose Financiero */}
                             <div style={{ background: '#0f172a', color: 'white', borderRadius: '12px', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
-                                <span>Importe USD a pagar ahora (prorrateado):</span>
+                                <span>Importe USD prorrateado (+1 sucursal):</span>
                                 <strong style={{ color: 'white' }}>US$ {(Number(quote.totalUsdMinor) / 100).toFixed(2)}</strong>
                               </div>
+                              {quote.fxRate?.rateFormatted && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
+                                  <span>Conversión aplicable (Tasa USD → DOP):</span>
+                                  <strong style={{ color: 'white' }}>1 USD = RD$ {quote.fxRate.rateFormatted}</strong>
+                                </div>
+                              )}
                               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
                                 <span>Impuestos aplicables:</span>
-                                <strong style={{ color: 'white' }}>US$ 0.00 (Exento B2B)</strong>
+                                <strong style={{ color: 'white' }}>RD$ {(Number(quote.taxDopMinor || 0) / 100).toFixed(2)} (Exento B2B)</strong>
                               </div>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #334155', paddingTop: '8px', marginTop: '4px' }}>
                                 <span style={{ fontWeight: 800, fontSize: '13px', color: '#f8fafc' }}>Total exacto a cobrar hoy:</span>
-                                <span style={{ fontSize: '17px', fontWeight: 900, color: '#4ade80' }}>
-                                  US$ {(Number(quote.totalUsdMinor) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                <span style={{ fontSize: '16px', fontWeight: 900, color: '#4ade80' }}>
+                                  RD$ {(Number(quote.totalDopMinor || 0) / 100).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (US$ {(Number(quote.totalUsdMinor) / 100).toFixed(2)})
                                 </span>
                               </div>
                               <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
-                                Nuevo total recurrente: <strong>US$ {Number(quote.nextMonthlyUsd).toFixed(2)}/mes</strong> · Próxima renovación: <strong>{new Date(quote.periodEnd).toLocaleDateString('es-DO')}</strong>
+                                Nuevo total recurrente de licencias principales: <strong>US$ {Number(quote.nextMonthlyUsd).toFixed(2)}/mes</strong> · Próxima renovación: <strong>{new Date(quote.periodEnd).toLocaleDateString('es-DO')}</strong>
                               </div>
                             </div>
 
