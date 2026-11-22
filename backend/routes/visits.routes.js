@@ -1359,6 +1359,7 @@ function createVisitsRouter(pool, helpers = {}) {
       let computedGrossSubtotal = 0;
       let computedLineDiscounts = 0;
       let computedItbis = 0;
+      let computedExclusiveItbis = 0;
 
       if (parsedItemsList.length > 0) {
         const [catalogTaxRows] = await db.query(
@@ -1445,6 +1446,7 @@ function createVisitsRouter(pool, helpers = {}) {
               lineItbis = Number((lineNetAfterDisc - lineTaxableBase).toFixed(2));
             } else {
               lineItbis = Number((lineNetAfterDisc * it.tax_rate).toFixed(2));
+              computedExclusiveItbis += lineItbis;
             }
           }
           computedItbis += lineItbis;
@@ -1463,9 +1465,12 @@ function createVisitsRouter(pool, helpers = {}) {
       const numItbis = req.body?.itbis !== undefined && Number(req.body.itbis) > 0
         ? Number(req.body.itbis)
         : Number(computedItbis.toFixed(2));
+      const additiveItbis = parsedItemsList.length > 0
+        ? Number(computedExclusiveItbis.toFixed(2))
+        : numItbis;
       const numTotal = Number(total) > 0
         ? Number(total)
-        : Math.max(0, Number((numSubtotal - numDescuento + numItbis).toFixed(2)));
+        : Math.max(0, Number((numSubtotal - numDescuento + additiveItbis).toFixed(2)));
 
       const subtotalCents = Math.round(numSubtotal * 100);
       const discountCents = Math.round(numDescuento * 100);
