@@ -236,11 +236,11 @@ async function runTests() {
     assert.strictEqual(dupSku.status, 400);
     assert.strictEqual(dupSku.body.code, 'UNIQUE_SKU_VIOLATION');
 
-    // Legacy synthetic row (NULL item_type / tax_mode) normalized cleanly on GET
+    // Legacy synthetic row (NULL commission_category_id / legacy 'General' category) normalized cleanly on GET
     const legacyId = crypto.randomUUID();
     await pool.query(
-      `INSERT INTO services (id, tenant_id, name, nombre, categoria, precio, price, activo, is_active, item_type, tax_mode)
-       VALUES (?, ?, 'Servicio Legacy M5', 'Servicio Legacy M5', 'General', 450, 450, 1, true, NULL, NULL)`,
+      `INSERT INTO services (id, tenant_id, name, nombre, categoria, precio, price, activo, is_active, commission_category_id)
+       VALUES (?, ?, 'Servicio Legacy M5', 'Servicio Legacy M5', 'General', 450, 450, 1, true, NULL)`,
       [legacyId, tidA]
     );
     const listAll = (await requestJson(baseUrl, 'GET', '/api/services', { token: tokOwnerA })).body;
