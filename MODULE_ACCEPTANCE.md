@@ -2,7 +2,7 @@
 
 Documento único y autoritativo de validación sistemática de Etereas por módulos y procesos de negocio.
 
-- **Release candidato actual**: commit `74ec5d5` / imagen `salonpro-app:74ec5d5` (staging).
+- **Release candidato actual**: commit `bcb4cf1` / imagen `salonpro-app:bcb4cf1` (staging).
 - **Base de pruebas automatizadas**: `salon_saas_test` (PostgreSQL 17, aislada con guardas canónicas).
 - **Entorno de producción**: intacto (`salon_saas_prod` sin escrituras, sin cargos CardNet reales, `SAAS_RENEWAL_WORKER_ENABLED` deshabilitado, `DGII_MODE=disabled` / `DGII_ENABLED` deshabilitado).
 
@@ -38,7 +38,7 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **5** | **Catálogo (servicios y productos + ITBIS)** (`categoría → creación/edición → impuestos/descuentos → archivo/borrado → inventario → POS → importación masiva`) | Módulo 4, Inventario, POS | `e439cc8` | `test_module5_catalog_acceptance.cjs` (`M5-C1`–`M5-C4`), `test_blocks_1_to_8_regression.cjs` (B5/B6/B9b) + DOM real `/comisiones`, `/servicios`, `/inventario` | **`aprobado`** | Ninguno (`M5-01`–`M5-04` corregidos, verificados y desplegados en staging `e439cc8`) |
 | **6** | **Inventario (stock, ubicaciones, movimientos, compras, transferencias, toma física)** | Módulo 5, Sucursales, POS | `687940a` | `test_module6_inventory_acceptance.cjs` (`M6-C1`–`M6-C4`), `test_inventory_concurrency.cjs`, `test_blocks_1_to_8_regression.cjs` (B6) + DOM real `/inventario` | **`aprobado`** | Ninguno (`M6-01`–`M6-07` corregidos, verificados y desplegados en staging `687940a`) |
 | **7** | **Clientes (CRM)** (`registro 2 pasos → perfil/edición → búsqueda/paginación cursor → borrado/archivo histórico → aislamiento B2C/RBAC/BASE`) | Módulo 1, Plan Principal, POS (`visits`), Membresías (`contracts`) | `74ec5d5` (`5c19b33`) | `test_module7_clients_acceptance.cjs` (8/8), `test_pagination_cursors.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` + DOM real `/registro-cliente`, `/clientes` | **`aprobado`** | Ninguno (`M7-01`–`M7-06` corregidos, verificados y desplegados en staging `74ec5d5`) |
-| **8** | Cajas (apertura, movimientos, cierre, arqueo) | Módulo 1, 2, 9 | — | Bloque 2 de `STABILITY_AUDIT.md`, B9b | `pendiente` | — |
+| **8** | **Cajas (apertura, movimientos, cierre, arqueo)** (`apertura atómica → ingresos/gastos/retiros → ventas efectivo/tarjeta/anulaciones → cierre atómico/PIN → reporte → alcance sucursal`) | Módulos 1, 2, 9 | `bcb4cf1` (`01d365a`) | `test_module8_cash_registers_acceptance.cjs` (6/6), `test_cash_reconciliation.cjs` (7/7), `test_blocks_1_to_8_regression.cjs` + DOM real `/cajas` | **`aprobado`** | Ninguno (`M8-01`–`M8-04` corregidos, verificados y desplegados en staging `bcb4cf1`) |
 | **9** | POS, tickets y facturación convencional | Módulos 1, 5, 6, 7, 8, Secuencias NCF | — | `test_blocks_1_to_8_regression.cjs` (B1/B5/B6/B9b) | `pendiente` | — |
 | **10** | Comisiones y descuentos | Módulos 3, 4, 9 | — | `test_blocks_1_to_8_regression.cjs` (B1/B2) | `pendiente` | — |
 | **11** | Nómina | Módulos 3, 10 | — | `test_blocks_1_to_8_regression.cjs` (B3) | `pendiente` | — |
@@ -307,3 +307,39 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **M7-DOM** | Flujo real Chromium: login → `/registro-cliente` (2 pasos, fecha nac., sucursal, dirección) → `/clientes?id=...` → editar teléfono → recargar | `clientId=2c14a912-...`, `persistedPhone=8295558802` tras recarga, `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:74ec5d5`) | **PASS** |
 
 - **Gates y Despliegue**: `test:scanner` (0 violaciones), `test:runner-guards` (PASS), `lint`, `build`, `verify:release`, `graphify update .`, `test_blocks_1_to_8_regression.cjs` (PASS), limpieza de `salon_saas_test`, respaldo previo `/opt/salonpro/backups/salon_saas_staging_pre_74ec5d5_20261122_204850.sql.gz` y despliegue verificado de `salonpro-app:74ec5d5` (`Up (healthy)`, `/api/health` → `200`). **Estado: APROBADO**.
+
+---
+
+## Módulo 8 — Cajas (Apertura, Movimientos, Cierre y Arqueo)
+
+### A. Análisis de Arquitectura y Dependencias (Graphify + Código)
+
+- **UI**: [CashRegistersModule.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/admin/CashRegistersModule.jsx) (`/cajas`), [CashRegisterClosePrintModal.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/visits/CashRegisterClosePrintModal.jsx), apertura/cierre operativo desde [VisitRecorder.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/visits/VisitRecorder.jsx).
+- **Backend**: [cash_registers.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/cash_registers.routes.js) (`/api/cash-registers`, `/active`, `/open`, `/:id/close`, `/:id/close-report`, `/:id/movements`, `/history`, `/:id/invoices`) + motor canónico [cash_register_aggregation.service.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/services/cash_register_aggregation.service.js) (cálculo en centavos enteros).
+- **Tablas**: `cash_registers`, `cash_register_movements`, `visits`, `branches`, `security_settings`.
+- **Reglas confirmadas**:
+  - Saldo esperado en caja = `fondo inicial + ventas efectivo + ingresos manuales efectivo - devoluciones efectivo - gastos efectivo - retiros efectivo` (pagos con tarjeta/transferencia y visitas anuladas se excluyen del efectivo esperado).
+  - Máximo una caja abierta por empresa y sucursal, garantizado incluso ante aperturas concurrentes.
+  - Discrepancias de arqueo exigen motivo (≥ 5 caracteres) y confirmación doble (`double_confirmed: true`); si `|diferencia| >= RD$ 100.00` (10,000 centavos), exigen obligatoriamente `supervisor_pin` validado contra `security_settings.admin_pin_hash`.
+  - Cajas cerradas preservan su instantánea de cierre y rechazan cualquier movimiento posterior.
+
+### B. Fallos Corregidos (`bcb4cf1` / `01d365a`)
+
+- **M8-01**: `POST /api/cash-registers/:id/movements` permitía registrar movimientos en cajas ya cerradas, carecía de control de alcance por sucursal (`isBranchAuthorized`) y no validaba el tipo ni montos finitos → corregido (`409 REGISTER_CLOSED`, `403 BRANCH_ACCESS_DENIED`, `400 INVALID_MOVEMENT_TYPE`, `400 INVALID_MOVEMENT_AMOUNT`).
+- **M8-02**: `GET /api/cash-registers/history` no filtraba por alcance de sucursal (`getBranchScope`) → corregido para restringir resultados a las sucursales autorizadas y rechazar `salon_id` no autorizado con `403 BRANCH_ACCESS_DENIED`.
+- **M8-03**: `POST /api/cash-registers/open` caía silenciosamente a la sucursal principal si recibía un `branch_id` de otra empresa y no serializaba aperturas concurrentes → corregido (`400 INVALID_BRANCH` para sucursal ajena y transacción con `pg_advisory_xact_lock(hashtext(...))` por `tenant_id:branch_id`).
+- **M8-04**: `POST /api/cash-registers/:id/close` carecía de condición atómica en el `UPDATE` frente a cierres concurrentes → corregido con `AND LOWER(COALESCE(status, '')) != 'cerrada' RETURNING id` (el segundo cierre concurrente recibe `409 ALREADY_CLOSED` sin duplicar correo ni mutar el arqueo).
+
+### C. Evidencia de Aceptación (`bcb4cf1` / `01d365a` — APROBADO)
+
+| Caso | Esperado | Observado | Evidencia | Resultado |
+|---|---|---|---|---|
+| **M8-C1** | Rechazo `400` monto negativo, campos contradictorios y `branch_id` de otra empresa (`INVALID_BRANCH`) | Todos rechazados con `400` y códigos canónicos | `test_module8_cash_registers_acceptance.cjs` | **PASS** |
+| **M8-C2** | Dos `POST /open` concurrentes en misma sucursal: solo 1 prospera (`200`), 1 `400 REGISTER_ALREADY_OPEN`; otra sucursal abre independiente | `[200, 400]` exacto; sucursal A2 abre independiente | `test_module8_cash_registers_acceptance.cjs` | **PASS** |
+| **M8-C3** | `2000 + 1200 (efectivo) + 500 (ingreso) - 250 (gasto) - 100 (retiro) = 3350`; tarjeta (`800`) y anulada (`400`) excluidas; tipo/monto inválido `400` | `expected_cash = 3350`, `tarjeta_total = 800`, `count_invoices = 2` | `test_module8_cash_registers_acceptance.cjs` | **PASS** |
+| **M8-C4** | Dos `POST /:id/close` concurrentes: solo 1 `200` (`difference = 0`), 1 `409 ALREADY_CLOSED`; movimiento post-cierre `409 REGISTER_CLOSED` | `[200, 409]`, post-cierre `409 REGISTER_CLOSED`, `close-report` preserva `3350` | `test_module8_cash_registers_acceptance.cjs` | **PASS** |
+| **M8-C5** | Discrepancia ≥ umbral sin PIN `403`, PIN erróneo `401`, PIN válido `200` con auditoría de supervisor y correlación | 7/7 en `test_cash_reconciliation.cjs` + `M8-C5` PASS | `test_cash_reconciliation.cjs` + `test_module8_cash_registers_acceptance.cjs` | **PASS** |
+| **M8-C6** | Alcance sucursal en `/history`, `/close-report`, `/movements` (`403`) y aislamiento multi-tenant (`404` / lista vacía) | Operador limitado a A1 bloqueado en A2 (`403`); Empresa B recibe `404` / `0` filas | `test_module8_cash_registers_acceptance.cjs` | **PASS** |
+| **M8-DOM** | Flujo real Chromium en `/cajas`: tabla con cajas abierta y cerrada, apertura de modal de detalles y pestaña Movimientos | `hasOpenAndClosed=true`, `detailModalOpened=true`, `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:bcb4cf1`) | **PASS** |
+
+- **Gates y Despliegue**: `test:scanner` (0 violaciones), `test:runner-guards` (PASS), `lint`, `build`, `verify:release`, `graphify update .`, `test_blocks_1_to_8_regression.cjs` (PASS), limpieza de `salon_saas_test`, respaldo previo de `salon_saas_staging` y despliegue verificado de `salonpro-app:bcb4cf1` (`Up (healthy)`, `/api/health` → `200`). **Estado: APROBADO**.
