@@ -2,7 +2,7 @@
 
 Documento único y autoritativo de validación sistemática de Etereas por módulos y procesos de negocio.
 
-- **Release candidato actual**: commit `1dcaa41` / imagen `salonpro-app:1dcaa41` (staging).
+- **Release candidato actual**: commit `9111f42` / imagen `salonpro-app:9111f42` (staging).
 - **Base de pruebas automatizadas**: `salon_saas_test` (PostgreSQL 17, aislada con guardas canónicas).
 - **Entorno de producción**: intacto (`salon_saas_prod` sin escrituras, sin cargos CardNet reales, `SAAS_RECURRING_WORKER_ENABLED=false`, `DGII_ELECTRONIC_TRANSMISSION_ENABLED=false`).
 
@@ -31,7 +31,7 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 
 | # | Módulo y Proceso de Negocio | Dependencias | Commit Probado | Evidencia Histórica (no sustituye aprobación) | Resultado | Fallos / Decisiones Pendientes |
 |---|---|---|---|---|---|---|
-| **1** | **Empresa y personalización** (`identidad → logo → colores → guardado → recarga → nueva sesión → sidebar → ticket/factura`) | Auth/Sesión, Storage (`private_files`), POS/Tickets/Facturas | `1dcaa41` (en validación) | `test_branding_sidebar_and_single_session_e2e.cjs` | `en curso` | 3 hallazgos detectados en análisis estático (`M1-01` reset logo en `tenants`, `M1-02` header/footer en factura impresa, `M1-03` auditoría + guardia doble clic) |
+| **1** | **Empresa y personalización** (`identidad → logo → colores → guardado → recarga → nueva sesión → sidebar → ticket/factura`) | Auth/Sesión, Storage (`private_files`), POS/Tickets/Facturas | `9111f42` | `test_branding_sidebar_and_single_session_e2e.cjs` + suite aceptación M1 (`M1-C1`–`M1-C10`) | **`aprobado`** | Ninguno (`M1-01`, `M1-02`, `M1-03` corregidos y verificados) |
 | **2** | Usuarios, roles y licencias | Módulo 1, Auth, RBAC, SaaS Limits | — | `test_rbac_accounting_and_role_templates.cjs`, `test_rbac_closure_matrix.cjs` | `pendiente` | — |
 | **3** | Personal, asistencia y kiosco | Módulo 2, Sucursales, CompreFace (simulado) | — | `test_branding_sidebar_and_single_session_e2e.cjs` (sesión kiosco) | `pendiente` | — |
 | **4** | Categorías y esquemas de comisiones | Módulo 1, Catálogo | — | `test_blocks_1_to_8_regression.cjs` (B1) | `pendiente` | — |
@@ -82,8 +82,20 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **M1-C9** | Owner Empresa A | M1-C1 y M1-C7 ejecutados | Consultar `audit_logs` en PostgreSQL. | Existen registros auditados para actualización y restablecimiento de personalización vinculados a `tenant_id` y `actor_id`. |
 | **M1-C10** | Owner Empresa A | Viewport móvil (`390×844`) y navegación por teclado (`Tab`) | Abrir `/personalizacion` en móvil y tabular inputs/botón guardar. | Sin desbordamiento horizontal crítico, controles accesibles por teclado, `0` `pageerror`, `0` `ErrorBoundary`, `0` HTTP `5xx`. |
 
-### C. Fallos Identificados y Correcciones (En Curso)
+### C. Fallos Corregidos y Evidencia de Aceptación (`9111f42` — APROBADO)
 
-- **M1-01**: `POST /api/tenant/branding/reset` borraba `tenant_branding` pero dejaba `tenants.logo_url`, `primary_color`, `secondary_color` y `receipt_footer` con los valores previos, haciendo que el logo reapareciera tras recarga por el fallback de `GET /api/tenant/branding`. **Corrección**: limpiar también dichos campos en `tenants` dentro de `POST /api/tenant/branding/reset`.
-- **M1-02**: `ElectronicInvoicePrintModal.jsx` ignoraba `branding.receipt_header` y `branding.receipt_footer`. **Corrección**: renderizar ambos cuando estén configurados en la empresa.
-- **M1-03**: Faltaban registros de auditoría en `audit_logs` al actualizar/restablecer branding y guardia síncrono anti-doble clic en `TenantCustomizationModule.jsx`. **Corrección**: registrar `UPDATE_TENANT_BRANDING` / `RESET_TENANT_BRANDING` en `audit_logs` y añadir `submitInFlightRef` en `TenantCustomizationModule.jsx`.
+- **M1-01 (Corregido y verificado)**: `POST /api/tenant/branding/reset` en [tenant.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/tenant.routes.js) limpia ahora `tenants.logo_url`, `primary_color`, `secondary_color` y `receipt_footer`. Verificado en `M1-C7`: tras reset + recarga, `logoAfterReset = null`, `primaryAfterReset = #0f172a`, `sidebarBg = rgb(15, 23, 42)`.
+- **M1-02 (Corregido y verificado)**: [ElectronicInvoicePrintModal.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/common/ElectronicInvoicePrintModal.jsx) renderiza `receipt_header` y `receipt_footer` configurados por la empresa. Verificado en `M1-C3` desde `/facturas` → botón *"Imprimir Factura / Comprobante"*: modal `#pos-electronic-invoice-ri` muestra `ATELIER LUZ RD`, `Atelier Luz — Belleza & Estilo` y `¡Gracias por visitar Atelier Luz RD!`.
+- **M1-03 (Corregido y verificado)**: Auditoría `UPDATE_TENANT_BRANDING` / `RESET_TENANT_BRANDING` en `audit_logs` (`M1-C9`: 3 filas verificadas en PostgreSQL `salon_saas_test`) y guardia síncrono `submitInFlightRef` en [TenantCustomizationModule.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/admin/TenantCustomizationModule.jsx) (`M1-C1`: doble clic rápido envió exactamente `1` petición `PUT`).
+- **Resultados completos `M1-C1`–`M1-C10` en `salonpro-app:9111f42` (`salon_saas_test` + Chromium DOM)**:
+  - `M1-C1` Save + Sidebar real: `rgb(30, 58, 138)`, marca **ETEREAS** intacta, logo en almacenamiento canónico `/api/public/branding/.../logo/...` (sin base64).
+  - `M1-C2` Recarga (`F5`) + Nuevo login: `rgb(30, 58, 138)`, nombre y logo persistidos.
+  - `M1-C3` Consumidor factura impresa: `opened=true`, `hasCompany=true`, `hasHeader=true`, `hasFooter=true`.
+  - `M1-C4` Aislamiento Empresa B: `bg = rgb(15, 23, 42)`, `inheritedA = false`.
+  - `M1-C5` RBAC (`recepcionista` sin permiso): `PUT` → `403`, `POST /reset` → `403`.
+  - `M1-C6` Validaciones: color inválido → `400`, nombre vacío → `400`, contraste WCAG < 3.0 → `400`.
+  - `M1-C7` Doble clic (`1` PUT) + Reset + Recarga (`logoAfterReset = null`).
+  - `M1-C8` Sesión revocada por login concurrente: `401 SESSION_REPLACED`.
+  - `M1-C9` Auditoría en PostgreSQL: `UPDATE_TENANT_BRANDING` y `RESET_TENANT_BRANDING` persistidos.
+  - `M1-C10` Móvil (`390×844`) + teclado (`Tab`): `overflowPx = 0`, `hasErrorBoundary = false`, `pageErrors = []`, `serverErrors = []`.
+- **Gates**: `test:scanner` (0 violaciones), `test:runner-guards` (17/17 + 63 tests aislados), `lint`, `build`, `verify:release`, `graphify update .`. **Estado: APROBADO**.
