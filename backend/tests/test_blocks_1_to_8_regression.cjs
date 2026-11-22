@@ -143,6 +143,14 @@ async function runTests() {
       [tenantId]
     );
 
+    // Seed commission_categories required by catalog
+    for (const catName of ['Cabello', 'Color', 'Productos']) {
+      await pool.query(
+        `INSERT INTO commission_categories (tenant_id, nombre, estado) VALUES (?, ?, 'Activo')`,
+        [tenantId, catName]
+      );
+    }
+
     // Seed commission scheme + rule (30% on Alisado Gravado Exc)
     const [schemeIns] = await pool.query(
       `INSERT INTO commission_schemes (tenant_id, nombre, descripcion, estado) VALUES (?, 'Esquema Regresión', 'Test', 'Activo') RETURNING id`,
@@ -582,6 +590,7 @@ async function runTests() {
       await pool.query('DELETE FROM inventory_locations WHERE tenant_id = ?', [tenantId]);
       await pool.query('DELETE FROM commission_scheme_rules WHERE tenant_id = ?', [tenantId]);
       await pool.query('DELETE FROM commission_schemes WHERE tenant_id = ?', [tenantId]);
+      await pool.query('DELETE FROM commission_categories WHERE tenant_id = ?', [tenantId]);
       await pool.query('DELETE FROM visits WHERE tenant_id = ?', [tenantId]);
       await pool.query('DELETE FROM dgii_ncf_sequences WHERE tenant_id = ?', [tenantId]);
       await pool.query('DELETE FROM services WHERE tenant_id = ?', [tenantId]);
