@@ -553,7 +553,7 @@ async function runBranchContractingTests() {
     console.log('✓ Scenario 7: Idempotent double-click activation passed');
   }
 
-  // 8. RBAC guard: Non-owner/non-admin roles rejected with 403
+  // 8. RBAC guard: Non-owner roles (including recepcionista) rejected with 403 OWNER_ONLY_SAAS_BILLING and zero DB/billing side effects
   {
     const db = createBranchTestPool();
     const billingRepo = new InMemorySaasBillingRepository();
@@ -573,6 +573,9 @@ async function runBranchContractingTests() {
     await new Promise(r => server.listen(0, r));
     const port = server.address().port;
 
+    const initialBranchesCount = db.branches.length;
+    const initialLicensedBranches = db.tenant.licensed_branches;
+
     const res = await fetch(`http://127.0.0.1:${port}/api/salons/contract-branch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -582,9 +585,14 @@ async function runBranchContractingTests() {
     server.close();
 
     assert.strictEqual(res.status, 403);
-    assert.strictEqual(data.code, 'FORBIDDEN_ROLE');
+    assert.strictEqual(data.code, 'OWNER_ONLY_SAAS_BILLING');
+    assert.strictEqual(db.branches.length, initialBranchesCount, 'Rejected request must not create branches');
+    assert.strictEqual(db.orders.length, 0, 'Rejected request must not create checkout orders');
+    assert.strictEqual(db.tenant.licensed_branches, initialLicensedBranches, 'Rejected request must not alter licensed_branches');
+    assert.strictEqual((billingRepo.invoices || []).length, 0, 'Rejected request must not generate invoices');
+    assert.strictEqual((billingRepo.payments || []).length, 0, 'Rejected request must not execute payments');
     passed++;
-    console.log('✓ Scenario 8: RBAC enforcement rejecting non-owner/non-admin passed');
+    console.log('✓ Scenario 8: RBAC enforcement rejecting non-owner with OWNER_ONLY_SAAS_BILLING and zero side effects passed');
   }
 
   // 9. Legacy POST /api/salons returns 403 PLAN_LIMIT_REACHED with capacity contracting pointer
