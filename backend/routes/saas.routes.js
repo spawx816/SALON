@@ -119,13 +119,15 @@ function createSaasRouter(pool, options = {}) {
         const ent = await entitlementsService.getTenantEntitlements(row.id);
         const membershipsAddon = ent?.addons?.memberships;
         const isPaidAddon = Boolean(membershipsAddon?.active && membershipsAddon?.source !== 'legacy_pro_transition');
-        const addonBranchCount = isPaidAddon ? Math.max(0, Number(membershipsAddon?.enabledBranchCount ?? branches)) : 0;
+        const addonBlocksCount = isPaidAddon
+          ? Math.max(1, Number(membershipsAddon?.acquiredBlocks || Math.ceil(Math.max(1, Number(membershipsAddon?.enabledBranchCount ?? branches)) / 3)))
+          : 0;
         const addonUnitCents = isPaidAddon ? Math.round(Number(MEMBERSHIPS_ADDON_DEFAULT_USD || 99) * 100) : 0;
 
-        let monthlyCents = (planUnitCents * branches) + (extraUnitCents * extraSeats) + (addonUnitCents * addonBranchCount);
+        let monthlyCents = (planUnitCents * branches) + (extraUnitCents * extraSeats) + (addonUnitCents * addonBlocksCount);
         if (String(row.billing_cycle).toLowerCase() === 'yearly' && Number(row.plan_price_yearly) > 0) {
           const yearlyPlanCents = Math.round(Number(row.plan_price_yearly) * 100) * branches;
-          monthlyCents = Math.round(yearlyPlanCents / 12) + (extraUnitCents * extraSeats) + (addonUnitCents * addonBranchCount);
+          monthlyCents = Math.round(yearlyPlanCents / 12) + (extraUnitCents * extraSeats) + (addonUnitCents * addonBlocksCount);
         }
         mrrCentsByCurrency[curr] = (mrrCentsByCurrency[curr] || 0) + monthlyCents;
       }

@@ -50,6 +50,10 @@ function createPaymentsRouter(pool, helpers = {}) {
 
       const targetClient = client_id || clientId;
       const targetPlan = plan_id || planId || null;
+      const parsedAmount = Number(amount);
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        return res.status(400).json({ error: 'El monto del pago debe ser un número mayor a 0.', code: 'INVALID_AMOUNT' });
+      }
       const payId = id || `PAY-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
 
       if (targetClient) {
@@ -102,8 +106,17 @@ function createPaymentsRouter(pool, helpers = {}) {
     try {
       const tenantId = req.tenantId;
       const { token, clientId, planId, amount } = req.body;
+      const finalAmount = amount !== undefined ? Number(amount) : 1950;
+      if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+        return res.status(400).json({ error: 'El monto debe ser un número mayor a 0.', code: 'INVALID_AMOUNT' });
+      }
+      if (clientId) {
+        const [clientCheck] = await pool.query('SELECT id FROM clients WHERE id = ? AND tenant_id = ? LIMIT 1', [clientId, tenantId]);
+        if (clientCheck.length === 0) {
+          return res.status(404).json({ error: 'Cliente no encontrado en esta empresa.', code: 'CLIENT_NOT_FOUND' });
+        }
+      }
       const payId = `PAY-CN-${Date.now()}`;
-      const finalAmount = Number(amount) || 1950;
 
       await pool.query(
         `INSERT INTO payments (id, tenant_id, client_id, plan_id, amount, method, status, gateway_ref, description, created_at)
@@ -172,13 +185,20 @@ function createPaymentsRouter(pool, helpers = {}) {
       if (!clientId) {
         return res.status(400).json({ error: 'clientId es requerido' });
       }
+      const [clientCheck] = await pool.query('SELECT id FROM clients WHERE id = ? AND tenant_id = ? LIMIT 1', [clientId, tenantId]);
+      if (clientCheck.length === 0) {
+        return res.status(404).json({ error: 'Cliente no encontrado en esta empresa.', code: 'CLIENT_NOT_FOUND' });
+      }
 
       const [contracts] = await pool.query(
         'SELECT * FROM contracts WHERE client_id = ? AND tenant_id = ? ORDER BY signed_at DESC LIMIT 1',
         [clientId, tenantId]
       );
       const contract = contracts[0];
-      const finalAmount = Number(amount || contract?.precio_mensual || 1950);
+      const finalAmount = amount !== undefined ? Number(amount) : Number(contract?.precio_mensual || 1950);
+      if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+        return res.status(400).json({ error: 'El monto de renovación debe ser mayor a 0.', code: 'INVALID_AMOUNT' });
+      }
       const targetPlan = planId || contract?.plan_id || 'gold';
       const payId = `PAY-REN-${Date.now()}`;
 
@@ -238,7 +258,10 @@ function createPaymentsRouter(pool, helpers = {}) {
       }
 
       const [planRows] = await pool.query('SELECT * FROM plans WHERE id = ? AND tenant_id = ? LIMIT 1', [targetPlanId, tenantId]);
-      const finalAmount = Number(amount || planRows[0]?.price || 1950);
+      const finalAmount = amount !== undefined ? Number(amount) : Number(planRows[0]?.price || 1950);
+      if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+        return res.status(400).json({ error: 'El monto del pago manual debe ser mayor a 0.', code: 'INVALID_AMOUNT' });
+      }
       const planName = planRows[0]?.name || 'Plan Beauty';
       const payId = `PAY-CASH-${Date.now()}`;
 

@@ -123,6 +123,14 @@ function createContractsRouter(pool) {
       if (!targetClientId) {
         return res.status(400).json({ error: 'client_id es obligatorio para crear un contrato.' });
       }
+      const parsedQuota = Number(wash_Quota);
+      const parsedUsed = Number(washes_used);
+      if (!Number.isFinite(parsedQuota) || parsedQuota < 0 || !Number.isFinite(parsedUsed) || parsedUsed < 0) {
+        return res.status(400).json({ error: 'wash_Quota y washes_used deben ser valores numéricos >= 0.', code: 'INVALID_CONTRACT_VALUES' });
+      }
+      if (precio_mensual !== undefined && (!Number.isFinite(Number(precio_mensual)) || Number(precio_mensual) < 0)) {
+        return res.status(400).json({ error: 'precio_mensual debe ser un valor numérico >= 0.', code: 'INVALID_CONTRACT_VALUES' });
+      }
 
       // Validar que el cliente pertenece al tenant autenticado
       const [clientCheck] = await pool.query(
@@ -255,6 +263,16 @@ function createContractsRouter(pool) {
         current_period_end,
         auto_billing_enabled
       } = req.body;
+
+      if (wash_Quota !== undefined && (!Number.isFinite(Number(wash_Quota)) || Number(wash_Quota) < 0)) {
+        return res.status(400).json({ error: 'wash_Quota debe ser un número >= 0.', code: 'INVALID_CONTRACT_VALUES' });
+      }
+      if (washes_used !== undefined && (!Number.isFinite(Number(washes_used)) || Number(washes_used) < 0)) {
+        return res.status(400).json({ error: 'washes_used debe ser un número >= 0.', code: 'INVALID_CONTRACT_VALUES' });
+      }
+      if (precio_mensual !== undefined && (!Number.isFinite(Number(precio_mensual)) || Number(precio_mensual) < 0)) {
+        return res.status(400).json({ error: 'precio_mensual debe ser un número >= 0.', code: 'INVALID_CONTRACT_VALUES' });
+      }
 
       const [result] = await pool.query(
         `UPDATE contracts SET

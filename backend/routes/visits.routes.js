@@ -1454,7 +1454,7 @@ function createVisitsRouter(pool, helpers = {}) {
           const sName = String(it.nombre || it.service_name || it.servicio || it.name || '').trim().toLowerCase();
           const catMatch = (sId && catById.get(String(sId))) || (sName && catByName.get(sName)) || null;
           if (catMatch && (Number(catMatch.activo) === 0 || catMatch.is_active === false)) {
-            if (txConn) { try { await txConn.query('ROLLBACK'); } catch (_) {} }
+            if (txConn) { try { await txConn.query('ROLLBACK'); } catch (_) { } }
             return res.status(400).json({
               error: `El ítem "${it.nombre || it.name || catMatch.lower_name}" está archivado y no puede agregarse a una venta nueva.`,
               code: 'ITEM_ARCHIVED',
@@ -1676,27 +1676,56 @@ function createVisitsRouter(pool, helpers = {}) {
         );
       }
 
-      // 10. Deduct Plan Beauty washes if applicable
+      // 10. Deduct Plan Beauty washes if applicable (fail-closed when quota is 0 or no active contract)
       const targetClientId = client_id || existingRows[0]?.client_id;
-      const washesToDeduct = Number(wash_count_to_consume) || (consume_wash ? 1 : 0);
-      if (targetClientId && washesToDeduct > 0) {
+      const planWashItemsCount = parsedItemsList.reduce(
+        (acc, it) => acc + (it && it.isPlanWash ? (Number(it.cantidad || 1) || 1) : 0),
+        0
+      );
+      const washesToDeduct = Math.max(
+        Number(wash_count_to_consume) || (consume_wash ? 1 : 0),
+        planWashItemsCount
+      );
+      if (washesToDeduct > 0) {
+        if (!targetClientId) {
+          if (txConn) await txConn.rollback();
+          return res.status(409).json({
+            error: 'Se requiere una clienta con membresía Plan Beauty activa para consumir lavados del plan.',
+            code: 'PLAN_WASH_QUOTA_EXHAUSTED',
+            available: 0,
+            requested: washesToDeduct
+          });
+        }
         const [contracts] = await db.query(
           "SELECT * FROM contracts WHERE client_id = ? AND tenant_id = ? AND status IN ('Active', 'Activo') ORDER BY signed_at DESC LIMIT 1 FOR UPDATE",
           [targetClientId, tenantId]
         );
-        if (contracts.length > 0) {
-          const cn = contracts[0];
-          const quota = Number(cn.wash_Quota || cn.wash_quota || 4);
-          const used = Number(cn.washes_used || 0);
-          const available = Math.max(0, quota - used);
-          if (available > 0) {
-            const actualDeduct = Math.min(available, washesToDeduct);
-            await db.query(
-              'UPDATE contracts SET washes_used = washes_used + ? WHERE id = ? AND tenant_id = ?',
-              [actualDeduct, cn.id, tenantId]
-            );
-          }
+        if (contracts.length === 0) {
+          if (txConn) await txConn.rollback();
+          return res.status(409).json({
+            error: 'La clienta no cuenta con un contrato Plan Beauty activo.',
+            code: 'PLAN_WASH_QUOTA_EXHAUSTED',
+            available: 0,
+            requested: washesToDeduct
+          });
         }
+        const cn = contracts[0];
+        const quota = Number(cn.wash_Quota ?? cn.wash_quota ?? 4);
+        const used = Number(cn.washes_used || 0);
+        const available = Math.max(0, quota - used);
+        if (available < washesToDeduct) {
+          if (txConn) await txConn.rollback();
+          return res.status(409).json({
+            error: `La clienta no tiene lavados disponibles en su Plan Beauty activo (disponibles: ${available}, solicitados: ${washesToDeduct}).`,
+            code: 'PLAN_WASH_QUOTA_EXHAUSTED',
+            available,
+            requested: washesToDeduct
+          });
+        }
+        await db.query(
+          'UPDATE contracts SET washes_used = washes_used + ? WHERE id = ? AND tenant_id = ?',
+          [washesToDeduct, cn.id, tenantId]
+        );
       }
 
       // 10b. Persistir consumo / descuento de empleado a nómina de forma idempotente (sin duplicación)
@@ -2448,7 +2477,7 @@ function createVisitsRouter(pool, helpers = {}) {
       });
     } catch (err) {
       if (txConn) {
-        try { await txConn.query('ROLLBACK'); } catch (_) {}
+        try { await txConn.query('ROLLBACK'); } catch (_) { }
       }
       res.status(err.statusCode || 500).json({
         error: err.message,
@@ -2456,7 +2485,7 @@ function createVisitsRouter(pool, helpers = {}) {
       });
     } finally {
       if (txConn) {
-        try { txConn.release(); } catch (_) {}
+        try { txConn.release(); } catch (_) { }
       }
     }
   });

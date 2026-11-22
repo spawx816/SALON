@@ -64,7 +64,17 @@ function createPlansRouter(pool) {
       return res.status(403).json({ error: 'Contexto de empresa requerido.' });
     }
     if (!Array.isArray(plans)) {
-      return res.status(400).json({ error: 'Se requiere un arreglo de planes válido.' });
+      return res.status(400).json({ error: 'Se requiere un arreglo de planes válido.', code: 'INVALID_PLAN_PAYLOAD' });
+    }
+    for (const p of plans) {
+      const planName = String(p?.name || p?.title || '').trim();
+      const planPrice = Number(p?.price);
+      if (!planName || !Number.isFinite(planPrice) || planPrice < 0) {
+        return res.status(400).json({
+          error: 'Cada plan debe incluir nombre válido y un precio numérico mayor o igual a 0.',
+          code: 'INVALID_PLAN_PAYLOAD'
+        });
+      }
     }
 
     const connection = await pool.getConnection();
