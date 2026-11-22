@@ -134,9 +134,9 @@ async function runModule9PosInvoicingAcceptance() {
 
     const locA1 = await inventoryService.getDefaultLocation(tenantA, branchA1);
     await pool.query(
-      `INSERT INTO inventory_stock (tenant_id, product_id, location_id, quantity_on_hand)
+      `INSERT INTO inventory_stock (tenant_id, product_id, location_id, quantity)
        VALUES (?, ?, ?, 10)
-       ON CONFLICT (tenant_id, product_id, location_id) DO UPDATE SET quantity_on_hand = 10`,
+       ON CONFLICT (tenant_id, product_id, location_id) DO UPDATE SET quantity = 10`,
       [tenantA, productId, locA1.id]
     );
 
@@ -170,8 +170,8 @@ async function runModule9PosInvoicingAcceptance() {
     // Verify 0 NCF consumed, 0 stock deducted, 0 cash added
     const [seqBefore] = await pool.query("SELECT secuencia_actual FROM dgii_ncf_sequences WHERE tenant_id = ? AND tipo_comprobante = 'B02'", [tenantA]);
     assert.strictEqual(Number(seqBefore[0].secuencia_actual), 1, 'Precuenta MUST NOT consume NCF');
-    const [stockBefore] = await pool.query('SELECT quantity_on_hand FROM inventory_stock WHERE tenant_id = ? AND product_id = ? AND location_id = ?', [tenantA, productId, locA1.id]);
-    assert.strictEqual(Number(stockBefore[0].quantity_on_hand), 10, 'Precuenta MUST NOT deduct stock');
+    const [stockBefore] = await pool.query('SELECT quantity FROM inventory_stock WHERE tenant_id = ? AND product_id = ? AND location_id = ?', [tenantA, productId, locA1.id]);
+    assert.strictEqual(Number(stockBefore[0].quantity), 10, 'Precuenta MUST NOT deduct stock');
     const regBefore = await reqJson(baseUrl, 'GET', `/api/cash-registers/active?salon_id=${branchA1}`);
     assert.strictEqual(Number(regBefore.data.expected_cash), 1000, 'Precuenta MUST NOT add to cash register');
     console.log('  ✅ [PASS M9-C1]');
@@ -204,8 +204,8 @@ async function runModule9PosInvoicingAcceptance() {
     const [seqAfter] = await pool.query("SELECT secuencia_actual FROM dgii_ncf_sequences WHERE tenant_id = ? AND tipo_comprobante = 'B02'", [tenantA]);
     assert.strictEqual(Number(seqAfter[0].secuencia_actual), 2, 'NCF sequence must advance strictly once (1 -> 2)');
 
-    const [stockAfter] = await pool.query('SELECT quantity_on_hand FROM inventory_stock WHERE tenant_id = ? AND product_id = ? AND location_id = ?', [tenantA, productId, locA1.id]);
-    assert.strictEqual(Number(stockAfter[0].quantity_on_hand), 8, `Expected stock 8 (10 - 2), got ${stockAfter[0].quantity_on_hand}`);
+    const [stockAfter] = await pool.query('SELECT quantity FROM inventory_stock WHERE tenant_id = ? AND product_id = ? AND location_id = ?', [tenantA, productId, locA1.id]);
+    assert.strictEqual(Number(stockAfter[0].quantity), 8, `Expected stock 8 (10 - 2), got ${stockAfter[0].quantity}`);
 
     const [svcMovs] = await pool.query('SELECT id FROM inventory_movements WHERE tenant_id = ? AND product_id = ?', [tenantA, serviceId]);
     assert.strictEqual(svcMovs.length, 0, 'Service MUST NOT create inventory movements');
@@ -237,8 +237,8 @@ async function runModule9PosInvoicingAcceptance() {
     const voidStatuses = [void1.status, void2.status].sort();
     assert.deepStrictEqual(voidStatuses, [200, 409], `Expected [200, 409], got ${JSON.stringify(voidStatuses)}`);
 
-    const [stockRestored] = await pool.query('SELECT quantity_on_hand FROM inventory_stock WHERE tenant_id = ? AND product_id = ? AND location_id = ?', [tenantA, productId, locA1.id]);
-    assert.strictEqual(Number(stockRestored[0].quantity_on_hand), 10, `Stock must be restored ONCE to 10, got ${stockRestored[0].quantity_on_hand}`);
+    const [stockRestored] = await pool.query('SELECT quantity FROM inventory_stock WHERE tenant_id = ? AND product_id = ? AND location_id = ?', [tenantA, productId, locA1.id]);
+    assert.strictEqual(Number(stockRestored[0].quantity), 10, `Stock must be restored ONCE to 10, got ${stockRestored[0].quantity}`);
 
     const regAfterVoid = await reqJson(baseUrl, 'GET', `/api/cash-registers/active?salon_id=${branchA1}`);
     assert.strictEqual(Number(regAfterVoid.data.expected_cash), 1000, 'Voided visit must be excluded from expected_cash');
