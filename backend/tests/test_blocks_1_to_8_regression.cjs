@@ -127,13 +127,14 @@ async function runTests() {
       [tenantId]
     );
 
-    // Open cash register in branch 1
-    const [crIns] = await pool.query(
-      `INSERT INTO cash_registers (tenant_id, salon_id, branch_id, opened_by, opening_amount, opening_balance, opening_balance_cents, status, opened_at)
-       VALUES (?, 1, ?, 'Owner Regresión', 1000, 1000, 100000, 'Abierta', NOW()) RETURNING id`,
-      [tenantId, branch1Id]
-    );
-    const cashRegisterId = crIns[0].id;
+    // Open cash register in branch 1 via canonical API
+    const crOpenRes = await requestJson(baseUrl, 'POST', '/api/cash-registers/open', {
+      token: ownerToken,
+      body: { salon_id: branch1Id, branch_id: branch1Id, opening_balance: 1000, opening_amount: 1000 },
+    });
+    assert.ok(crOpenRes.status === 200 || crOpenRes.status === 201, `Open cash register failed: ${crOpenRes.text}`);
+    const cashRegisterId = crOpenRes.body.id || crOpenRes.body.cash_register_id || crOpenRes.body.register?.id;
+    assert.ok(cashRegisterId, `cashRegisterId missing in open response: ${crOpenRes.text}`);
 
     // Seed B02 NCF sequence
     await pool.query(
