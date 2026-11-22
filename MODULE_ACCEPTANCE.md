@@ -2,15 +2,15 @@
 
 Documento único y autoritativo de validación sistemática de Etereas por módulos y procesos de negocio.
 
-- **Release candidato actual**: commit `9111f42` / imagen `salonpro-app:9111f42` (staging).
+- **Release candidato actual**: commit `b9ec72e` / imagen `salonpro-app:b9ec72e` (staging).
 - **Base de pruebas automatizadas**: `salon_saas_test` (PostgreSQL 17, aislada con guardas canónicas).
-- **Entorno de producción**: intacto (`salon_saas_prod` sin escrituras, sin cargos CardNet reales, `SAAS_RECURRING_WORKER_ENABLED=false`, `DGII_ELECTRONIC_TRANSMISSION_ENABLED=false`).
+- **Entorno de producción**: intacto (`salon_saas_prod` sin escrituras, sin cargos CardNet reales, `SAAS_RENEWAL_WORKER_ENABLED` deshabilitado, `DGII_MODE=disabled` / `DGII_ENABLED` deshabilitado).
 
 ---
 
 ## Reglas Transversales de Etereas (Verificación Continua)
 
-1. Un único **Plan Principal**.A
+1. Un único **Plan Principal**.
 2. Tres (3) asientos incluidos por sucursal contratada más asientos extras adquiridos.
 3. Owner y personal operativo consumen asiento.
 4. Rol técnico `kiosco_asistencia` exento de cuota y restringido a kiosco.
@@ -32,8 +32,8 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | # | Módulo y Proceso de Negocio | Dependencias | Commit Probado | Evidencia Histórica (no sustituye aprobación) | Resultado | Fallos / Decisiones Pendientes |
 |---|---|---|---|---|---|---|
 | **1** | **Empresa y personalización** (`identidad → logo → colores → guardado → recarga → nueva sesión → sidebar → ticket/factura`) | Auth/Sesión, Storage (`private_files`), POS/Tickets/Facturas | `9111f42` | `test_branding_sidebar_and_single_session_e2e.cjs` + suite aceptación M1 (`M1-C1`–`M1-C10`) | **`aprobado`** | Ninguno (`M1-01`, `M1-02`, `M1-03` corregidos y verificados) |
-| **2** | Usuarios, roles y licencias | Módulo 1, Auth, RBAC, SaaS Limits | — | `test_rbac_accounting_and_role_templates.cjs`, `test_rbac_closure_matrix.cjs` | `pendiente` | — |
-| **3** | **Personal, asistencia y kiosco** (`personal → horarios/novedades → kiosco → ponches/autoservicio → CompreFace real → aislamiento`) | Módulo 2, Sucursales, CompreFace (`compreface_api`) | En validación | `test_kiosk_dedicated_user.cjs`, `test_kiosk_security_and_isolation.cjs` | `en curso` | 3 hallazgos corregidos (`M3-01` tenant_id + RBAC en `attendance.routes.js`, `M3-02` turnos que cruzan medianoche, `M3-03` auditoría en `audit_logs`); en ejecución DOM + CompreFace real |
+| **2** | **Usuarios, roles y licencias** (`usuario operativo → roles/plantillas → asientos 3×sucursal → kiosco exento → concurrencia → último Owner → sesión única`) | Módulo 1, Auth, RBAC, SaaS Limits | `9111f42` | `test_rbac_accounting_and_role_templates.cjs`, `test_rbac_closure_matrix.cjs` + suite aceptación M2 (`M2-C1`–`M2-C11`) | **`aprobado`** | Ninguno (`0` defectos de código; 11/11 casos DOM + PG aprobados) |
+| **3** | **Personal, asistencia y kiosco** (`personal → horarios/novedades → kiosco → ponches/autoservicio → CompreFace real → aislamiento`) | Módulo 2, Sucursales, CompreFace (`compreface_api`) | `b9ec72e` | `test_kiosk_dedicated_user.cjs`, `test_kiosk_security_and_isolation.cjs`, `test_rbac_closure_matrix.cjs` + suite DOM M3 + CompreFace real (`M3-C1`–`M3-C6`) | **`aprobado`** | `M3-01`, `M3-02`, `M3-03` corregidos y desplegados en staging (`b9ec72e`). Pendiente solo verificación física de hardware de cámara (`M3-C7`, guía abajo). |
 | **4** | Categorías y esquemas de comisiones | Módulo 1, Catálogo | — | `test_blocks_1_to_8_regression.cjs` (B1) | `pendiente` | — |
 | **5** | Catálogo (servicios y productos + ITBIS) | Módulo 4, Inventario | — | `test_blocks_1_to_8_regression.cjs` (B5) | `pendiente` | — |
 | **6** | Inventario (stock, ubicaciones, movimientos) | Módulo 5, Sucursales | — | `test_blocks_1_to_8_regression.cjs` (B6) | `pendiente` | — |
@@ -124,3 +124,25 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **M3-C5** | Aislamiento y RBAC | Dos empresas y varias sucursales: rechazar `employee_id`/`device_id`/override ajeno (`403`/`404`), rechazar `POST /api/attendance/adjust` y `DELETE /api/attendance/schedule-override/:id` sin permiso `attendance.manage` (`403`), rate limiting aislado sin bloquear toda la empresa. | Bloqueos exactos (`M3-01` corregido) y 0 contaminación cross-tenant. |
 | **M3-C6** | CompreFace Real (separado) | Pruebas directas contra `compreface_api` real usando únicamente rostros sintéticos generados (`person_a_1`, `person_a_2`, `person_b_1`, sin biometría real): rostro coincidente, rostro diferente, imagen sin rostro, y timeout/indisponibilidad (`503 BIOMETRIC_PROVIDER_UNAVAILABLE`, fail-closed). | Coincidente ≥ threshold, diferente rechazado, sin rostro rechazado, indisponibilidad fail-closed `503`. |
 | **M3-C7** | Operador (Físico) | Prueba guiada de cámara física en tablet/PC real. | Documentada para el operador (cámara simulada no acredita hardware físico). |
+
+### C. Fallos Corregidos y Evidencia de Aceptación (`b9ec72e` — APROBADO)
+
+- **M3-01 (Corregido y verificado)**: Aislamiento multi-tenant (`AND tenant_id = ?`) agregado en `DELETE /api/attendance/schedule-override/:id` y guardas RBAC (`requirePermission('attendance.manage' | 'attendance.view' | 'staff.manage')`) en [attendance.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/attendance.routes.js). Verificado en `M3-C5`: `DELETE` cross-tenant sobre override ajeno (Empresa B, `id=27`) devuelve `404` y conserva `status='Activo'` en PostgreSQL; usuario sin permiso recibe `403` en `/adjust`, `/schedule-override/:id` y `/users/:id/profile-photo`.
+- **M3-02 (Corregido y verificado)**: Corrección de cálculo de turnos nocturnos que cruzan medianoche (`22:00 → 02:00`) en `POST /api/attendance/adjust` ([attendance.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/attendance.routes.js)). Verificado en PostgreSQL (`salon_saas_test`, `employee_id='341'`): salida temprana `23:30` registra `status='Salida Temprana'`, `extra_minutes=0` (antes `+1290`); salida `02:15` registra `status='Normal'`, `extra_minutes=15`.
+- **M3-03 (Corregido y verificado)**: Auditoría persistida en `audit_logs` (`ATTENDANCE_ADJUST`, `SCHEDULE_OVERRIDE_VOID`) verificada en PostgreSQL (`7` registros en `salon_saas_test`).
+- **Resultados completos `M3-C1`–`M3-C6` en `salonpro-app:b9ec72e` (`salon_saas_test` + Chromium DOM + CompreFace real)**:
+  - **Suites PG dentro de `salonpro-app:b9ec72e`**: `test_kiosk_dedicated_user.cjs` (PASS), `test_kiosk_security_and_isolation.cjs` (PASS), `test_rbac_closure_matrix.cjs` (PASS).
+  - **`M3-C1` Personal + Foto Privada (DOM `/equipo` + PG)**: Creación y edición (`salario_base=28500.00`), foto en almacenamiento privado (`has_private_photo=true`, `raw_base64_null=true`), `0` asientos consumidos (`2/6`), persistencia tras recarga y baja (`status='Inactivo'`, `fecha_salida='2026-11-22'`) conservando historial de asistencia.
+  - **`M3-C2` Horarios y Novedades (DOM `/admin/asistencia` + PG)**: Jornada normal con tardanza (`09:30 → Tardanza`) y salida temprana (`17:15 → Salida Temprana`), turno nocturno `22:00→02:00`, creación y anulación de override temporal, auditoría en `audit_logs`.
+  - **`M3-C3` / `M3-C4` Kiosco y Sesión Única (DOM `/asistencia`)**: Login real de `kiosco_asistencia` redirige exclusivamente a `/asistencia`, `GET /api/expenses` → `403`, lista limitada a empleados activos autorizados (`authorizedEmployeesCount=1`, excluye inactivos y Empresa B), 2do login desplaza sesión anterior (`401 SESSION_REPLACED`). `pageErrors=[]`, `serverErrors=[]`.
+  - **`M3-C6` CompreFace Real (`compreface_api`, rostros sintéticos sin biometría real)**: mismo sujeto (`person_a_1` vs `person_a_2`) → `HTTP 200`, `similarity=0.9995`, `matched=true`; distinto sujeto (`person_a_1` vs `person_b_1`) → `HTTP 200`, `similarity=0.048`, `matched=false`; imagen sin rostro → rechazado `HTTP 400` (código CompreFace `28`); proveedor inaccesible → fail-closed (`ECONNABORTED` / `503 BIOMETRIC_PROVIDER_UNAVAILABLE`).
+- **Despliegue en staging**: Respaldo previo `/opt/salonpro/backups/salon_saas_staging_pre_b9ec72e_20261122_154124.sql.gz` (`83K`) + contenedor `salonpro_app` actualizado a `salonpro-app:b9ec72e` (`Up (healthy)`, `GET /api/health` → `200`). **Estado: APROBADO**.
+
+### D. Guía Corta de Prueba de Cámara Física en Dispositivo Real (`M3-C7` — Operador)
+
+> La cámara simulada/sintética valida el backend y CompreFace, pero **no certifica el hardware físico** de la tablet/PC ni los permisos del navegador. Ejecutar esta lista de 5 minutos en el equipo real del salón:
+> 1. Abrir la URL de staging en HTTPS desde Chrome/Safari en la tablet o PC de recepción e iniciar sesión con la cuenta `kiosco_asistencia` (verificar redirección automática a `/asistencia`).
+> 2. Conceder permiso de cámara al navegador cuando aparezca el diálogo del sistema operativo y confirmar vista previa fluida sin congelamiento ni espejo invertido ilegible.
+> 3. Seleccionar un colaborador con foto de referencia cargada, ingresar su PIN y capturar rostro con iluminación real del mostrador → confirmar `Check-In` aprobado y hora del servidor.
+> 4. Repetir con otra persona frente a la cámara usando el PIN del primer colaborador → confirmar rechazo biométrico en pantalla sin registrar ponche.
+> 5. Tapar el lente (sin rostro) o revocar temporalmente el permiso de cámara → confirmar mensaje claro en UI y que no se registra ningún ponche ni se cuelga la pantalla.
