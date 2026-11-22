@@ -306,10 +306,25 @@ async function runTests() {
     });
     assert.strictEqual(noReasonReassign.status, 400, 'Reasignar sin motivo debe devolver 400');
 
-    // Reasignación válida con motivo
+    // Reasignación válida con motivo (enviando updatedItems por línea como la UI InvoiceHistory)
+    const [vItemsRow] = await pool.query('SELECT items_detail FROM visits WHERE id = ? AND tenant_id = ?', [visitId, tenantId]);
+    const currentItems = typeof vItemsRow[0].items_detail === 'string'
+      ? JSON.parse(vItemsRow[0].items_detail)
+      : (vItemsRow[0].items_detail || []);
+    const reassignedItems = currentItems.map((it) => ({
+      ...it,
+      empleado_id: emp2Id,
+      estilista_id: emp2Id,
+      estilista: 'Estilista Dos',
+      colaborador: 'Estilista Dos',
+    }));
     const okReassign = await requestJson(baseUrl, 'PUT', `/api/visits/${visitId}/commission-recipient`, {
       token: ownerToken,
-      body: { new_employee_id: emp2Id, reason: 'Corrección de estilista asignada en recepción' },
+      body: {
+        empleado_peluquera: 'Estilista Dos',
+        updatedItems: reassignedItems,
+        reason: 'Corrección de estilista asignada en recepción',
+      },
     });
     assert.strictEqual(okReassign.status, 200, `Reasignación válida falló: ${okReassign.text}`);
 
@@ -332,7 +347,11 @@ async function runTests() {
     await pool.query("UPDATE employee_commissions_log SET status = 'Pagada' WHERE visit_id = ? AND tenant_id = ?", [visitId, tenantId]);
     const blockedReassign = await requestJson(baseUrl, 'PUT', `/api/visits/${visitId}/commission-recipient`, {
       token: ownerToken,
-      body: { new_employee_id: emp1Id, reason: 'Intento sobre comisión pagada' },
+      body: {
+        empleado_peluquera: 'Estilista Uno',
+        updatedItems: currentItems,
+        reason: 'Intento sobre comisión pagada',
+      },
     });
     assert.strictEqual(blockedReassign.status, 409, `Reasignación sobre comisión pagada debe ser 409, recibido ${blockedReassign.status}`);
     console.log('  ✅ [PASS] B2: Reasignación auditada sin tocar NCF/totales y bloqueo 409 sobre comisión liquidada.');
