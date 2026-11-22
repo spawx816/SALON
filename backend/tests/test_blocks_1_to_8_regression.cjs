@@ -506,8 +506,8 @@ async function runTests() {
     // =========================================================================
     console.log('[B7] Probando conservación de método de pago ante cancelación/fallo y cotización de sucursal sin Membresías...');
     await pool.query(
-      `INSERT INTO saas_payment_methods (id, tenant_id, provider, token_reference, provider_customer_id, brand, last4, exp_month, exp_year, is_default)
-       VALUES (?, ?, 'cardnet', 'cardnet_profile_orig_4242', 'cust_orig', 'visa', '4242', 12, 2028, TRUE)`,
+      `INSERT INTO saas_payment_methods (id, tenant_id, token_reference, provider_customer_id, brand, last4, exp_month, exp_year, is_default)
+       VALUES (?, ?, 'cardnet_profile_orig_4242', 'cust_orig', 'visa', '4242', 12, 2028, TRUE)`,
       [crypto.randomUUID(), tenantId]
     );
 
