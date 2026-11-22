@@ -1,14 +1,19 @@
 const express = require('express');
+const { requirePermission } = require('../middleware/rbac.middleware');
 
 /**
  * Commissions router module for Empresa Pro & Plan Beauty RD (Scoped strictly by tenant_id)
+ * Permisos separados:
+ * - commissions.view: consultar registros, categorías, esquemas, reglas y liquidaciones
+ * - commissions.configure: crear/editar/eliminar categorías, esquemas, reglas, asignaciones y sync
+ * - commissions.approve: liquidar y pagar comisiones (/payout)
  */
 function createCommissionsRouter(pool, processVisitCommissions, processBatchVisitCommissions = null) {
   const router = express.Router();
 
   // --- Sincronización manual / background de comisiones (Batch O(1) queries) ---
   // Por seguridad histórica, NO sobrescribe facturas que ya tienen comisiones calculadas a menos que se solicite force_recalculate=true explícitamente.
-  router.post('/sync', async (req, res) => {
+  router.post('/sync', requirePermission('commissions.configure'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const forceRecalculate = req.body?.force_recalculate === true || req.query?.force_recalculate === 'true';
@@ -124,7 +129,7 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
     }
   });
 
-  router.post('/categories', async (req, res) => {
+  router.post('/categories', requirePermission('commissions.configure'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id, nombre, porcentaje, tipo, estado } = req.body;
@@ -147,7 +152,7 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
     }
   });
 
-  router.delete('/categories/:id', async (req, res) => {
+  router.delete('/categories/:id', requirePermission('commissions.configure'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
@@ -202,7 +207,7 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
     }
   });
 
-  router.post('/schemes', async (req, res) => {
+  router.post('/schemes', requirePermission('commissions.configure'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id, nombre, descripcion, tipo, estado } = req.body;
@@ -225,7 +230,7 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
     }
   });
 
-  router.delete('/schemes/:id', async (req, res) => {
+  router.delete('/schemes/:id', requirePermission('commissions.configure'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
@@ -264,7 +269,7 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
   });
 
   // --- Asignar Colaboradores al Esquema ---
-  router.post('/schemes/:id/assign-employees', async (req, res) => {
+  router.post('/schemes/:id/assign-employees', requirePermission('commissions.configure'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
@@ -317,7 +322,7 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
     }
   });
 
-  router.post('/schemes/:id/rules', async (req, res) => {
+  router.post('/schemes/:id/rules', requirePermission('commissions.configure'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
@@ -424,7 +429,7 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
     }
   });
 
-  router.delete('/rules/:id', async (req, res) => {
+  router.delete('/rules/:id', requirePermission('commissions.configure'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
@@ -445,7 +450,7 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
     }
   });
 
-  router.post('/rules', async (req, res) => {
+  router.post('/rules', requirePermission('commissions.configure'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { employee_id, service_name, tipo_comision, comision_valor } = req.body;
@@ -464,7 +469,7 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
   });
 
   // --- Liquidaciones (Payouts) — Atómico con FOR UPDATE + Auditoría + Anti doble pago ---
-  router.post('/payout', async (req, res) => {
+  router.post('/payout', requirePermission('commissions.approve'), async (req, res) => {
     const conn = typeof pool.getConnection === 'function' ? await pool.getConnection() : null;
     const db = conn || pool;
     try {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   Sparkles, Plus, Search, Edit3, Trash2, Power, CheckCircle2, XCircle, 
@@ -8,10 +8,12 @@ import {
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useAuth } from '../../context/AuthContext';
+import { hasUiPermission } from '../../utils/rbacCatalog';
 
 const ServiceManagement = () => {
   const { user, isAdmin } = useAuth();
-  const canManageCommissions = Boolean(isAdmin || user?.permissions?.manage_commissions || user?.permissions?.manage_staff);
+  const canManageCommissions = Boolean(isAdmin || hasUiPermission(user, 'commissions.configure') || user?.permissions?.manage_staff);
+  const submitInFlightRef = useRef(false);
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -179,6 +181,7 @@ const ServiceManagement = () => {
 
   const handleSaveService = async (e) => {
     e.preventDefault();
+    if (submitInFlightRef.current) return;
     const cleanName = formData.nombre.trim();
     if (!cleanName) {
       alert('El nombre del servicio o ítem es obligatorio.');
@@ -204,6 +207,7 @@ const ServiceManagement = () => {
       return;
     }
 
+    submitInFlightRef.current = true;
     setLoading(true);
     try {
       const payload = {
@@ -227,6 +231,7 @@ const ServiceManagement = () => {
     } catch (e) {
       alert('Error guardando servicio: ' + e.message);
     } finally {
+      submitInFlightRef.current = false;
       setLoading(false);
     }
   };

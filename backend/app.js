@@ -724,7 +724,7 @@ function createApp(dependencies = {}) {
   };
   app.use('/api/visits', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, visitsGuard, visitsRouter);
 
-  app.use('/api/commissions', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requireMethodPermission(['commissions.view', 'commissions.approve'], 'commissions.approve'), createCommissionsRouter(pool, processVisitCommissions, processBatchVisitCommissions));
+  app.use('/api/commissions', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requireMethodPermission(['commissions.view', 'commissions.configure', 'commissions.approve'], ['commissions.configure', 'commissions.approve']), createCommissionsRouter(pool, processVisitCommissions, processBatchVisitCommissions));
 
   const contractsRouterInstance = createContractsRouter(pool, {
     CARDNET_CONFIG,

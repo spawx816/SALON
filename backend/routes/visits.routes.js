@@ -530,7 +530,7 @@ function createVisitsRouter(pool, helpers = {}) {
             montoComision = Number(((montoBase * fallbackPct) / 100).toFixed(2));
             ruleDescription = isProduct
               ? 'Producto sin comisión configurada (0%)'
-              : 'Comisión base por defecto (15%)';
+              : '⚠️ Fallback temporal (15%) — Sin regla configurada (pendiente decisión operador)';
           }
         }
 
@@ -1419,7 +1419,7 @@ function createVisitsRouter(pool, helpers = {}) {
           `SELECT id::text as id, LOWER(TRIM(COALESCE(nombre, name, ''))) as lower_name,
                   COALESCE(aplica_itbis, 0) as aplica_itbis, COALESCE(tax_rate, 0.1800) as tax_rate,
                   COALESCE(tax_mode, 'exclusive') as tax_mode, COALESCE(categoria, category, 'General') as categoria,
-                  item_type
+                  item_type, COALESCE(activo, 1) as activo, COALESCE(is_active, TRUE) as is_active
            FROM services WHERE tenant_id = ?`,
           [tenantId]
         );
@@ -1428,6 +1428,21 @@ function createVisitsRouter(pool, helpers = {}) {
         for (const row of (catalogTaxRows || [])) {
           catById.set(String(row.id), row);
           if (row.lower_name) catByName.set(row.lower_name, row);
+        }
+
+        // Bloquear venta de productos o servicios archivados en facturas nuevas
+        for (const it of parsedItemsList) {
+          const sId = it.service_id || it.product_id || (typeof it.id === 'string' && it.id.length > 20 ? it.id : null);
+          const sName = String(it.nombre || it.service_name || it.servicio || it.name || '').trim().toLowerCase();
+          const catMatch = (sId && catById.get(String(sId))) || (sName && catByName.get(sName)) || null;
+          if (catMatch && (Number(catMatch.activo) === 0 || catMatch.is_active === false)) {
+            if (txConn) { try { await txConn.query('ROLLBACK'); } catch (_) {} }
+            return res.status(400).json({
+              error: `El ítem "${it.nombre || it.name || catMatch.lower_name}" está archivado y no puede agregarse a una venta nueva.`,
+              code: 'ITEM_ARCHIVED',
+              service_id: catMatch.id,
+            });
+          }
         }
 
         parsedItemsList = parsedItemsList.map((it) => {

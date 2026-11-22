@@ -5,8 +5,12 @@ import {
   Trash2, Edit2, Info, ArrowRight, MapPin, ChevronDown, ChevronUp, Check, X, Users
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
+import { useAuth } from '../../context/AuthContext';
+import { hasUiPermission } from '../../utils/rbacCatalog';
 
 const CommissionManagement = () => {
+  const { user } = useAuth();
+  const canConfigureCommissions = hasUiPermission(user, 'commissions.configure');
   const [activeTab, setActiveTab] = useState('registro'); // 'registro' | 'esquemas' (Default to registro)
 
   // Categories, Schemes, Services & Rules Data
@@ -460,12 +464,14 @@ const CommissionManagement = () => {
                   <span style={{ background: '#be185d', color: '#ffffff', width: '24px', height: '24px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 900 }}>1</span>
                   <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>Categorías de Comisión</h2>
                 </div>
+                {canConfigureCommissions && (
                 <button
                   onClick={() => handleOpenCategoryModal()}
                   style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#be185d', padding: '0.4rem 0.75rem', borderRadius: '9px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
                 >
                   <Plus size={14} /> Gestionar Categorías
                 </button>
+                )}
               </div>
 
               <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0 0 1rem' }}>
@@ -538,12 +544,14 @@ const CommissionManagement = () => {
                   <span style={{ background: '#be185d', color: '#ffffff', width: '24px', height: '24px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 900 }}>2</span>
                   <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>Esquemas de Comisión</h2>
                 </div>
+                {canConfigureCommissions && (
                 <button
                   onClick={() => handleOpenSchemeModal()}
                   style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.45rem 0.85rem', borderRadius: '9px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', boxShadow: '0 2px 6px rgba(190,24,93,0.3)' }}
                 >
                   <Plus size={14} /> Crear Esquema
                 </button>
+                )}
               </div>
 
               <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0 0 1rem' }}>
@@ -1104,7 +1112,20 @@ const CommissionManagement = () => {
                                 {c.tipo_comision === 'Porcentaje' ? `${c.comision_valor}%` : `RD$ ${c.comision_valor}`}
                               </span>
                               {c.rule_applied_description && (
-                                <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '1px' }}>{c.rule_applied_description}</div>
+                                <div
+                                  style={{
+                                    fontSize: '0.68rem',
+                                    color: /fallback|por defecto \(15%\)/i.test(c.rule_applied_description) ? '#b45309' : '#94a3b8',
+                                    background: /fallback|por defecto \(15%\)/i.test(c.rule_applied_description) ? '#fef3c7' : 'transparent',
+                                    padding: /fallback|por defecto \(15%\)/i.test(c.rule_applied_description) ? '2px 6px' : '0',
+                                    borderRadius: '4px',
+                                    fontWeight: /fallback|por defecto \(15%\)/i.test(c.rule_applied_description) ? 700 : 400,
+                                    marginTop: '2px',
+                                    display: 'inline-block',
+                                  }}
+                                >
+                                  {c.rule_applied_description}
+                                </div>
                               )}
                             </td>
                             <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontWeight: 900, color: '#15803d', fontSize: '0.9rem' }}>

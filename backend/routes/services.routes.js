@@ -314,7 +314,7 @@ function createServicesRouter(pool) {
     }
   });
 
-  // Importación masiva de servicios (scoped al tenant autenticado)
+  // Importación masiva de servicios (scoped al tenant autenticado, mismas validaciones canónicas y reporte por fila)
   router.post('/bulk-import', async (req, res) => {
     try {
       const tenantId = req.tenantId;
@@ -325,15 +325,44 @@ function createServicesRouter(pool) {
 
       let imported = 0;
       let updated = 0;
+      const errors = [];
 
-      for (const item of items) {
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx] || {};
+        const rowNum = idx + 1;
         const nombre = String(item.nombre || item.name || '').trim();
-        if (!nombre) continue;
+        if (!nombre) {
+          errors.push({ row: rowNum, nombre: '', code: 'MISSING_NAME', error: 'El nombre del ítem es obligatorio.' });
+          continue;
+        }
 
-        const categoria = String(item.categoria || item.category || 'Peluquería').trim();
+        const rawPrice = item.precio !== undefined ? item.precio : item.price;
+        const precio = rawPrice !== undefined && rawPrice !== '' ? Number(rawPrice) : NaN;
+        if (!Number.isFinite(precio) || precio < 0) {
+          errors.push({ row: rowNum, nombre, code: 'INVALID_PRICE', error: 'El precio debe ser un número mayor o igual a 0.' });
+          continue;
+        }
+
+        const rawCost = item.costo !== undefined ? item.costo : item.cost;
+        const costo = rawCost !== undefined && rawCost !== '' ? Number(rawCost) : 0;
+        if (!Number.isFinite(costo) || costo < 0) {
+          errors.push({ row: rowNum, nombre, code: 'INVALID_COST', error: 'El costo debe ser un número mayor o igual a 0.' });
+          continue;
+        }
+
+        const catResolution = await resolveCommissionCategory(
+          tenantId,
+          item.commission_category_id,
+          null,
+          item.categoria || item.category
+        );
+        if (catResolution.error) {
+          errors.push({ row: rowNum, nombre, code: 'INVALID_COMMISSION_CATEGORY', error: catResolution.error });
+          continue;
+        }
+
+        const cleanSku = item.sku ? String(item.sku).trim() : null;
         const subcategoria = String(item.subcategoria || 'General').trim();
-        const precio = parseFloat(item.precio ?? item.price) || 0;
-        const costo = parseFloat(item.costo ?? item.cost) || 0;
         const duracion = parseInt(item.duracion ?? item.duration) || 30;
         const activo = item.activo !== undefined ? (item.activo ? 1 : 0) : 1;
 
@@ -341,16 +370,28 @@ function createServicesRouter(pool) {
           'SELECT id FROM services WHERE LOWER(COALESCE(nombre, name)) = LOWER(?) AND tenant_id = ? LIMIT 1',
           [nombre, tenantId]
         );
+        if (cleanSku) {
+          const dupQuery = existing.length > 0
+            ? 'SELECT id FROM services WHERE tenant_id = ? AND sku = ? AND id <> ? LIMIT 1'
+            : 'SELECT id FROM services WHERE tenant_id = ? AND sku = ? LIMIT 1';
+          const dupParams = existing.length > 0 ? [tenantId, cleanSku, existing[0].id] : [tenantId, cleanSku];
+          const [dupSku] = await pool.query(dupQuery, dupParams);
+          if (dupSku.length > 0) {
+            errors.push({ row: rowNum, nombre, code: 'UNIQUE_SKU_VIOLATION', error: `SKU duplicado: "${cleanSku}".` });
+            continue;
+          }
+        }
+
         if (existing.length > 0) {
           await pool.query(
-            'UPDATE services SET name = ?, categoria = ?, subcategoria = ?, precio = ?, price = ?, costo = ?, duracion = ?, duration_minutes = ?, activo = ?, is_active = ? WHERE id = ? AND tenant_id = ?',
-            [nombre, categoria, subcategoria, precio, precio, costo, duracion, duracion, activo, Boolean(activo), existing[0].id, tenantId]
+            'UPDATE services SET name = ?, categoria = ?, category = ?, commission_category_id = ?, subcategoria = ?, precio = ?, price = ?, costo = ?, duracion = ?, duration_minutes = ?, sku = COALESCE(?, sku), activo = ?, is_active = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?',
+            [nombre, catResolution.nombre, catResolution.nombre, catResolution.id, subcategoria, precio, precio, costo, duracion, duracion, cleanSku, activo, Boolean(activo), existing[0].id, tenantId]
           );
           updated++;
         } else {
           await pool.query(
-            'INSERT INTO services (tenant_id, name, nombre, categoria, subcategoria, precio, price, costo, duracion, duration_minutes, activo, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [tenantId, nombre, nombre, categoria, subcategoria, precio, precio, costo, duracion, duracion, activo, Boolean(activo)]
+            'INSERT INTO services (tenant_id, name, nombre, categoria, category, commission_category_id, subcategoria, precio, price, costo, duracion, duration_minutes, sku, activo, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [tenantId, nombre, nombre, catResolution.nombre, catResolution.nombre, catResolution.id, subcategoria, precio, precio, costo, duracion, duracion, cleanSku, activo, Boolean(activo)]
           );
           imported++;
         }
@@ -360,7 +401,9 @@ function createServicesRouter(pool) {
         success: true,
         imported,
         updated,
-        message: `Importación completada: ${imported} nuevos, ${updated} actualizados.`
+        skipped: errors.length,
+        errors,
+        message: `Importación completada: ${imported} nuevos, ${updated} actualizados${errors.length > 0 ? `, ${errors.length} con errores` : ''}.`
       });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -394,8 +437,19 @@ function createServicesRouter(pool) {
 
       const rawType = String(item_type || tipo_item || 'SERVICIO').trim().toUpperCase();
       const canonicalType = rawType === 'PRODUCTO' || rawType === 'PRODUCT' ? 'PRODUCTO' : 'SERVICIO';
-      const parsedPrice = parseFloat(rawPrice) || 0;
-      const parsedCost = parseFloat(costo !== undefined ? costo : cost) || 0;
+      const parsedPrice = Number(rawPrice);
+      if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+        return res.status(400).json({ error: 'El precio debe ser un número válido mayor o igual a 0.', code: 'INVALID_PRICE' });
+      }
+      const rawCost = costo !== undefined ? costo : cost;
+      const parsedCost = rawCost !== undefined && rawCost !== '' && rawCost !== null ? Number(rawCost) : 0;
+      if (!Number.isFinite(parsedCost) || parsedCost < 0) {
+        return res.status(400).json({ error: 'El costo debe ser un número válido mayor o igual a 0.', code: 'INVALID_COST' });
+      }
+      const parsedCommVal = comision_valor !== undefined && comision_valor !== '' && comision_valor !== null ? Number(comision_valor) : 0;
+      if (!Number.isFinite(parsedCommVal) || parsedCommVal < 0 || (String(tipo_comision || 'Porcentaje').toLowerCase() === 'porcentaje' && parsedCommVal > 100)) {
+        return res.status(400).json({ error: 'El valor de comisión es inválido.', code: 'INVALID_COMMISSION_VALUE' });
+      }
       const parsedDuration = canonicalType === 'PRODUCTO'
         ? 0
         : (parseInt(duracion !== undefined ? duracion : duration) || 30);
@@ -486,6 +540,9 @@ function createServicesRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id))) {
+        return res.status(404).json({ error: 'Ítem no encontrado en el catálogo', code: 'INVALID_ITEM_ID' });
+      }
       const {
         nombre, name, categoria, category, commission_category_id, subcategoria, precio, price, costo, cost,
         duracion, duration, activo, tipo_comision, comision_valor,
@@ -525,8 +582,16 @@ function createServicesRouter(pool) {
       }
 
       const finalName = (nombre || name || existing.nombre || existing.name || '').trim();
-      const parsedPrice = parseFloat(precio !== undefined ? precio : (price !== undefined ? price : existing.precio)) || 0;
-      const parsedCost = parseFloat(costo !== undefined ? costo : (cost !== undefined ? cost : existing.costo)) || 0;
+      const rawUpdPrice = precio !== undefined ? precio : (price !== undefined ? price : existing.precio);
+      const parsedPrice = Number(rawUpdPrice);
+      if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+        return res.status(400).json({ error: 'El precio debe ser un número válido mayor o igual a 0.', code: 'INVALID_PRICE' });
+      }
+      const rawUpdCost = costo !== undefined ? costo : (cost !== undefined ? cost : existing.costo);
+      const parsedCost = rawUpdCost !== undefined && rawUpdCost !== '' && rawUpdCost !== null ? Number(rawUpdCost) : 0;
+      if (!Number.isFinite(parsedCost) || parsedCost < 0) {
+        return res.status(400).json({ error: 'El costo debe ser un número válido mayor o igual a 0.', code: 'INVALID_COST' });
+      }
       const parsedDuration = nextType === 'PRODUCTO'
         ? 0
         : (parseInt(duracion !== undefined ? duracion : (duration !== undefined ? duration : existing.duracion)) || 30);
@@ -627,10 +692,16 @@ function createServicesRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      await pool.query(
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id))) {
+        return res.status(404).json({ error: 'Servicio no encontrado en esta empresa.' });
+      }
+      const [result] = await pool.query(
         'UPDATE services SET activo = CASE WHEN COALESCE(activo, 1) = 1 THEN 0 ELSE 1 END, is_active = NOT COALESCE(is_active, true), updated_at = NOW() WHERE id = ? AND tenant_id = ?',
         [id, tenantId]
       );
+      if ((result?.rowCount ?? result?.affectedRows ?? 0) === 0) {
+        return res.status(404).json({ error: 'Servicio no encontrado en esta empresa.' });
+      }
       res.json({ success: true, message: 'Estado del servicio actualizado' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -642,6 +713,18 @@ function createServicesRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id))) {
+        return res.status(404).json({ error: 'Servicio no encontrado en esta empresa.' });
+      }
+
+      const [existingRows] = await pool.query(
+        'SELECT id, COALESCE(nombre, name, \'\') AS nombre FROM services WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [id, tenantId]
+      );
+      if (!existingRows || existingRows.length === 0) {
+        return res.status(404).json({ error: 'Servicio no encontrado en esta empresa.' });
+      }
+      const itemName = existingRows[0].nombre;
 
       const [stockHits] = await pool.query(
         'SELECT 1 FROM inventory_stock WHERE product_id = ? AND tenant_id = ? LIMIT 1',
@@ -655,11 +738,16 @@ function createServicesRouter(pool) {
         'SELECT 1 FROM invoice_items WHERE service_id = ? AND tenant_id = ? LIMIT 1',
         [id, tenantId]
       );
+      const [visitHits] = await pool.query(
+        'SELECT 1 FROM visits WHERE tenant_id = ? AND (items_detail::text LIKE ? OR items_detail::text LIKE ?) LIMIT 1',
+        [tenantId, `%${id}%`, itemName ? `%"${itemName}"%` : `%${id}%`]
+      );
 
       if (
         (stockHits && stockHits.length > 0) ||
         (movHits && movHits.length > 0) ||
-        (invItemHits && invItemHits.length > 0)
+        (invItemHits && invItemHits.length > 0) ||
+        (visitHits && visitHits.length > 0)
       ) {
         const [arch] = await pool.query(
           'UPDATE services SET is_active = FALSE, activo = 0, updated_at = NOW() WHERE id = ? AND tenant_id = ?',
