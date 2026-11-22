@@ -24,7 +24,7 @@ const { validateTestEnvironment, createIsolatedTestPool } = require('../utils/te
 const { createApp } = require('../app');
 const { signAuthToken } = require('../middleware/auth.middleware');
 const { migrateAll } = require('../migrations/migrate_all.cjs');
-const { computeMembershipsAddonBlocks, MEMBERSHIPS_ADDON_BLOCK_SIZE, MEMBERSHIPS_ADDON_BLOCK_PRICE_USD } = require('../services/saas_catalog.constants');
+const { calculateMembershipsAddonBlocks, MEMBERSHIPS_ADDON_BRANCHES_PER_BLOCK, MEMBERSHIPS_ADDON_DEFAULT_USD } = require('../services/saas_catalog.constants');
 
 function requestJson(baseUrl, method, pathUrl, { token = null, body = null } = {}) {
   return new Promise((resolve, reject) => {
@@ -563,13 +563,13 @@ async function runTests() {
       { branches: 7, blocks: 3, capacity: 9, usd: 297 },
     ];
     for (const c of expectedBlocks) {
-      const calc = computeMembershipsAddonBlocks(c.branches);
-      assert.strictEqual(calc.blocks, c.blocks, `Para ${c.branches} suc. esperado ${c.blocks} bloques, recibido ${calc.blocks}`);
-      assert.strictEqual(calc.capacity, c.capacity, `Para ${c.branches} suc. esperado capacidad ${c.capacity}, recibido ${calc.capacity}`);
-      assert.strictEqual(calc.monthlyUsd, c.usd, `Para ${c.branches} suc. esperado US$${c.usd}, recibido US$${calc.monthlyUsd}`);
+      const calc = calculateMembershipsAddonBlocks(c.branches);
+      assert.strictEqual(calc.blocksRequired, c.blocks, `Para ${c.branches} suc. esperado ${c.blocks} bloques, recibido ${calc.blocksRequired}`);
+      assert.strictEqual(calc.maxBranchesCapacity, c.capacity, `Para ${c.branches} suc. esperado capacidad ${c.capacity}, recibido ${calc.maxBranchesCapacity}`);
+      assert.strictEqual(calc.monthlyTotalUsd, c.usd, `Para ${c.branches} suc. esperado US$${c.usd}, recibido US$${calc.monthlyTotalUsd}`);
     }
-    assert.strictEqual(MEMBERSHIPS_ADDON_BLOCK_SIZE, 3);
-    assert.strictEqual(MEMBERSHIPS_ADDON_BLOCK_PRICE_USD, 99);
+    assert.strictEqual(MEMBERSHIPS_ADDON_BRANCHES_PER_BLOCK, 3);
+    assert.strictEqual(MEMBERSHIPS_ADDON_DEFAULT_USD, 99);
 
     // Simular 1 bloque adquirido (capacidad = 3 sucursales) y probar asignación sin cobro para 3 sucursales y bloqueo en la 4ta
     await pool.query(
