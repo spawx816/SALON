@@ -145,23 +145,23 @@ async function runTests() {
 
     // Seed 2 active staff_records (WITHOUT users accounts!) + 1 inactive staff_record
     const [emp1Ins] = await pool.query(
-      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, branch_id, salario_base, tipo_nomina, estado, fecha_ingreso)
-       VALUES (?, 'Estilista Uno', 'Estilista', 'Sucursal 1', ?, 25000, 'Quincenal', 'Activo', '2026-01-01') RETURNING id`,
-      [tenantId, branch1Id]
+      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salario_base, tipo_nomina, estado, fecha_ingreso)
+       VALUES (?, 'Estilista Uno', 'Estilista', 'Sucursal 1', 25000, 'Quincenal', 'Activo', '2026-01-01') RETURNING id`,
+      [tenantId]
     );
     const emp1Id = emp1Ins[0].id;
 
     const [emp2Ins] = await pool.query(
-      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, branch_id, salario_base, tipo_nomina, estado, fecha_ingreso)
-       VALUES (?, 'Estilista Dos', 'Estilista', 'Sucursal 1', ?, 25000, 'Quincenal', 'Activo', '2026-01-01') RETURNING id`,
-      [tenantId, branch1Id]
+      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salario_base, tipo_nomina, estado, fecha_ingreso)
+       VALUES (?, 'Estilista Dos', 'Estilista', 'Sucursal 1', 25000, 'Quincenal', 'Activo', '2026-01-01') RETURNING id`,
+      [tenantId]
     );
     const emp2Id = emp2Ins[0].id;
 
     await pool.query(
-      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, branch_id, salario_base, tipo_nomina, estado, fecha_ingreso)
-       VALUES (?, 'Ex Empleado', 'Estilista', 'Sucursal 1', ?, 20000, 'Quincenal', 'Inactivo', '2025-01-01')`,
-      [tenantId, branch1Id]
+      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salario_base, tipo_nomina, estado, fecha_ingreso)
+       VALUES (?, 'Ex Empleado', 'Estilista', 'Sucursal 1', 20000, 'Quincenal', 'Inactivo', '2025-01-01')`,
+      [tenantId]
     );
 
     // =========================================================================
