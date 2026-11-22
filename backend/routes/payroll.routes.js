@@ -116,12 +116,12 @@ function createPayrollRouter(pool) {
       const authBranches = await resolveAuthorizedBranchDescriptors(req, tenantId);
       const [rows] = await pool.query(`
         SELECT id, period_name, 
-               DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, 
-               DATE_FORMAT(end_date, '%Y-%m-%d') as end_date,
+               TO_CHAR(start_date, 'YYYY-MM-DD') as start_date, 
+               TO_CHAR(end_date, 'YYYY-MM-DD') as end_date,
                total_empleados, total_neto, total_ingresos, total_descuentos,
                status, sucursal, departamento, is_immutable,
-               DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') as created_at,
-               DATE_FORMAT(approved_at, '%Y-%m-%d %H:%i:%s') as approved_at,
+               TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
+               TO_CHAR(approved_at, 'YYYY-MM-DD HH24:MI:SS') as approved_at,
                approved_by
         FROM payroll_periods
         WHERE tenant_id = ?
@@ -252,12 +252,12 @@ function createPayrollRouter(pool) {
 
       const [periods] = await pool.query(`
         SELECT id, period_name, 
-               DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, 
-               DATE_FORMAT(end_date, '%Y-%m-%d') as end_date,
+               TO_CHAR(start_date, 'YYYY-MM-DD') as start_date, 
+               TO_CHAR(end_date, 'YYYY-MM-DD') as end_date,
                total_empleados, total_neto, total_ingresos, total_descuentos,
                status, sucursal, departamento, is_immutable,
-               DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') as created_at,
-               DATE_FORMAT(approved_at, '%Y-%m-%d %H:%i:%s') as approved_at,
+               TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
+               TO_CHAR(approved_at, 'YYYY-MM-DD HH24:MI:SS') as approved_at,
                approved_by
         FROM payroll_periods WHERE id = ? AND tenant_id = ?
       `, [id, tenantId]);
@@ -746,7 +746,7 @@ function createPayrollRouter(pool) {
 
     try {
       const [discountRows] = await pool.query(`
-        SELECT id, type, amount, notes, status, DATE_FORMAT(date, '%Y-%m-%d') as d_date
+        SELECT id, type, amount, notes, status, TO_CHAR(date, 'YYYY-MM-DD') as d_date
         FROM employee_discounts
         WHERE tenant_id = ?
           AND (employee_id::text = ? OR employee_id::text = ? OR employee_name = ?)
@@ -846,7 +846,7 @@ function createPayrollRouter(pool) {
     try {
       const extendedEndDate = addDaysIso(end_date, 1);
       const [attPunches] = await pool.query(`
-        SELECT id, type, status, lateness_minutes, extra_minutes, timestamp, DATE_FORMAT(timestamp, '%Y-%m-%d') as p_date
+        SELECT id, type, status, lateness_minutes, extra_minutes, timestamp, TO_CHAR(timestamp, 'YYYY-MM-DD') as p_date
         FROM attendance
         WHERE tenant_id = ?
           AND (employee_id = ? OR employee_id = ?) 
@@ -992,7 +992,7 @@ function createPayrollRouter(pool) {
     // 4. FERIADOS (Scoped by tenant_id)
     try {
       const [periodHolidays] = await pool.query(`
-        SELECT DATE_FORMAT(date, '%Y-%m-%d') as holiday_date, name, rate_multiplier 
+        SELECT TO_CHAR(date, 'YYYY-MM-DD') as holiday_date, name, rate_multiplier 
         FROM holidays 
         WHERE tenant_id = ? AND date BETWEEN ? AND ? AND is_active = 1
       `, [tenantId, start_date, end_date]);
@@ -1000,7 +1000,7 @@ function createPayrollRouter(pool) {
       if (periodHolidays.length > 0) {
         const holidayDates = periodHolidays.map(h => h.holiday_date);
         const [holidayPunches] = await pool.query(`
-          SELECT id, type, timestamp, DATE_FORMAT(timestamp, '%Y-%m-%d') as punch_date
+          SELECT id, type, timestamp, TO_CHAR(timestamp, 'YYYY-MM-DD') as punch_date
           FROM attendance
           WHERE tenant_id = ?
             AND (employee_id = ? OR employee_id = ?)
@@ -1706,8 +1706,8 @@ function createPayrollRouter(pool) {
       await conn.beginTransaction();
       const [periodRows] = await conn.query(
         `SELECT id, period_name,
-                DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
-                DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+                TO_CHAR(start_date, 'YYYY-MM-DD') AS start_date,
+                TO_CHAR(end_date, 'YYYY-MM-DD') AS end_date,
                 total_empleados, total_neto, total_ingresos, total_descuentos,
                 status, sucursal, departamento, is_immutable, approved_by, approved_at, snapshot_json, tenant_id
          FROM payroll_periods WHERE id = ? AND tenant_id = ? FOR UPDATE`,
@@ -1935,12 +1935,12 @@ function createPayrollRouter(pool) {
       await conn.beginTransaction();
       const [periodRows] = await conn.query(`
         SELECT id, period_name, 
-               DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, 
-               DATE_FORMAT(end_date, '%Y-%m-%d') as end_date,
+               TO_CHAR(start_date, 'YYYY-MM-DD') as start_date, 
+               TO_CHAR(end_date, 'YYYY-MM-DD') as end_date,
                total_empleados, total_neto, total_ingresos, total_descuentos,
                status, sucursal, departamento, is_immutable,
-               DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') as created_at,
-               DATE_FORMAT(approved_at, '%Y-%m-%d %H:%i:%s') as approved_at,
+               TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
+               TO_CHAR(approved_at, 'YYYY-MM-DD HH24:MI:SS') as approved_at,
                approved_by
         FROM payroll_periods WHERE id = ? AND tenant_id = ? FOR UPDATE
       `, [id, tenantId]);
