@@ -44,7 +44,7 @@ function createEmployeeSecurityRouter(pool) {
 
       const { employee_id, status, type, start_date, end_date } = req.query;
       let query = `
-        SELECT ed.id, ed.employee_id, ed.type, ed.amount, DATE_FORMAT(ed.date, '%Y-%m-%d') as date, 
+        SELECT ed.id, ed.employee_id, ed.type, ed.amount, TO_CHAR(ed.date, 'YYYY-MM-DD') as date, 
                ed.notes, ed.status, ed.created_by, ed.created_at,
                COALESCE(s.nombre, ed.employee_name) as employee_name, 
                COALESCE(s.posicion, 'Colaborador') as employee_position, 
