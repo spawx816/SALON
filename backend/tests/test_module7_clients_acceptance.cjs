@@ -48,7 +48,7 @@ async function runModule7ClientsAcceptance() {
   let currentAuth = {
     tenantId: tenantA,
     role: 'owner',
-    permissions: ['clients.view', 'clients.create', 'clients.edit'],
+    permissions: { 'clients.view': true, 'clients.create': true, 'clients.edit': true },
     isClient: false,
     id: crypto.randomUUID(),
     branchId: branchA1,
@@ -281,16 +281,16 @@ async function runModule7ClientsAcceptance() {
     // --- M7-C7: RBAC & B2C isolation ---
     console.log('--- M7-C7: RBAC & B2C isolation ---');
     // Viewer only
-    currentAuth.role = 'custom_viewer';
-    currentAuth.permissions = ['clients.view'];
+    currentAuth.role = 'recepcion';
+    currentAuth.permissions = { 'clients.view': true };
     assert.strictEqual((await reqJson(baseUrl, 'GET', '/api/clients')).status, 200);
     assert.strictEqual((await reqJson(baseUrl, 'POST', '/api/clients', { nombre: 'No Permitido' })).status, 403);
     assert.strictEqual((await reqJson(baseUrl, 'PUT', `/api/clients/${clientA1Id}`, { nombre: 'No' })).status, 403);
     assert.strictEqual((await reqJson(baseUrl, 'DELETE', `/api/clients/${clientA1Id}`)).status, 403);
 
     // Creator only (can POST, cannot PUT/DELETE)
-    currentAuth.role = 'custom_creator';
-    currentAuth.permissions = ['clients.view', 'clients.create'];
+    currentAuth.role = 'recepcion';
+    currentAuth.permissions = { 'clients.view': true, 'clients.create': true };
     const creatorPost = await reqJson(baseUrl, 'POST', '/api/clients', { nombre: 'Creada por Recepción' });
     assert.strictEqual(creatorPost.status, 200);
     assert.strictEqual((await reqJson(baseUrl, 'PUT', `/api/clients/${creatorPost.data.id}`, { nombre: 'No' })).status, 403);
@@ -300,7 +300,7 @@ async function runModule7ClientsAcceptance() {
     currentAuth.role = 'cliente_b2c';
     currentAuth.isClient = true;
     currentAuth.id = clientA1Id;
-    currentAuth.permissions = [];
+    currentAuth.permissions = {};
     const b2cSelf = await reqJson(baseUrl, 'GET', `/api/clients/${clientA1Id}`);
     assert.strictEqual(b2cSelf.status, 200);
     assert.strictEqual(b2cSelf.data.id, clientA1Id);
@@ -314,7 +314,7 @@ async function runModule7ClientsAcceptance() {
     console.log('--- M7-C8: Cursor pagination & search ---');
     currentAuth.role = 'owner';
     currentAuth.isClient = false;
-    currentAuth.permissions = ['clients.view', 'clients.create', 'clients.edit'];
+    currentAuth.permissions = { 'clients.view': true, 'clients.create': true, 'clients.edit': true };
 
     const shortSearch = await reqJson(baseUrl, 'GET', '/api/clients/search?q=L');
     assert.strictEqual(shortSearch.status, 400);
