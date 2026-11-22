@@ -2,7 +2,7 @@
 
 Documento único y autoritativo de validación sistemática de Etereas por módulos y procesos de negocio.
 
-- **Release candidato actual**: commit `687940a` / imagen `salonpro-app:687940a` (staging).
+- **Release candidato actual**: commit `74ec5d5` / imagen `salonpro-app:74ec5d5` (staging).
 - **Base de pruebas automatizadas**: `salon_saas_test` (PostgreSQL 17, aislada con guardas canónicas).
 - **Entorno de producción**: intacto (`salon_saas_prod` sin escrituras, sin cargos CardNet reales, `SAAS_RENEWAL_WORKER_ENABLED` deshabilitado, `DGII_MODE=disabled` / `DGII_ENABLED` deshabilitado).
 
@@ -37,7 +37,7 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **4** | **Categorías y esquemas de comisiones** (`categorías → esquemas → reglas → empleados → catálogo → POS → comisión → liquidación/nómina`) | Módulo 1, 2, 3, Catálogo, POS, Nómina | `e439cc8` | `test_module4_commissions_acceptance.cjs` (6/6), `test_module5_catalog_acceptance.cjs` (`M4-PREV`), `test_blocks_1_to_8_regression.cjs` | **`aprobado`** | Separación 3 niveles (`commissions.view` / `commissions.configure` / `commissions.approve`) aplicada con mapeo conservador. **Decisión pendiente operador**: política definitiva para servicios sin regla (actualmente conserva fallback temporal visible `15%` sin alterar históricos). |
 | **5** | **Catálogo (servicios y productos + ITBIS)** (`categoría → creación/edición → impuestos/descuentos → archivo/borrado → inventario → POS → importación masiva`) | Módulo 4, Inventario, POS | `e439cc8` | `test_module5_catalog_acceptance.cjs` (`M5-C1`–`M5-C4`), `test_blocks_1_to_8_regression.cjs` (B5/B6/B9b) + DOM real `/comisiones`, `/servicios`, `/inventario` | **`aprobado`** | Ninguno (`M5-01`–`M5-04` corregidos, verificados y desplegados en staging `e439cc8`) |
 | **6** | **Inventario (stock, ubicaciones, movimientos, compras, transferencias, toma física)** | Módulo 5, Sucursales, POS | `687940a` | `test_module6_inventory_acceptance.cjs` (`M6-C1`–`M6-C4`), `test_inventory_concurrency.cjs`, `test_blocks_1_to_8_regression.cjs` (B6) + DOM real `/inventario` | **`aprobado`** | Ninguno (`M6-01`–`M6-07` corregidos, verificados y desplegados en staging `687940a`) |
-| **7** | Clientes (CRM) | Módulo 1, Plan Principal | — | — | `pendiente` | — |
+| **7** | **Clientes (CRM)** (`registro 2 pasos → perfil/edición → búsqueda/paginación cursor → borrado/archivo histórico → aislamiento B2C/RBAC/BASE`) | Módulo 1, Plan Principal, POS (`visits`), Membresías (`contracts`) | `74ec5d5` (`5c19b33`) | `test_module7_clients_acceptance.cjs` (8/8), `test_pagination_cursors.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` + DOM real `/registro-cliente`, `/clientes` | **`aprobado`** | Ninguno (`M7-01`–`M7-06` corregidos, verificados y desplegados en staging `74ec5d5`) |
 | **8** | Cajas (apertura, movimientos, cierre, arqueo) | Módulo 1, 2, 9 | — | Bloque 2 de `STABILITY_AUDIT.md`, B9b | `pendiente` | — |
 | **9** | POS, tickets y facturación convencional | Módulos 1, 5, 6, 7, 8, Secuencias NCF | — | `test_blocks_1_to_8_regression.cjs` (B1/B5/B6/B9b) | `pendiente` | — |
 | **10** | Comisiones y descuentos | Módulos 3, 4, 9 | — | `test_blocks_1_to_8_regression.cjs` (B1/B2) | `pendiente` | — |
@@ -267,3 +267,43 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **M6-C4** | `inventory.view` consulta (`200`) y rechaza ajustes/alertas (`403`); `Encargado de inventario` (`inventory.manage`) opera ajustes y alertas (`200`); Empresa B sobre Empresa A → `404`. | Permisos y aislamiento multi-tenant verificados al 100%. | `test_module6_inventory_acceptance.cjs` | **`aprobado`** |
 
 - **Gates y Despliegue**: `test:scanner` (0 violaciones), `test:runner-guards` (17/17 + 66 tests), `lint`, `build`, `verify:release`, `graphify update .`, `test_blocks_1_to_8_regression.cjs` (PASS), respaldo previo de `salon_saas_staging` y despliegue verificado de `salonpro-app:687940a` (`Up (healthy)`, `/api/health` → `200`). `pageErrors=[]`, `serverErrors=[]`. **Estado: APROBADO**.
+
+---
+
+## Módulo 7 — Clientes (CRM)
+
+### A. Análisis de Arquitectura y Dependencias (Graphify + Código)
+
+- **UI**: [ClientRegistration.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/clients/ClientRegistration.jsx) (`/registro-cliente`), [ClientProfile.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/clients/ClientProfile.jsx) (`/clientes`, `/lista-clientes`), [ClientDashboard.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/clients/ClientDashboard.jsx) (portal B2C).
+- **Backend**: [clients.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/clients.routes.js) (`/api/clients`, `/api/clients/search`, `/api/clients/cedula/:cedula`, `/api/clients/:id`), montado con `rejectControlPlaneRoleOnTenantRoutes` y `requirePlanFeature('clients')` en [app.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/app.js).
+- **Tablas**: `clients`, `visits`, `contracts`, `branches`, `salons`.
+- **Reglas confirmadas**:
+  - Incluido en **Plan Principal** (`clients`); sin add-on `memberships`, campos de contrato/membresía se omiten en lectura y cualquier payload de membresía (`plan_id`, `contract_status`, `washes_used`, `wash_Quota`) se rechaza con `403 FEATURE_NOT_INCLUDED`.
+  - Aislamiento estricto por `tenant_id` (una misma cédula puede existir en empresas distintas, nunca duplicada dentro de la misma empresa).
+  - Clientes B2C (`cliente_b2c`) solo pueden consultar `GET /api/clients/:id` de su propio `id`; personal requiere `clients.view` / `clients.create` / `clients.edit`.
+  - Integridad histórica: eliminar un cliente con historial de `visits` lo archiva (`status = 'Inactive'`, `archived: true`) sin borrar sus ventas; sin historial se elimina físicamente.
+
+### B. Fallos Corregidos (`74ec5d5` / `5c19b33`)
+
+- **M7-01**: `POST /api/clients` descartaba `fechaNacimiento` y dirección estructurada (`calle`/`numero`/`sector`/`ciudad`) enviados por `/registro-cliente` y aceptaba `nombre` con solo espacios o `salon_id` de otro tenant (cayendo silenciosamente a la sucursal principal) → corregido con `buildAddressFallback`, soporte de `fechaNacimiento`, trim obligatorio (`400`) y rechazo `400` de `salon_id` ajeno.
+- **M7-02**: `PUT /api/clients/:id` y `DELETE /api/clients/:id` arrojaban `500` PostgreSQL (`22P02`) ante `:id` no-UUID → ahora validan `UUID_RE` y devuelven `404`.
+- **M7-03**: `PUT /api/clients/:id` no sincronizaba columnas espejo (`name`, `phone`, `address`, `cedula_rnc`) ni validaba colisión de `cedula` contra otro cliente de la misma empresa → corregido (sincroniza todas las columnas espejo y rechaza duplicado con `400`).
+- **M7-04**: `DELETE /api/clients/:id` borraba físicamente clientes con historial en `visits` → corregido para archivar (`status = 'Inactive'`, `archived: true`) preservando historial comercial/contable.
+- **M7-05**: [ClientRegistration.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/clients/ClientRegistration.jsx) invocaba `onClientSaved` incluso en el bloque `catch` de error de servidor y carecía de guardia anti-doble clic → corregido (`submitInFlightRef` + `submitting` y formulario permanece abierto ante error).
+- **M7-06**: [ClientProfile.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/clients/ClientProfile.jsx) agregó guardia `saveEditInFlightRef` + `savingEdit` en edición de perfil.
+
+### C. Evidencia de Aceptación (`74ec5d5` / `5c19b33` — APROBADO)
+
+| Caso | Esperado | Observado | Evidencia | Resultado |
+|---|---|---|---|---|
+| **M7-C1** | Alta con `fechaNacimiento`, dirección estructurada, columnas espejo y sin exponer `password` | `nombre`/`name`, `direccion`/`address`, `fecha_nacimiento` persistidos; `password` y campos membresía omitidos en Plan Principal | `test_module7_clients_acceptance.cjs` | **PASS** |
+| **M7-C2** | Rechazo `400` nombre vacío, cédula duplicada (con/sin guiones), `salon_id` ajeno; `404` en UUID inválido (`PUT`/`DELETE`) | Todos rechazados con `400`/`404` exactos (`0` errores `500`) | `test_module7_clients_acceptance.cjs` | **PASS** |
+| **M7-C3** | `PUT /:id` actualiza espejo, bloquea cédula duplicada (`400`) y sucursal ajena (`400`) | Columnas espejo sincronizadas; colisión y sucursal ajena rechazadas `400` | `test_module7_clients_acceptance.cjs` | **PASS** |
+| **M7-C4** | Aislamiento multi-tenant (2 empresas): misma cédula permitida en Empresa B, `404` cruzado y `0` fugas en `/search` | Empresa B crea misma cédula (`200`), `GET`/`PUT`/`DELETE` cruzados → `404`, `/search` → `0` fugas | `test_module7_clients_acceptance.cjs` | **PASS** |
+| **M7-C5** | Borrado con historial de `visits` archiva (`Inactive`); sin historial elimina físicamente | Cliente con visita → `archived: true` (`status = 'Inactive'`); sin visita → `archived: false` (eliminado) | `test_module7_clients_acceptance.cjs` | **PASS** |
+| **M7-C6** | Plan Principal rechaza payload de membresía en `POST`/`PUT` con `403 FEATURE_NOT_INCLUDED` | `POST` y `PUT` con `plan_id` → `403 FEATURE_NOT_INCLUDED` | `test_module7_clients_acceptance.cjs` | **PASS** |
+| **M7-C7** | RBAC granular (`clients.view` vs `clients.create` vs `clients.edit`) y B2C solo consulta su propio `/:id` | Viewer (`GET` 200, `POST`/`PUT`/`DELETE` 403), Creator (`POST` 200, `PUT`/`DELETE` 403), B2C (propio `/:id` 200, resto `403`) | `test_module7_clients_acceptance.cjs` | **PASS** |
+| **M7-C8** | Paginación cursor HMAC sin duplicados y búsqueda aislada (`<2` chars → `400`, cross-tenant cursor → `400`) | 6/6 en `test_pagination_cursors.cjs` + `M7-C8` PASS | `test_pagination_cursors.cjs` + `test_module7_clients_acceptance.cjs` | **PASS** |
+| **M7-DOM** | Flujo real Chromium: login → `/registro-cliente` (2 pasos, fecha nac., sucursal, dirección) → `/clientes?id=...` → editar teléfono → recargar | `clientId=2c14a912-...`, `persistedPhone=8295558802` tras recarga, `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:74ec5d5`) | **PASS** |
+
+- **Gates y Despliegue**: `test:scanner` (0 violaciones), `test:runner-guards` (PASS), `lint`, `build`, `verify:release`, `graphify update .`, `test_blocks_1_to_8_regression.cjs` (PASS), limpieza de `salon_saas_test`, respaldo previo `/opt/salonpro/backups/salon_saas_staging_pre_74ec5d5_20261122_204850.sql.gz` y despliegue verificado de `salonpro-app:74ec5d5` (`Up (healthy)`, `/api/health` → `200`). **Estado: APROBADO**.
