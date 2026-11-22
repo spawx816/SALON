@@ -216,8 +216,8 @@ async function runTests() {
 
     // Scheme & rule already seeded above for emp1 and emp2
 
-    // Emit mixed invoice with all 4 items + B02 NCF via canonical /api/visits/checkout
-    const mixedInvoice = await requestJson(baseUrl, 'POST', '/api/visits/checkout', {
+    // Emit mixed invoice with all 4 items + B02 NCF via canonical /api/visits/new/checkout
+    const mixedInvoice = await requestJson(baseUrl, 'POST', '/api/visits/new/checkout', {
       token: ownerToken,
       body: {
         client_name: 'Clienta Fiscal Test',
@@ -264,8 +264,8 @@ async function runTests() {
     assert.ok(Number(alisadoComm.commission_amount) > 0, `Comisión debe ser > 0, fue ${alisadoComm.commission_amount}`);
     console.log(`  ✅ [PASS] B1+B5: ITBIS exacto (RD$${savedVisit.itbis} / ${savedVisit.itbis_cents}c), NCF=${savedVisit.ncf}, comisión persistida RD$${alisadoComm.commission_amount}.`);
 
-    // Test employee discount without duplication via canonical /api/visits/checkout
-    const empDiscVisit = await requestJson(baseUrl, 'POST', '/api/visits/checkout', {
+    // Test employee discount without duplication via canonical /api/visits/new/checkout
+    const empDiscVisit = await requestJson(baseUrl, 'POST', '/api/visits/new/checkout', {
       token: ownerToken,
       body: {
         client_name: 'Estilista Uno',
@@ -438,8 +438,8 @@ async function runTests() {
       [tenantId, invProdId, locId]
     );
 
-    // Attempt sale at stock = 0 via canonical /api/visits/checkout
-    const zeroStockSale = await requestJson(baseUrl, 'POST', '/api/visits/checkout', {
+    // Attempt sale at stock = 0 via canonical /api/visits/new/checkout
+    const zeroStockSale = await requestJson(baseUrl, 'POST', '/api/visits/new/checkout', {
       token: ownerToken,
       body: {
         client_name: 'Clienta Stock Cero',
@@ -465,8 +465,8 @@ async function runTests() {
       items_detail: [{ id: prodServiceId, product_id: invProdId, nombre: 'Shampoo Keratina Test', precio: 850, precioBase: 850, precioAplicado: 850, cantidad: 1, tipo: 'Producto', item_type: 'PRODUCTO', track_stock: true }],
     };
     const [c1, c2] = await Promise.all([
-      requestJson(baseUrl, 'POST', '/api/visits/checkout', { token: ownerToken, body: salePayload }),
-      requestJson(baseUrl, 'POST', '/api/visits/checkout', { token: ownerToken, body: salePayload }),
+      requestJson(baseUrl, 'POST', '/api/visits/new/checkout', { token: ownerToken, body: salePayload }),
+      requestJson(baseUrl, 'POST', '/api/visits/new/checkout', { token: ownerToken, body: salePayload }),
     ]);
     const statuses = [c1.status, c2.status].sort((a, b) => a - b);
     assert.ok(
