@@ -577,16 +577,16 @@ async function runTests() {
       [tenantId]
     );
     await pool.query(
-      `INSERT INTO tenant_feature_overrides (tenant_id, feature_code, is_enabled, acquired_blocks, acquired_branch_capacity, addon_branch_ids)
+      `INSERT INTO tenant_feature_overrides (tenant_id, feature_key, is_enabled, acquired_blocks, acquired_branch_capacity, enabled_branch_ids)
        VALUES (?, 'memberships', TRUE, 1, 3, ?::jsonb)
-       ON CONFLICT (tenant_id, feature_code) DO UPDATE SET is_enabled = TRUE, acquired_blocks = 1, acquired_branch_capacity = 3, addon_branch_ids = EXCLUDED.addon_branch_ids`,
+       ON CONFLICT (tenant_id, feature_key) DO UPDATE SET is_enabled = TRUE, acquired_blocks = 1, acquired_branch_capacity = 3, enabled_branch_ids = EXCLUDED.enabled_branch_ids`,
       [tenantId, JSON.stringify([branch1Id])]
     );
 
     // Cotizar asignación de 3 sucursales dentro del bloque ya adquirido (sin cobro adicional)
     const q3 = await requestJson(baseUrl, 'POST', '/api/saas/billing/addons/memberships/quote', {
       token: ownerToken,
-      body: { branch_ids: [branch1Id, branch2Id, branch3Id] },
+      body: { branchIds: [branch1Id, branch2Id, branch3Id] },
     });
     assert.strictEqual(q3.status, 200, `Quote 3 branches failed: ${q3.text}`);
     assert.strictEqual(Number(q3.body.quote?.additionalBlocksRequired ?? q3.body.additionalBlocksRequired ?? 0), 0, '3 sucursales dentro de 1 bloque adquirido no requieren bloque adicional');
@@ -594,12 +594,12 @@ async function runTests() {
     // Cotizar 4 sucursales (excede capacidad de 3 -> requiere 1 bloque adicional = 2 bloques totales)
     const q4 = await requestJson(baseUrl, 'POST', '/api/saas/billing/addons/memberships/quote', {
       token: ownerToken,
-      body: { branch_ids: [branch1Id, branch2Id, branch3Id, branch4Id] },
+      body: { branchIds: [branch1Id, branch2Id, branch3Id, branch4Id] },
     });
     assert.strictEqual(q4.status, 200, `Quote 4 branches failed: ${q4.text}`);
     const q4Obj = q4.body.quote || q4.body;
-    assert.strictEqual(Number(q4Obj.requiredBlocks ?? q4Obj.totalBlocks), 2, '4 sucursales deben requerir 2 bloques totales');
-    assert.strictEqual(Number(q4Obj.additionalBlocksRequired), 1, '4 sucursales sobre 1 bloque adquirido deben requerir 1 bloque adicional');
+    assert.strictEqual(Number(q4Obj.blocksRequired ?? q4Obj.requiredBlocks ?? q4Obj.totalBlocks), 2, `4 sucursales deben requerir 2 bloques totales, recibido: ${JSON.stringify(q4Obj)}`);
+    assert.strictEqual(Number(q4Obj.additionalBlocksToPurchase ?? q4Obj.additionalBlocksRequired), 1, `4 sucursales sobre 1 bloque adquirido deben requerir 1 bloque adicional, recibido: ${JSON.stringify(q4Obj)}`);
     console.log('  ✅ [PASS] B8: Bloques 0/1/3/4/6/7 y capacidad adquirida vs asignada verificados.');
 
     console.log('\n========================================================================');
