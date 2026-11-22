@@ -2,7 +2,7 @@
 
 Documento único y autoritativo de validación sistemática de Etereas por módulos y procesos de negocio.
 
-- **Release candidato actual**: commit `8e5483d` / imagen `salonpro-app:8e5483d` (staging).
+- **Release candidato actual**: commit `7689c87` / imagen `salonpro-app:7689c87` (staging).
 - **Base de pruebas automatizadas**: `salon_saas_test` (PostgreSQL 17, aislada con guardas canónicas).
 - **Entorno de producción**: intacto (`salon_saas_prod` sin escrituras, sin cargos CardNet reales, `SAAS_RENEWAL_WORKER_ENABLED` deshabilitado, `DGII_MODE=disabled` / `DGII_ENABLED` deshabilitado).
 
@@ -42,7 +42,7 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **9** | **POS, tickets y facturación convencional** (`ticket pendiente → borrador → precuenta 0 NCF → checkout B02/NONE + efectivo neto + stock → inmutabilidad → anulación atómica → reimpresión`) | Módulos 1, 5, 6, 7, 8, Secuencias NCF | `fa15f28` | `test_module9_pos_invoicing_acceptance.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` (B1/B5/B6/B9b) + DOM real `/visitas`, `/facturas` | **`aprobado`** | Ninguno (`M9-01`–`M9-03` corregidos, verificados y desplegados en staging `fa15f28`) |
 | **10** | **Comisiones y descuentos** (`descuentos colaborador CRUD → inmutabilidad Saldado/Anulado → reasignación comisión → cascada anulación POS → TO_CHAR PG`) | Módulos 3, 4, 9 | `4610b28` | `test_module10_commissions_discounts_acceptance.cjs` (5/5), `test_module4_commissions_acceptance.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` + DOM real `/descuentos-empleados`, `/comisiones` | **`aprobado`** | Ninguno (`M10-01`–`M10-04` corregidos, verificados y desplegados en staging `4610b28`; decisión de fallback `15%` sigue rastreada en Módulo 4) |
 | **11** | **Nómina** (`generación salario+comisiones+descuentos → borrador seguro → RBAC 3 niveles → aprobación atómica+snapshot+saldado → pago administrativo → inmutabilidad`) | Módulos 3, 10 | `8e5483d` (`885e574`) | `test_module11_payroll_acceptance.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` (B3) + DOM real `/nomina` | **`aprobado`** | Ninguno (`M11-01`–`M11-02` corregidos, verificados y desplegados en staging `8e5483d`) |
-| **12** | Contabilidad y reportes (Egresos, 606, 607, IT-1, NCF) | Módulos 2, 9 | — | `test_blocks_1_to_8_regression.cjs` (B4), RBAC Contabilidad | `pendiente` | — |
+| **12** | **Contabilidad y reportes (Egresos, 606, 607, IT-1, NCF)** (`egresos CRUD/anulación → 606 + TXT → 607/IT-1 sin DGII live → RBAC granular contabilidad → aislamiento`) | Módulos 2, 9 | `7689c87` (`547e1b5`) | `test_module12_accounting_reports_acceptance.cjs` (5/5), `test_rbac_accounting_and_role_templates.cjs` (10/10), `test_blocks_1_to_8_regression.cjs` (B4) + DOM real 5 rutas | **`aprobado`** | Ninguno (`M12-01`–`M12-02` corregidos, verificados y desplegados en staging `7689c87`) |
 | **13** | Membresías (Add-on US$99/bloque 3 suc.) | Módulos 7, 9, 14 | — | `test_blocks_1_to_8_regression.cjs` (B8) | `pendiente` | — |
 | **14** | Suscripción SaaS y pagos | Módulo 2 (Owner), CardNet (simulado) | — | `test_saas_branch_contracting.cjs` (9/9), B7/B8 | `pendiente` | Credenciales live CardNet / worker recurrente |
 | **15** | SuperAdmin | Todos los tenants, FX rates, catálogo SaaS | — | — | `pendiente` | — |
@@ -445,3 +445,35 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **M11-DOM** | Flujo real Chromium en `/nomina` | `payrollLoaded=true`, `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:8e5483d`) | **PASS** |
 
 - **Gates y Despliegue**: `test:scanner` (0 violaciones), `test:runner-guards` (PASS), `lint`, `build`, `verify:release`, `graphify update .`, `test_blocks_1_to_8_regression.cjs` (PASS), limpieza de `salon_saas_test`, respaldo previo de `salon_saas_staging` y despliegue verificado de `salonpro-app:8e5483d` (`Up (healthy)`, `/api/health` → `200`). **Estado: APROBADO**.
+
+---
+
+## Módulo 12 — Contabilidad y Reportes (Egresos, 606, 607, IT-1, NCF)
+
+### A. Análisis de Arquitectura y Dependencias (Graphify + Código)
+
+- **UI**: [ExpensesModule.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/admin/ExpensesModule.jsx) (`/egresos`), [Reporte606Module.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/admin/Reporte606Module.jsx) (`/reporte-606`), [Reporte607Module.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/admin/Reporte607Module.jsx) (`/reporte-607`), [ReporteIT1Module.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/admin/ReporteIT1Module.jsx) (`/reporte-it1`), [DgiiSequencesModule.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/admin/DgiiSequencesModule.jsx) (`/secuencias-ncf`).
+- **Backend**: [expenses.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/expenses.routes.js), [dgii_606.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/dgii_606.routes.js), [dgii.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/dgii.routes.js), [reports.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/reports.routes.js).
+- **Tablas**: `expenses`, `dgii_606_purchases`, `dgii_ncf_sequences`, `visits`, `tenants`.
+- **Reglas confirmadas**:
+  - RBAC granular contable: `accounting.view`, `accounting.expenses.manage`, `accounting.expenses.pay` (pagos y préstamos), `accounting.expenses.void`, `accounting.purchases_606.manage`, `accounting.export`, `accounting.sequences.manage`, `accounting.it1.manage`.
+  - Reportes 606 (TXT oficial pipe-delimited), 607 e IT-1 operan completamente con `DGII_MODE=disabled` sin emisión electrónica live.
+  - Egresos anulados se excluyen automáticamente del resumen `totalAmount` y no pueden editarse ni anularse dos veces.
+
+### B. Fallos Corregidos (`7689c87` / `547e1b5`)
+
+- **M12-01 (`expenses.routes.js`)**: `PUT /api/expenses/:id` permitía mutar egresos anulados, aceptar `status: 'Anulado'` saltándose `accounting.expenses.void` y aceptar montos ≤ 0; `PUT`/`DELETE` devolvían `200` en IDs inexistentes/ajenos y `/void` permitía doble anulación → corregido (`400 USE_VOID_ENDPOINT`, `409 EXPENSE_VOIDED`, `409 ALREADY_VOIDED`, `404` explícito).
+- **M12-02 (`dgii_606.routes.js`)**: `POST`/`PUT`/`DELETE /api/dgii/report-606` aceptaban montos negativos, fallaban con `500` PostgreSQL en IDs no enteros y devolvían `200` ante registros inexistentes/ajenos → corregido (`400` montos negativos, `404` IDs no enteros o ajenos).
+
+### C. Evidencia de Aceptación (`7689c87` / `547e1b5` — APROBADO)
+
+| Caso | Esperado | Observado | Evidencia | Resultado |
+|---|---|---|---|---|
+| **M12-C1** | Egresos CRUD, rechazo `amount <= 0` (`400`), bloqueo bypass `PUT status='Anulado'` (`400 USE_VOID_ENDPOINT`), doble `/void` (`409`), edición post-anulación (`409`) y exclusión de `totalAmount` | Todos los códigos exactos; `totalAmount = 0`, `voidedCount = 1` | `test_module12_accounting_reports_acceptance.cjs` | **PASS** |
+| **M12-C2** | Compras 606 CRUD, rechazo montos negativos (`400`), IDs no enteros (`404`), totales ITBIS y exportación TXT oficial (`606\|RNC\|PERIODO\|N`) | Totales exactos (`1800`) y encabezado `606\|131000123\|202611\|1` | `test_module12_accounting_reports_acceptance.cjs` | **PASS** |
+| **M12-C3** | Reportes 607 (`/api/dgii/report-607`) e IT-1 (`/api/dgii/it1`) con factura convencional `B02` y `DGII_MODE=disabled` | Ambos responden `200` con agregación correcta sin DGII live | `test_module12_accounting_reports_acceptance.cjs` | **PASS** |
+| **M12-C4** | RBAC granular contable (`view` vs `expenses.manage` vs `expenses.pay` vs `expenses.void` vs `export`) + suite 10/10 RBAC Contabilidad | Todos los `403`/`200` exactos; `test_rbac_accounting_and_role_templates.cjs` 10/10 PASS | `test_module12_accounting_reports_acceptance.cjs` + `test_rbac_accounting_and_role_templates.cjs` | **PASS** |
+| **M12-C5** | Aislamiento multi-tenant: Empresa B recibe `0` filas y `404` en `PUT`/`DELETE` cruzados de egresos y 606 | `0` filas y `404` exactos | `test_module12_accounting_reports_acceptance.cjs` | **PASS** |
+| **M12-DOM** | Flujo real Chromium en `/egresos`, `/reporte-606`, `/reporte-607`, `/reporte-it1` y `/secuencias-ncf` | Las 5 rutas renderizan limpias: `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:7689c87`) | **PASS** |
+
+- **Gates y Despliegue**: `test:scanner` (0 violaciones), `test:runner-guards` (PASS), `lint`, `build`, `verify:release`, `graphify update .`, `test_blocks_1_to_8_regression.cjs` (PASS), limpieza de `salon_saas_test`, respaldo previo de `salon_saas_staging` y despliegue verificado de `salonpro-app:7689c87` (`Up (healthy)`, `/api/health` → `200`). **Estado: APROBADO**.
