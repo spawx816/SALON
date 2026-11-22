@@ -151,10 +151,10 @@ async function runModule8CashRegistersAcceptance() {
 
     // Seed 3 visits on regA1Id: cash 1200 (Facturado), card 800 (Facturado), cash 400 (Anulado -> excluded)
     await pool.query(
-      `INSERT INTO visits (id, tenant_id, salon_id, cash_register_id, ticket_number, total, subtotal, metodo_pago, status, visited_at)
-       VALUES (?, ?, ?, ?, 'TKT-M8-1', 1200, 1200, 'Efectivo', 'Facturado', NOW()),
-              (?, ?, ?, ?, 'TKT-M8-2', 800, 800, 'Tarjeta', 'Facturado', NOW()),
-              (?, ?, ?, ?, 'TKT-M8-3', 400, 400, 'Efectivo', 'Anulado', NOW())`,
+      `INSERT INTO visits (id, tenant_id, salon_id, cash_register_id, ticket_number, total, total_cents, subtotal, metodo_pago, status, visited_at)
+       VALUES (?, ?, ?, ?, 'TKT-M8-1', 1200, 120000, 1200, 'Efectivo', 'Facturado', NOW()),
+              (?, ?, ?, ?, 'TKT-M8-2', 800, 80000, 800, 'Tarjeta', 'Facturado', NOW()),
+              (?, ?, ?, ?, 'TKT-M8-3', 400, 40000, 400, 'Efectivo', 'Anulado', NOW())`,
       [
         crypto.randomUUID(), tenantA, branchA1, regA1Id,
         crypto.randomUUID(), tenantA, branchA1, regA1Id,
