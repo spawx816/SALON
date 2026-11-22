@@ -12,8 +12,10 @@ function createServicesRouter(pool) {
     const explicitAplica = r.aplica_itbis !== undefined && r.aplica_itbis !== null
       ? (Number(r.aplica_itbis) === 1 || r.aplica_itbis === true || String(r.aplica_itbis) === '1')
       : false;
+    const rawMode = String(r.tax_mode || (explicitAplica ? 'exclusive' : 'exempt')).toLowerCase();
     const rawRate = r.tax_rate !== undefined && r.tax_rate !== null ? parseFloat(r.tax_rate) : (explicitAplica ? 0.18 : 0);
-    const effectiveRate = explicitAplica ? (rawRate > 0 ? rawRate : 0.18) : 0;
+    const normRate = Number.isFinite(rawRate) ? (rawRate > 1 ? rawRate / 100 : Math.max(0, rawRate)) : 0.18;
+    const effectiveRate = (explicitAplica && rawMode !== 'zero' && rawMode !== 'exempt') ? normRate : 0;
     return {
       ...r,
       nombre: r.nombre || r.name || 'Servicio',
@@ -424,10 +426,13 @@ function createServicesRouter(pool) {
       const resolvedAplicaItbis = aplica_itbis !== undefined && aplica_itbis !== null
         ? (Number(aplica_itbis) === 1 || aplica_itbis === true || String(aplica_itbis) === '1' ? 1 : 0)
         : (tax_rate !== undefined && parseFloat(tax_rate) > 0 ? 1 : 0);
-      const resolvedTaxRate = resolvedAplicaItbis === 1
-        ? (tax_rate !== undefined && parseFloat(tax_rate) > 0 ? parseFloat(tax_rate) : 0.18)
+      const rawTaxMode = String(tax_mode || (resolvedAplicaItbis === 1 ? 'exclusive' : 'exempt')).toLowerCase();
+      const resolvedTaxMode = ['inclusive', 'exclusive', 'zero', 'exempt'].includes(rawTaxMode) ? rawTaxMode : 'exclusive';
+      const parsedCreateRate = tax_rate !== undefined && tax_rate !== null ? parseFloat(tax_rate) : (resolvedAplicaItbis === 1 ? 0.18 : 0);
+      const normCreateRate = Number.isFinite(parsedCreateRate) ? (parsedCreateRate > 1 ? parsedCreateRate / 100 : Math.max(0, parsedCreateRate)) : 0.18;
+      const resolvedTaxRate = (resolvedAplicaItbis === 1 && resolvedTaxMode !== 'zero' && resolvedTaxMode !== 'exempt')
+        ? normCreateRate
         : 0;
-      const resolvedTaxMode = tax_mode === 'inclusive' ? 'inclusive' : 'exclusive';
 
       const [result] = await pool.query(
         `INSERT INTO services (
@@ -561,10 +566,15 @@ function createServicesRouter(pool) {
       const resolvedAplicaItbis = aplica_itbis !== undefined && aplica_itbis !== null
         ? (Number(aplica_itbis) === 1 || aplica_itbis === true || String(aplica_itbis) === '1' ? 1 : 0)
         : (tax_rate !== undefined ? (parseFloat(tax_rate) > 0 ? 1 : 0) : (existing.aplica_itbis ?? 0));
-      const resolvedTaxRate = resolvedAplicaItbis === 1
-        ? (tax_rate !== undefined && parseFloat(tax_rate) > 0 ? parseFloat(tax_rate) : (parseFloat(existing.tax_rate) > 0 ? parseFloat(existing.tax_rate) : 0.18))
+      const rawUpdMode = tax_mode !== undefined ? String(tax_mode).toLowerCase() : String(existing.tax_mode || (resolvedAplicaItbis === 1 ? 'exclusive' : 'exempt')).toLowerCase();
+      const resolvedTaxMode = ['inclusive', 'exclusive', 'zero', 'exempt'].includes(rawUpdMode) ? rawUpdMode : 'exclusive';
+      const parsedUpdRate = tax_rate !== undefined && tax_rate !== null
+        ? parseFloat(tax_rate)
+        : (existing.tax_rate !== undefined && existing.tax_rate !== null ? parseFloat(existing.tax_rate) : 0.18);
+      const normUpdRate = Number.isFinite(parsedUpdRate) ? (parsedUpdRate > 1 ? parsedUpdRate / 100 : Math.max(0, parsedUpdRate)) : 0.18;
+      const resolvedTaxRate = (resolvedAplicaItbis === 1 && resolvedTaxMode !== 'zero' && resolvedTaxMode !== 'exempt')
+        ? normUpdRate
         : 0;
-      const resolvedTaxMode = tax_mode !== undefined ? (tax_mode === 'inclusive' ? 'inclusive' : 'exclusive') : (existing.tax_mode || 'exclusive');
 
       const [result] = await pool.query(
         `UPDATE services SET

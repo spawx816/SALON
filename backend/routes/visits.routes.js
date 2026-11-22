@@ -1398,10 +1398,16 @@ function createVisitsRouter(pool, helpers = {}) {
           const itemAppliesItbis = it.aplica_itbis !== undefined && it.aplica_itbis !== null
             ? (it.aplica_itbis === 1 || it.aplica_itbis === true ? 1 : 0)
             : (catMatch ? (Number(catMatch.aplica_itbis) === 1 ? 1 : 0) : 0);
-          const itemTaxRate = itemAppliesItbis === 1
-            ? (Number(it.tax_rate ?? catMatch?.tax_rate ?? 0.18) || 0.18)
+          const itemTaxMode = String(it.tax_mode || catMatch?.tax_mode || (itemAppliesItbis === 1 ? 'exclusive' : 'exempt')).toLowerCase();
+          const rawRateVal = it.tax_rate !== undefined && it.tax_rate !== null
+            ? Number(it.tax_rate)
+            : (catMatch?.tax_rate !== undefined && catMatch?.tax_rate !== null ? Number(catMatch.tax_rate) : 0.18);
+          const normalizedRate = Number.isFinite(rawRateVal)
+            ? (rawRateVal > 1 ? rawRateVal / 100 : Math.max(0, rawRateVal))
+            : 0.18;
+          const itemTaxRate = (itemAppliesItbis === 1 && itemTaxMode !== 'exempt' && itemTaxMode !== 'zero')
+            ? normalizedRate
             : 0;
-          const itemTaxMode = String(it.tax_mode || catMatch?.tax_mode || 'exclusive').toLowerCase();
 
           computedGrossSubtotal += lineGross;
           computedLineDiscounts += lineDisc;
