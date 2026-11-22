@@ -682,6 +682,34 @@ router.post('/punch', async (req, res) => {
 
     // Check if there is a temporary schedule override for this employee today
     const todayDateStr = getDRDateString();
+
+    // Regla autoritativa en servidor (inmune a caché de tablet o toque accidental en el kiosco):
+    // 1. El primer ponche del día SIEMPRE es Check-In (Entrada), jamás Check-Out.
+    // 2. Los ponches subsiguientes alternan estrictamente (Check-In -> Check-Out -> Check-In).
+    const [todayRealPunches] = await pool.query(
+      `SELECT id, type, timestamp FROM attendance
+       WHERE (employee_id = ? OR employee_id = ?)
+         AND DATE(timestamp) = ?
+         AND type IN ('Check-In', 'Check-Out')
+       ORDER BY timestamp ASC`,
+      [employeeId, String(employeeId), todayDateStr]
+    );
+
+    let effectiveType = type;
+    if (todayRealPunches.length === 0) {
+      if (effectiveType !== 'Check-In') {
+        console.warn(`⚠️ [ASISTENCIA AUTO-FIX]: Primer ponche del día para ${emp.nombre} (${employeeId}) recibido como '${effectiveType}', corregido forzosamente a 'Check-In'.`);
+      }
+      effectiveType = 'Check-In';
+    } else {
+      const lastTodayPunch = todayRealPunches[todayRealPunches.length - 1];
+      const expectedNextType = lastTodayPunch.type === 'Check-In' ? 'Check-Out' : 'Check-In';
+      if (effectiveType !== expectedNextType) {
+        console.warn(`⚠️ [ASISTENCIA AUTO-FIX]: Ponche para ${emp.nombre} (${employeeId}) recibido como '${effectiveType}' tras '${lastTodayPunch.type}', corregido a '${expectedNextType}'.`);
+        effectiveType = expectedNextType;
+      }
+    }
+
     const [overrides] = await pool.query(
       "SELECT new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo'",
       [employeeId, todayDateStr]
@@ -731,7 +759,7 @@ router.post('/punch', async (req, res) => {
     const effectiveHoraEntrada = overrides.length > 0 ? overrides[0].new_hora_entrada : baseHoraEntrada;
     const effectiveHoraSalida = overrides.length > 0 ? overrides[0].new_hora_salida : baseHoraSalida;
     
-    if (type === 'Check-In' && effectiveHoraEntrada) {
+    if (effectiveType === 'Check-In' && effectiveHoraEntrada) {
       const now = new Date(nowDRString);
       const [expH, expM, expS] = effectiveHoraEntrada.split(':').map(Number);
       const expDate = new Date(nowDRString);
@@ -745,7 +773,7 @@ router.post('/punch', async (req, res) => {
         const diffMs = now - expDate;
         latenessMinutes = Math.max(0, Math.floor(diffMs / (1000 * 60)));
       }
-    } else if (type === 'Check-Out' && effectiveHoraSalida) {
+    } else if (effectiveType === 'Check-Out' && effectiveHoraSalida) {
       const now = new Date(nowDRString);
       const [expH, expM, expS] = effectiveHoraSalida.split(':').map(Number);
       const expDate = new Date(nowDRString);
@@ -848,11 +876,11 @@ router.post('/punch', async (req, res) => {
     await pool.query(
       `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, lateness_minutes, extra_minutes) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [punchId, employeeId, type, photo || null, geolocation || null, deviceInfo || null, getDRTimestampString(), status, latenessMinutes, extraMinutes]
+      [punchId, employeeId, effectiveType, photo || null, geolocation || null, deviceInfo || null, getDRTimestampString(), status, latenessMinutes, extraMinutes]
     );
     
-    console.log(`[ATTENDANCE] Ponche registrado: ${type} (${status}) para ${emp.nombre} (${employeeId})`);
-    res.json({ success: true, message: `Ponche de ${type === 'Check-In' ? 'Entrada' : 'Salida'} registrado como ${status} correctamente.`, name: emp.nombre });
+    console.log(`[ATTENDANCE] Ponche registrado: ${effectiveType} (${status}) para ${emp.nombre} (${employeeId})`);
+    res.json({ success: true, type: effectiveType, message: `Ponche de ${effectiveType === 'Check-In' ? 'Entrada' : 'Salida'} registrado como ${status} correctamente.`, name: emp.nombre });
   } catch (err) {
     console.error('[ATTENDANCE ERROR]:', err.message);
     res.status(500).json({ error: err.message });

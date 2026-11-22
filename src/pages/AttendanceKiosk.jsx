@@ -1130,20 +1130,22 @@ const AttendanceKiosk = () => {
               >
                 ✅ Entrada
               </button>
-              <button
-                type="button"
-                onClick={() => setPunchType('Check-Out')}
-                style={{
-                  background: punchType === 'Check-Out' ? '#f59e0b' : 'transparent',
-                  color: punchType === 'Check-Out' ? '#ffffff' : '#94a3b8',
-                  border: 'none', borderRadius: '50px',
-                  padding: '0.4rem 0.85rem',
-                  fontSize: '0.75rem', fontWeight: 900,
-                  cursor: 'pointer', transition: 'all 0.15s ease'
-                }}
-              >
-                🚪 Salida
-              </button>
+              {todayPunches.some(p => String(p.employee_id) === String(selectedEmployee?.id) && p.type === 'Check-In') && (
+                <button
+                  type="button"
+                  onClick={() => setPunchType('Check-Out')}
+                  style={{
+                    background: punchType === 'Check-Out' ? '#f59e0b' : 'transparent',
+                    color: punchType === 'Check-Out' ? '#ffffff' : '#94a3b8',
+                    border: 'none', borderRadius: '50px',
+                    padding: '0.4rem 0.85rem',
+                    fontSize: '0.75rem', fontWeight: 900,
+                    cursor: 'pointer', transition: 'all 0.15s ease'
+                  }}
+                >
+                  🚪 Salida
+                </button>
+              )}
             </div>
           </div>
 
