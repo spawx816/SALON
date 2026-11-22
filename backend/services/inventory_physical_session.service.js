@@ -85,15 +85,15 @@ class InventoryPhysicalSessionService {
 
       const sessionId = sessRes[0].id;
 
-      // 3. Take initial system stock snapshot
+      // 3. Take initial system stock snapshot (scoped strictly to session location_id)
       const [products] = await conn.query(`
         SELECT p.id,
-               CAST(ROUND(COALESCE(p.costo, p.cost, 0) * 100) AS INTEGER) as cost_cents,
+               CAST(ROUND(COALESCE(p.costo, 0) * 100) AS INTEGER) as cost_cents,
                COALESCE(s.quantity, 0) as current_qty
         FROM services p
-        LEFT JOIN inventory_stock s ON s.product_id = p.id AND s.tenant_id = p.tenant_id
+        LEFT JOIN inventory_stock s ON s.product_id = p.id AND s.tenant_id = p.tenant_id AND s.location_id = ?
         WHERE p.tenant_id = ? AND p.item_type = 'PRODUCTO' AND COALESCE(p.is_active, TRUE) = TRUE
-      `, [tenantId]);
+      `, [locId, tenantId]);
 
       for (const prod of products) {
         const initialQty = Number(prod.current_qty) || 0;
