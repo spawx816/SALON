@@ -338,10 +338,10 @@ async function runTests() {
     const [commAfter] = await pool.query('SELECT employee_id FROM employee_commissions_log WHERE visit_id = ? AND tenant_id = ?', [visitId, tenantId]);
     assert.ok(commAfter.every((c) => Number(c.employee_id) === Number(emp2Id)), 'Todas las comisiones de la factura deben apuntar a emp2');
     const [auditRows] = await pool.query(
-      `SELECT action FROM audit_logs WHERE tenant_id = ? AND action = 'INVOICE_COMMISSION_REASSIGNED'`,
+      `SELECT action, reason, metadata FROM audit_logs WHERE tenant_id = ? AND action = 'REASSIGN_COMMISSION'`,
       [tenantId]
     );
-    assert.ok(auditRows.length >= 1, 'Debe registrarse auditoría INVOICE_COMMISSION_REASSIGNED');
+    assert.ok(auditRows.length >= 1, 'Debe registrarse auditoría REASSIGN_COMMISSION');
 
     // Bloqueo si la comisión ya está pagada/liquidada
     await pool.query("UPDATE employee_commissions_log SET status = 'Pagada' WHERE visit_id = ? AND tenant_id = ?", [visitId, tenantId]);
