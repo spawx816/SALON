@@ -382,7 +382,7 @@ async function runTests() {
     const excluded = periodDetail.body.excluded_employees || [];
     assert.ok(records.some((r) => Number(r.employee_id || r.staff_id) === Number(emp1Id)), 'Estilista Uno (sin cuenta users) debe estar incluido en nómina');
     assert.ok(records.some((r) => Number(r.employee_id || r.staff_id) === Number(emp2Id)), 'Estilista Dos (sin cuenta users) debe estar incluido en nómina');
-    assert.ok(excluded.some((e) => String(e.nombre || e.name || '').includes('Ex Empleado') && (e.reason || e.motivo)), 'Ex Empleado inactivo debe reportarse en excluded_employees con motivo comprensible');
+    assert.ok(excluded.some((e) => String(e.employee_name || e.nombre || e.name || '').includes('Ex Empleado') && (e.reason || e.motivo)), 'Ex Empleado inactivo debe reportarse en excluded_employees con motivo comprensible');
     console.log(`  ✅ [PASS] B3: ${records.length} empleados sin cuenta users incluidos en nómina; ${excluded.length} excluido(s) con motivo.`);
 
     // =========================================================================
