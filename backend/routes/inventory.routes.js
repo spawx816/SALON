@@ -52,10 +52,15 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
     });
   });
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   // 3. GET /api/inventory/products/:id - Obtener producto
   router.get('/products/:id', async (req, res) => {
     try {
       const tenantId = req.tenantId;
+      if (!UUID_RE.test(String(req.params.id || ''))) {
+        return res.status(404).json({ error: 'Producto no encontrado.', code: 'NOT_FOUND' });
+      }
       const product = await inventoryService.getProduct(tenantId, req.params.id);
       if (!product) {
         return res.status(404).json({ error: 'Producto no encontrado.', code: 'NOT_FOUND' });
@@ -95,6 +100,9 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
   router.get('/stock/:productId', async (req, res) => {
     try {
       const tenantId = req.tenantId;
+      if (!UUID_RE.test(String(req.params.productId || ''))) {
+        return res.status(404).json({ error: 'Producto no encontrado.', code: 'NOT_FOUND' });
+      }
       const stock = await inventoryService.getStock(tenantId, req.params.productId, req.query.locationId);
       res.json(stock);
     } catch (err) {
@@ -120,26 +128,46 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
     }
   });
 
-  // 8. POST /api/inventory/adjustments - Ajuste manual de existencias (Autorizado a Admin/SuperAdmin)
+  const canManageInventory = (req) => {
+    const roleLower = String(req.auth?.role || req.user?.role || req.headers['x-user-role'] || '').toLowerCase();
+    if (['admin', 'superadmin', 'administrador', 'owner', 'propietario'].includes(roleLower)) {
+      return true;
+    }
+    const perms = req.auth?.permissions || req.user?.permissions || {};
+    return Boolean(perms['inventory.manage'] || perms.manage_inventory || perms.inventory || perms.manage_settings);
+  };
+
+  // 8. POST /api/inventory/adjustments - Ajuste manual de existencias (Autorizado a Admin/Owner o permiso inventory.manage)
   router.post('/adjustments', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      const userRole = req.user?.role || req.headers['x-user-role'];
+      const userRole = req.auth?.role || req.user?.role || req.headers['x-user-role'];
       const { productId, locationId, quantity, adjustmentType, reason } = req.body;
 
-      if (!productId || !adjustmentType || !quantity) {
+      if (!productId || !adjustmentType || quantity === undefined || quantity === null || quantity === '') {
         return res.status(400).json({ error: 'Faltan parámetros de ajuste requeridos.', code: 'VALIDATION_ERROR' });
+      }
+      if (!UUID_RE.test(String(productId))) {
+        return res.status(400).json({ error: 'ID de producto inválido.', code: 'INVALID_PRODUCT_ID' });
+      }
+      const parsedQty = Number(quantity);
+      if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
+        return res.status(400).json({ error: 'La cantidad de ajuste debe ser un número mayor a cero.', code: 'VALIDATION_ERROR' });
+      }
+      if (!['ADJUSTMENT_IN', 'ADJUSTMENT_OUT'].includes(String(adjustmentType))) {
+        return res.status(400).json({ error: 'Tipo de ajuste inválido. Use ADJUSTMENT_IN o ADJUSTMENT_OUT.', code: 'INVALID_ADJUSTMENT_TYPE' });
       }
 
       const result = await inventoryService.makeAdjustment(tenantId, {
         productId,
         locationId,
-        quantity: Number(quantity),
+        quantity: parsedQty,
         adjustmentType,
         reason,
-        userId: req.user?.id || null,
-        userName: req.user?.name || 'Administrador',
-        userRole
+        userId: req.auth?.id || req.auth?.userId || req.user?.id || null,
+        userName: req.auth?.name || req.auth?.email || req.user?.name || 'Administrador',
+        userRole,
+        hasInventoryManagePermission: canManageInventory(req)
       });
 
       res.status(200).json(result);
@@ -168,14 +196,7 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
     }
   });
 
-  const canConfigureAlerts = (req) => {
-    const roleLower = String(req.user?.role || req.auth?.role || req.headers['x-user-role'] || '').toLowerCase();
-    if (['admin', 'superadmin', 'administrador', 'owner', 'propietario'].includes(roleLower)) {
-      return true;
-    }
-    const perms = req.user?.permissions || {};
-    return Boolean(perms.manage_inventory || perms.inventory || perms.manage_settings);
-  };
+  const canConfigureAlerts = (req) => canManageInventory(req);
 
   // 9b. GET /api/inventory/alert-settings - Configuración general y overrides de alertas
   router.get('/alert-settings', async (req, res) => {

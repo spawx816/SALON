@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Package, Layers, ArrowLeftRight, ShoppingCart, Truck, AlertTriangle,
@@ -46,6 +46,8 @@ export default function InventoryModule() {
   const [adjSearch, setAdjSearch] = useState('');
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
   const [submittingAdj, setSubmittingAdj] = useState(false);
+  const adjInFlightRef = useRef(false);
+  const trfInFlightRef = useRef(false);
   const [adjForm, setAdjForm] = useState({
     productId: '',
     quantity: '1',
@@ -213,7 +215,8 @@ export default function InventoryModule() {
 
   const handleAdjustment = async (e) => {
     e.preventDefault();
-    if (submittingAdj) return;
+    if (submittingAdj || adjInFlightRef.current) return;
+    adjInFlightRef.current = true;
     setSubmittingAdj(true);
     try {
       await dataService.makeInventoryAdjustment(adjForm);
@@ -224,13 +227,15 @@ export default function InventoryModule() {
     } catch (err) {
       showNotification(err.message, true);
     } finally {
+      adjInFlightRef.current = false;
       setSubmittingAdj(false);
     }
   };
 
   const handleCreateTransfer = async (e) => {
     e.preventDefault();
-    if (submittingTrf) return;
+    if (submittingTrf || trfInFlightRef.current) return;
+    trfInFlightRef.current = true;
     setSubmittingTrf(true);
     try {
       await dataService.createInventoryTransfer({
@@ -256,6 +261,7 @@ export default function InventoryModule() {
     } catch (err) {
       showNotification(err.message, true);
     } finally {
+      trfInFlightRef.current = false;
       setSubmittingTrf(false);
     }
   };

@@ -240,15 +240,16 @@ class InventoryService {
   }
 
   // === AJUSTES DE STOCK (IN/OUT) CON AUTORIZACIÓN ===
-  async makeAdjustment(tenantId, { productId, locationId = null, quantity, adjustmentType, reason, userId = null, userName = null, userRole = null }) {
+  async makeAdjustment(tenantId, { productId, locationId = null, quantity, adjustmentType, reason, userId = null, userName = null, userRole = null, hasInventoryManagePermission = false }) {
     if (!tenantId || !productId || !adjustmentType) {
       throw new Error('Parámetros de ajuste incompletos');
     }
 
-    // Validación de roles de autorización
+    // Validación de roles/permisos de autorización
     const roleLower = String(userRole || '').toLowerCase();
-    if (roleLower !== 'admin' && roleLower !== 'superadmin' && roleLower !== 'administrador' && roleLower !== 'owner' && roleLower !== 'propietario') {
-      const err = new Error('Solo los administradores tienen permiso para realizar ajustes manuales de inventario');
+    const isAdminRole = ['admin', 'superadmin', 'administrador', 'owner', 'propietario'].includes(roleLower);
+    if (!isAdminRole && !hasInventoryManagePermission) {
+      const err = new Error('Solo los administradores o roles con permiso de gestión de inventario pueden realizar ajustes manuales.');
       err.code = 'UNAUTHORIZED_ROLE';
       throw err;
     }
