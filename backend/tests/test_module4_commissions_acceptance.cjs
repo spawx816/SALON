@@ -124,9 +124,9 @@ async function runTests() {
 
     // Custom read-only role for commissions.view (NOT commissions.approve)
     const [roleIns] = await pool.query(
-      `INSERT INTO roles (tenant_id, name, description, permissions, is_system)
-       VALUES (?, 'solo_consulta_comisiones', 'Solo consulta comisiones', '{"commissions.view":true}'::jsonb, false) RETURNING id`,
-      [tidA]
+      `INSERT INTO roles (tenant_id, nombre, description, permisos)
+       VALUES (?, 'solo_consulta_comisiones', 'Solo consulta comisiones', ?) RETURNING id`,
+      [tidA, JSON.stringify({ 'commissions.view': true })]
     );
     const viewerRoleId = roleIns[0].id;
 
@@ -178,6 +178,7 @@ async function runTests() {
       { nombre: 'Cabello M4', porcentaje: 20, tipo: 'Porcentaje', estado: 'Activa' },
       { nombre: 'Color M4', porcentaje: 25, tipo: 'Porcentaje', estado: 'Activa' },
       { nombre: 'Retail M4', porcentaje: 0, tipo: 'Porcentaje', estado: 'Activa' },
+      { nombre: 'SinRegla M4', porcentaje: 0, tipo: 'Porcentaje', estado: 'Activa' },
       { nombre: 'Temporal M4', porcentaje: 10, tipo: 'Porcentaje', estado: 'Activa' },
     ]) {
       const r = await requestJson(baseUrl, 'POST', '/api/commissions/categories', { token: tokenOwnerA, body: c });
@@ -194,6 +195,7 @@ async function runTests() {
     assert.ok(!catsA.some((c) => c.nombre === 'Cat Ajena B'), 'Tenant A must not see Tenant B categories');
     const catCabello = catsA.find((c) => c.nombre === 'Cabello M4');
     const catRetail = catsA.find((c) => c.nombre === 'Retail M4');
+    const catSinRegla = catsA.find((c) => c.nombre === 'SinRegla M4');
     const catTemp = catsA.find((c) => c.nombre === 'Temporal M4');
     const catB = catsB.find((c) => c.nombre === 'Cat Ajena B');
 
@@ -212,15 +214,38 @@ async function runTests() {
     });
     const prodZero = await requestJson(baseUrl, 'POST', '/api/services', {
       token: tokenOwnerA,
-      body: { nombre: 'Shampoo Cero M4', precio: 500, categoria: 'Retail M4', commission_category_id: catRetail.id, tipo: 'Producto', item_type: 'PRODUCTO', genera_comision: 1, comision_valor: 0, aplica_itbis: 0, tax_rate: 0, tax_mode: 'exempt' },
+      body: { nombre: 'Shampoo Cero M4', precio: 500, categoria: 'Retail M4', commission_category_id: catRetail.id, tipo: 'Producto', item_type: 'PRODUCTO', genera_comision: 1, comision_valor: 0, aplica_itbis: 0, tax_rate: 0, tax_mode: 'exempt', stock_inicial: 10 },
     });
     const srvNoRule = await requestJson(baseUrl, 'POST', '/api/services', {
       token: tokenOwnerA,
-      body: { nombre: 'Servicio Sin Regla M4', precio: 400, categoria: 'SinCatM4', tipo: 'Servicio', aplica_itbis: 0, tax_rate: 0, tax_mode: 'exempt' },
+      body: { nombre: 'Servicio Sin Regla M4', precio: 400, categoria: 'SinRegla M4', commission_category_id: catSinRegla.id, tipo: 'Servicio', aplica_itbis: 0, tax_rate: 0, tax_mode: 'exempt' },
     });
     for (const s of [srvPct, srvFixed, srvInc, prodZero, srvNoRule]) {
       assert.ok(s.status === 200 || s.status === 201, `Create catalog item failed: ${s.text}`);
     }
+    // Ensure inventory_locations + inventory_stock has 10 units for prodZero in branch A1
+    const [locRows] = await pool.query(`SELECT id FROM inventory_locations WHERE tenant_id = ? LIMIT 1`, [tidA]);
+    let locId = locRows[0]?.id;
+    if (!locId) {
+      const [locIns] = await pool.query(
+        `INSERT INTO inventory_locations (tenant_id, salon_id, name, code, is_default, is_active) VALUES (?, ?, 'Principal M4', 'MAIN', TRUE, TRUE) RETURNING id`,
+        [tidA, bA1]
+      );
+      locId = locIns[0].id;
+    }
+    const invProdId = prodZero.body.product_id || prodZero.body.id;
+    await pool.query(
+      `INSERT INTO inventory_stock (tenant_id, product_id, location_id, quantity)
+       VALUES (?, ?, ?, 10)
+       ON CONFLICT (tenant_id, product_id, location_id) DO UPDATE SET quantity = 10`,
+      [tidA, invProdId, locId]
+    );
+    // Deactivate SinRegla M4 and clear comision_valor to NULL so srvNoRule has NO active category, NO catalog rate, and NO scheme rule (tests default 15% fallback)
+    await requestJson(baseUrl, 'POST', '/api/commissions/categories', {
+      token: tokenOwnerA,
+      body: { id: catSinRegla.id, nombre: 'SinRegla M4', porcentaje: 0, tipo: 'Porcentaje', estado: 'Inactiva' },
+    });
+    await pool.query(`UPDATE services SET comision_valor = NULL WHERE id = ? AND tenant_id = ?`, [srvNoRule.body.id, tidA]);
 
     // Attempt to delete category IN USE -> 409 CATEGORY_IN_USE
     const delInUseCat = await requestJson(baseUrl, 'DELETE', `/api/commissions/categories/${catCabello.id}`, { token: tokenOwnerA });
@@ -312,7 +337,7 @@ async function runTests() {
           // 2) Fixed rule RD$250 x 2 = 500.00 (emp1)
           { id: srvFixed.body.id, nombre: 'Peinado Fijo M4', categoria: 'Cabello M4', precio: 800, precioBase: 800, precioAplicado: 800, cantidad: 2, empleado_id: emp1Id, empleado_nombre: 'Ana Estilista M4' },
           // 3) Category rule 20% on inclusive ITBIS (1180) with 10% discount -> gross=1180, disc=118, netAfterDisc=1062, ex-ITBIS=1062/1.18=900.00 -> 20% = 180.00 (emp2)
-          { id: srvInc.body.id, nombre: 'Tinte Inclusivo M4', categoria: 'Cabello M4', precio: 1062, precioBase: 1180, precioAplicado: 1062, descuentoPercent: 10, cantidad: 1, empleado_id: emp2Id, empleado_nombre: 'Berta Colorista M4', aplica_itbis: 1, tax_rate: 18, tax_mode: 'inclusive' },
+          { id: srvInc.body.id, nombre: 'Tinte Inclusivo M4', categoria: 'Cabello M4', precio: 1180, precioBase: 1180, precioAplicado: 1180, descuentoPercent: 10, cantidad: 1, empleado_id: emp2Id, empleado_nombre: 'Berta Colorista M4', aplica_itbis: 1, tax_rate: 18, tax_mode: 'inclusive' },
           // 4) Product with 0% category/item -> MUST be 0.00 (NO 15% fallback!) (emp1)
           { id: prodZero.body.id, nombre: 'Shampoo Cero M4', categoria: 'Retail M4', tipo_item: 'PRODUCTO', is_product: true, precio: 500, precioBase: 500, precioAplicado: 500, cantidad: 1, empleado_id: emp1Id, empleado_nombre: 'Ana Estilista M4' },
           // 5) Service with NO rule -> default 15% of 400 = 60.00 (emp2)
@@ -461,7 +486,7 @@ async function runTests() {
       body: { start_date: today, end_date: today, period_name: `Nómina M4 ${ts}`, salon_id: bA1 },
     });
     assert.ok(payrollDraft.status === 200 || payrollDraft.status === 201, `Payroll generate failed: ${payrollDraft.text}`);
-    const draftRows = payrollDraft.body.employees || payrollDraft.body.payroll?.employees || payrollDraft.body.details || [];
+    const draftRows = payrollDraft.body.items || payrollDraft.body.records || payrollDraft.body.employees || payrollDraft.body.payroll?.employees || payrollDraft.body.details || [];
     const emp1Payroll = draftRows.find((d) => String(d.employee_id) === String(emp1Id) || d.employee_name === 'Ana Estilista M4');
     assert.ok(emp1Payroll, `Emp1 missing from payroll draft: ${JSON.stringify(payrollDraft.body)}`);
     assert.strictEqual(Number(emp1Payroll.comisiones), 500, `ANTI-DOUBLE-PAY FAIL: Emp1 payroll commissions MUST be 500 (excluding 400 already settled via /payout), got ${emp1Payroll.comisiones}`);
@@ -525,6 +550,9 @@ async function runTests() {
     await pool.query('DELETE FROM cash_movements WHERE tenant_id IN (?, ?)', [tidA, tidB]).catch(() => {});
     await pool.query('DELETE FROM cash_registers WHERE tenant_id IN (?, ?)', [tidA, tidB]).catch(() => {});
     await pool.query('DELETE FROM visits WHERE tenant_id IN (?, ?)', [tidA, tidB]).catch(() => {});
+    await pool.query('DELETE FROM inventory_movements WHERE tenant_id IN (?, ?)', [tidA, tidB]).catch(() => {});
+    await pool.query('DELETE FROM inventory_stock WHERE tenant_id IN (?, ?)', [tidA, tidB]).catch(() => {});
+    await pool.query('DELETE FROM inventory_locations WHERE tenant_id IN (?, ?)', [tidA, tidB]).catch(() => {});
     await pool.query('DELETE FROM services WHERE tenant_id IN (?, ?)', [tidA, tidB]).catch(() => {});
     await pool.query('DELETE FROM staff_records WHERE tenant_id IN (?, ?)', [tidA, tidB]).catch(() => {});
     await pool.query('DELETE FROM users WHERE tenant_id IN (?, ?)', [tidA, tidB]).catch(() => {});
