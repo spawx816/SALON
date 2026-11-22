@@ -311,13 +311,15 @@ async function runTests() {
     const sessId = physCreate.body.session?.id || physCreate.body.id;
     const physCount = await requestJson(baseUrl, 'PUT', `/api/inventory/physical-sessions/${sessId}/items`, {
       token: tokOwnerA,
-      body: { items: [{ product_id: prodId, counted_quantity: 4 }] },
+      body: { items: [{ product_id: prodId, physical_count: 4 }] },
     });
     assert.strictEqual(physCount.status, 200, `Physical count failed: ${physCount.text}`);
     const physPost = await requestJson(baseUrl, 'POST', `/api/inventory/physical-sessions/${sessId}/post`, { token: tokOwnerA });
     assert.strictEqual(physPost.status, 200, `Physical post failed: ${physPost.text}`);
     const stLoc2AfterPhys = (await requestJson(baseUrl, 'GET', `/api/inventory/stock/${prodId}?locationId=${loc2.id}`, { token: tokOwnerA })).body;
+    const stLoc1AfterPhys = (await requestJson(baseUrl, 'GET', `/api/inventory/stock/${prodId}?locationId=${loc1.id}`, { token: tokOwnerA })).body;
     assert.strictEqual(Number(stLoc2AfterPhys.quantity), 4, `Expected loc2=4 after physical count, got ${stLoc2AfterPhys.quantity}`);
+    assert.strictEqual(Number(stLoc1AfterPhys.quantity), 12, `loc1 MUST remain untouched (12) after loc2 physical count, got ${stLoc1AfterPhys.quantity}`);
     console.log('  ✅ [PASS] M6-C3: Compras idempotentes (7→17), transferencia loc1→loc2 (12 / 5) y toma física atómica (5→4).');
 
     // =========================================================================

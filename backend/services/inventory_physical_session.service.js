@@ -272,6 +272,8 @@ class InventoryPhysicalSessionService {
       let totalAdjustmentsCount = 0;
       let totalVarianceCostCents = 0;
 
+      const resolvedLocationId = await this.resolveLocationId(conn, tenantId, session.location_id);
+
       for (const item of items) {
         if (item.physical_count === null || item.physical_count === undefined) {
           // If uncounted, default to expected system stock (zero variance)
@@ -282,21 +284,21 @@ class InventoryPhysicalSessionService {
         const snapshotStock = Number(item.system_stock_snapshot) || 0;
         const unitCostCents = Number(item.unit_cost_snapshot_cents) || 0;
 
-        // Lock product stock row in inventory_stock
+        // Lock product stock row in inventory_stock strictly for this session's location_id
         const [stockRows] = await conn.query(`
           SELECT quantity FROM inventory_stock
-          WHERE tenant_id = ? AND product_id = ?
+          WHERE tenant_id = ? AND product_id = ? AND location_id = ?
           FOR UPDATE
-        `, [tenantId, item.product_id]);
+        `, [tenantId, item.product_id, resolvedLocationId]);
 
         const currentDbStock = stockRows.length > 0 ? (Number(stockRows[0].quantity) || 0) : 0;
 
-        // Compute movements occurred since session creation (concurrent sales, adjustments)
+        // Compute movements occurred since session creation strictly in this location_id
         const [moveRows] = await conn.query(`
           SELECT COALESCE(SUM(quantity), 0) as moves_since
           FROM inventory_movements
-          WHERE tenant_id = ? AND product_id = ? AND created_at > ?
-        `, [tenantId, item.product_id, session.created_at]);
+          WHERE tenant_id = ? AND product_id = ? AND location_id = ? AND created_at > ?
+        `, [tenantId, item.product_id, resolvedLocationId, session.created_at]);
 
         const movesSinceSnapshot = Number(moveRows[0].moves_since) || 0;
 
@@ -319,18 +321,17 @@ class InventoryPhysicalSessionService {
           WHERE id = ? AND tenant_id = ?
         `, [movesSinceSnapshot, expectedAtPost, varianceQty, varianceCostCents, item.id, tenantId]);
 
-        // If variance !== 0, apply atomic stock adjustment
+        // If variance !== 0, apply atomic stock adjustment strictly for this location_id
         if (Math.abs(varianceQty) > 0.0001) {
           totalAdjustmentsCount++;
           const newActualStock = currentDbStock + varianceQty;
-          const resolvedLocationId = await this.resolveLocationId(conn, tenantId, session.location_id);
 
           if (stockRows.length > 0) {
             await conn.query(`
               UPDATE inventory_stock
               SET quantity = ?, updated_at = CURRENT_TIMESTAMP
-              WHERE tenant_id = ? AND product_id = ?
-            `, [newActualStock, tenantId, item.product_id]);
+              WHERE tenant_id = ? AND product_id = ? AND location_id = ?
+            `, [newActualStock, tenantId, item.product_id, resolvedLocationId]);
           } else {
             await conn.query(`
               INSERT INTO inventory_stock (tenant_id, product_id, location_id, quantity)
