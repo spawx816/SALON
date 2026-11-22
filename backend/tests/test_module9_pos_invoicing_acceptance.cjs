@@ -133,15 +133,12 @@ async function runModule9PosInvoicingAcceptance() {
     );
 
     const locA1 = await inventoryService.getDefaultLocation(tenantA, branchA1);
-    await inventoryService.recordAdjustment(tenantA, {
-      productId,
-      locationId: locA1.id,
-      type: 'ADJUSTMENT_IN',
-      quantity: 10,
-      reason: 'Stock inicial M9',
-      userId: ownerAId,
-      userName: 'Owner M9',
-    });
+    await pool.query(
+      `INSERT INTO inventory_stock (tenant_id, product_id, location_id, quantity_on_hand)
+       VALUES (?, ?, ?, 10)
+       ON CONFLICT (tenant_id, product_id, location_id) DO UPDATE SET quantity_on_hand = 10`,
+      [tenantA, productId, locA1.id]
+    );
 
     // --- M9-C1: Pending ticket -> draft -> Precuenta (0 NCF, 0 stock, 0 cash) ---
     console.log('--- M9-C1: Pending ticket -> draft -> precuenta (0 NCF, 0 stock, 0 cash) ---');
