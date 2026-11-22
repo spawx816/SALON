@@ -1753,8 +1753,8 @@ function createVisitsRouter(pool, helpers = {}) {
         `INSERT INTO visits (
            id, tenant_id, ticket_number, client_id, client_name, salon_id,
            servicios, items_detail, total, metodo_pago, status,
-           empleado_peluquera, empleado_lava_pelo, empleado_manicurista, recepcionista, visited_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           empleado_peluquera, empleado_lava_pelo, empleado_manicurista, visited_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [
           visitId,
           tenantId,
@@ -1769,8 +1769,7 @@ function createVisitsRouter(pool, helpers = {}) {
           status,
           empleado_peluquera,
           empleado_lava_pelo,
-          empleado_manicurista,
-          recepcionista
+          empleado_manicurista
         ]
       );
 

@@ -216,22 +216,22 @@ async function runTests() {
 
     // Scheme & rule already seeded above for emp1 and emp2
 
-    // Emit mixed invoice with all 4 items + B02 NCF
-    const mixedInvoice = await requestJson(baseUrl, 'POST', '/api/visits', {
+    // Emit mixed invoice with all 4 items + B02 NCF via canonical /api/visits/checkout
+    const mixedInvoice = await requestJson(baseUrl, 'POST', '/api/visits/checkout', {
       token: ownerToken,
       body: {
         client_name: 'Clienta Fiscal Test',
         salon_id: branch1Id,
         cash_register_id: cashRegisterId,
-        tipo_comprobante: 'B02',
         ncf_type: 'B02',
+        ncf_name: 'Factura de Consumo',
         metodo_pago: 'Efectivo',
-        status: 'Facturado',
-        items: [
-          { id: svcGravExc.body.id, nombre: 'Alisado Gravado Exc', precio: 1000, cantidad: 1, estilista_id: emp1Id, estilista: 'Estilista Uno', aplica_itbis: 1, tax_rate: 18, tax_mode: 'exclusive' },
-          { id: svcGravInc.body.id, nombre: 'Tinte Gravado Inc', precio: 1180, cantidad: 1, estilista_id: emp1Id, estilista: 'Estilista Uno', aplica_itbis: 1, tax_rate: 18, tax_mode: 'inclusive' },
-          { id: svcExento.body.id, nombre: 'Lavado Exento', precio: 500, cantidad: 1, estilista_id: emp1Id, estilista: 'Estilista Uno', aplica_itbis: 0, tax_rate: 0, tax_mode: 'exempt' },
-          { id: svcTasaCero.body.id, nombre: 'Tratamiento Tasa 0', precio: 300, cantidad: 1, estilista_id: emp1Id, estilista: 'Estilista Uno', aplica_itbis: 1, tax_rate: 0, tax_mode: 'zero' },
+        monto_recibido: 3200,
+        items_detail: [
+          { id: svcGravExc.body.id, nombre: 'Alisado Gravado Exc', precio: 1000, precioBase: 1000, precioAplicado: 1000, cantidad: 1, estilista_id: emp1Id, empleado_id: emp1Id, estilista: 'Estilista Uno', aplica_itbis: 1, tax_rate: 18, tax_mode: 'exclusive' },
+          { id: svcGravInc.body.id, nombre: 'Tinte Gravado Inc', precio: 1180, precioBase: 1180, precioAplicado: 1180, cantidad: 1, estilista_id: emp1Id, empleado_id: emp1Id, estilista: 'Estilista Uno', aplica_itbis: 1, tax_rate: 18, tax_mode: 'inclusive' },
+          { id: svcExento.body.id, nombre: 'Lavado Exento', precio: 500, precioBase: 500, precioAplicado: 500, cantidad: 1, estilista_id: emp1Id, empleado_id: emp1Id, estilista: 'Estilista Uno', aplica_itbis: 0, tax_rate: 0, tax_mode: 'exempt' },
+          { id: svcTasaCero.body.id, nombre: 'Tratamiento Tasa 0', precio: 300, precioBase: 300, precioAplicado: 300, cantidad: 1, estilista_id: emp1Id, empleado_id: emp1Id, estilista: 'Estilista Uno', aplica_itbis: 1, tax_rate: 0, tax_mode: 'zero' },
         ],
       },
     });
@@ -264,18 +264,21 @@ async function runTests() {
     assert.ok(Number(alisadoComm.commission_amount) > 0, `Comisión debe ser > 0, fue ${alisadoComm.commission_amount}`);
     console.log(`  ✅ [PASS] B1+B5: ITBIS exacto (RD$${savedVisit.itbis} / ${savedVisit.itbis_cents}c), NCF=${savedVisit.ncf}, comisión persistida RD$${alisadoComm.commission_amount}.`);
 
-    // Test employee discount without duplication
-    const empDiscVisit = await requestJson(baseUrl, 'POST', '/api/visits', {
+    // Test employee discount without duplication via canonical /api/visits/checkout
+    const empDiscVisit = await requestJson(baseUrl, 'POST', '/api/visits/checkout', {
       token: ownerToken,
       body: {
         client_name: 'Estilista Uno',
-        is_employee: true,
-        employee_id: emp1Id,
         salon_id: branch1Id,
         cash_register_id: cashRegisterId,
         metodo_pago: 'Nomina',
-        status: 'Facturado',
-        items: [{ id: svcExento.body.id, nombre: 'Lavado Exento', precio: 500, cantidad: 1, estilista_id: emp2Id, estilista: 'Estilista Dos' }],
+        employee_consumption: {
+          employee_id: emp1Id,
+          employee_name: 'Estilista Uno',
+          monto: 500,
+          authorized: true,
+        },
+        items_detail: [{ id: svcExento.body.id, nombre: 'Lavado Exento', precio: 500, precioBase: 500, precioAplicado: 500, cantidad: 1, estilista_id: emp2Id, empleado_id: emp2Id, estilista: 'Estilista Dos' }],
       },
     });
     assert.ok(empDiscVisit.status === 200 || empDiscVisit.status === 201, `empDiscVisit failed: ${empDiscVisit.text}`);
@@ -435,16 +438,15 @@ async function runTests() {
       [tenantId, invProdId, locId]
     );
 
-    // Attempt sale at stock = 0
-    const zeroStockSale = await requestJson(baseUrl, 'POST', '/api/visits', {
+    // Attempt sale at stock = 0 via canonical /api/visits/checkout
+    const zeroStockSale = await requestJson(baseUrl, 'POST', '/api/visits/checkout', {
       token: ownerToken,
       body: {
         client_name: 'Clienta Stock Cero',
         salon_id: branch1Id,
         cash_register_id: cashRegisterId,
         metodo_pago: 'Efectivo',
-        status: 'Facturado',
-        items: [{ id: prodServiceId, product_id: invProdId, nombre: 'Shampoo Keratina Test', precio: 850, cantidad: 1, tipo: 'Producto' }],
+        items_detail: [{ id: prodServiceId, product_id: invProdId, nombre: 'Shampoo Keratina Test', precio: 850, precioBase: 850, precioAplicado: 850, cantidad: 1, tipo: 'Producto', item_type: 'PRODUCTO', track_stock: true }],
       },
     });
     assert.strictEqual(zeroStockSale.status, 400, `Stock 0 debe ser rechazado con 400, recibido ${zeroStockSale.status}: ${zeroStockSale.text}`);
@@ -460,12 +462,11 @@ async function runTests() {
       salon_id: branch1Id,
       cash_register_id: cashRegisterId,
       metodo_pago: 'Efectivo',
-      status: 'Facturado',
-      items: [{ id: prodServiceId, product_id: invProdId, nombre: 'Shampoo Keratina Test', precio: 850, cantidad: 1, tipo: 'Producto' }],
+      items_detail: [{ id: prodServiceId, product_id: invProdId, nombre: 'Shampoo Keratina Test', precio: 850, precioBase: 850, precioAplicado: 850, cantidad: 1, tipo: 'Producto', item_type: 'PRODUCTO', track_stock: true }],
     };
     const [c1, c2] = await Promise.all([
-      requestJson(baseUrl, 'POST', '/api/visits', { token: ownerToken, body: salePayload }),
-      requestJson(baseUrl, 'POST', '/api/visits', { token: ownerToken, body: salePayload }),
+      requestJson(baseUrl, 'POST', '/api/visits/checkout', { token: ownerToken, body: salePayload }),
+      requestJson(baseUrl, 'POST', '/api/visits/checkout', { token: ownerToken, body: salePayload }),
     ]);
     const statuses = [c1.status, c2.status].sort((a, b) => a - b);
     assert.ok(
