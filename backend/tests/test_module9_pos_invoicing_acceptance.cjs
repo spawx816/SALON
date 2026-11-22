@@ -115,8 +115,8 @@ async function runModule9PosInvoicingAcceptance() {
 
     // Seed B02 NCF sequence
     await pool.query(
-      `INSERT INTO ncf_sequences (tenant_id, type, prefix, current_number, max_number, is_active)
-       VALUES (?, 'B02', 'B02', 0, 100, true)`,
+      `INSERT INTO dgii_ncf_sequences (tenant_id, tipo_comprobante, nombre, prefijo, secuencia_desde, secuencia_actual, secuencia_hasta, fecha_vencimiento, estado)
+       VALUES (?, 'B02', 'Factura de Consumo', 'B02', 1, 1, 100, '2028-12-31', 'Activo')`,
       [tenantA]
     );
 
@@ -169,8 +169,8 @@ async function runModule9PosInvoicingAcceptance() {
     assert.strictEqual(precRes.status, 200);
 
     // Verify 0 NCF consumed, 0 stock deducted, 0 cash added
-    const [seqBefore] = await pool.query("SELECT current_number FROM ncf_sequences WHERE tenant_id = ? AND type = 'B02'", [tenantA]);
-    assert.strictEqual(Number(seqBefore[0].current_number), 0, 'Precuenta MUST NOT consume NCF');
+    const [seqBefore] = await pool.query("SELECT secuencia_actual FROM dgii_ncf_sequences WHERE tenant_id = ? AND tipo_comprobante = 'B02'", [tenantA]);
+    assert.strictEqual(Number(seqBefore[0].secuencia_actual), 1, 'Precuenta MUST NOT consume NCF');
     const [stockBefore] = await pool.query('SELECT quantity_on_hand FROM inventory_stock WHERE tenant_id = ? AND product_id = ? AND location_id = ?', [tenantA, productId, locA1.id]);
     assert.strictEqual(Number(stockBefore[0].quantity_on_hand), 10, 'Precuenta MUST NOT deduct stock');
     const regBefore = await reqJson(baseUrl, 'GET', `/api/cash-registers/active?salon_id=${branchA1}`);
@@ -202,8 +202,8 @@ async function runModule9PosInvoicingAcceptance() {
     const chk2 = await reqJson(baseUrl, 'POST', `/api/visits/${visitId}/checkout`, checkoutPayload);
     assert.strictEqual(chk2.status, 200);
 
-    const [seqAfter] = await pool.query("SELECT current_number FROM ncf_sequences WHERE tenant_id = ? AND type = 'B02'", [tenantA]);
-    assert.strictEqual(Number(seqAfter[0].current_number), 1, 'NCF sequence must advance strictly once');
+    const [seqAfter] = await pool.query("SELECT secuencia_actual FROM dgii_ncf_sequences WHERE tenant_id = ? AND tipo_comprobante = 'B02'", [tenantA]);
+    assert.strictEqual(Number(seqAfter[0].secuencia_actual), 2, 'NCF sequence must advance strictly once (1 -> 2)');
 
     const [stockAfter] = await pool.query('SELECT quantity_on_hand FROM inventory_stock WHERE tenant_id = ? AND product_id = ? AND location_id = ?', [tenantA, productId, locA1.id]);
     assert.strictEqual(Number(stockAfter[0].quantity_on_hand), 8, `Expected stock 8 (10 - 2), got ${stockAfter[0].quantity_on_hand}`);
@@ -257,13 +257,28 @@ async function runModule9PosInvoicingAcceptance() {
     assert.strictEqual(voidPend.data.code, 'NOT_INVOICED');
     assert.strictEqual((await reqJson(baseUrl, 'DELETE', `/api/visits/${pend1.data.id}`)).status, 200);
 
-    // SIN_COMPROBANTE checkout without consuming B02
+    // E31 electronic e-CF must be blocked with 409 NCF_ECF_INTEGRATION_REQUIRED when DGII_MODE=disabled
     const pend2 = await reqJson(baseUrl, 'POST', '/api/visits/ticket', { client_name: 'Sin NCF', salon_id: branchA1, servicios: ['Lavado M9'], total: 600 });
+    const chkE31 = await reqJson(baseUrl, 'POST', `/api/visits/${pend2.data.id}/checkout`, {
+      salon_id: branchA1,
+      cash_register_id: regA1Id,
+      client_name: 'Sin NCF',
+      ncf_type: 'E31',
+      metodo_pago: 'Efectivo',
+      applied_payments: [{ method: 'Efectivo', amount: 600 }],
+      items_detail: [{ service_id: serviceId, nombre: 'Lavado M9', tipo_item: 'SERVICIO', precio: 600, cantidad: 1, tax_mode: 'EXENTO', tax_rate: 0 }],
+      total: 600,
+      subtotal: 600,
+    });
+    assert.strictEqual(chkE31.status, 409);
+    assert.strictEqual(chkE31.data.code, 'NCF_ECF_INTEGRATION_REQUIRED');
+
+    // NONE checkout without consuming B02
     const chkNoNcf = await reqJson(baseUrl, 'POST', `/api/visits/${pend2.data.id}/checkout`, {
       salon_id: branchA1,
       cash_register_id: regA1Id,
       client_name: 'Sin NCF',
-      ncf_type: 'SIN_COMPROBANTE',
+      ncf_type: 'NONE',
       metodo_pago: 'Efectivo',
       applied_payments: [{ method: 'Efectivo', amount: 600 }],
       items_detail: [{ service_id: serviceId, nombre: 'Lavado M9', tipo_item: 'SERVICIO', precio: 600, cantidad: 1, tax_mode: 'EXENTO', tax_rate: 0 }],
@@ -271,8 +286,8 @@ async function runModule9PosInvoicingAcceptance() {
       subtotal: 600,
     });
     assert.strictEqual(chkNoNcf.status, 200);
-    const [seqStill1] = await pool.query("SELECT current_number FROM ncf_sequences WHERE tenant_id = ? AND type = 'B02'", [tenantA]);
-    assert.strictEqual(Number(seqStill1[0].current_number), 1, 'SIN_COMPROBANTE must not consume B02');
+    const [seqStill2] = await pool.query("SELECT secuencia_actual FROM dgii_ncf_sequences WHERE tenant_id = ? AND tipo_comprobante = 'B02'", [tenantA]);
+    assert.strictEqual(Number(seqStill2[0].secuencia_actual), 2, 'NONE checkout must not consume B02');
     console.log('  ✅ [PASS M9-C5]');
 
     // --- M9-C6: Branch scope & multi-tenant isolation ---
@@ -311,7 +326,7 @@ async function runModule9PosInvoicingAcceptance() {
     for (const tbl of [
       'audit_logs', 'inventory_movements', 'inventory_stock', 'inventory_locations',
       'employee_commissions_log', 'employee_discounts', 'cash_register_movements',
-      'visits', 'cash_registers', 'ncf_sequences', 'services', 'branches'
+      'visits', 'cash_registers', 'dgii_ncf_sequences', 'ticket_sequences', 'services', 'branches'
     ]) {
       await pool.query(`DELETE FROM ${tbl} WHERE tenant_id IN (?, ?)`, [tenantA, tenantB]).catch(() => {});
     }
