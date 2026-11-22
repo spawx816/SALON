@@ -143,23 +143,35 @@ async function runTests() {
       [tenantId]
     );
 
+    // Seed commission scheme + rule (30% on Alisado Gravado Exc)
+    const [schemeIns] = await pool.query(
+      `INSERT INTO commission_schemes (tenant_id, nombre, descripcion, estado) VALUES (?, 'Esquema Regresión', 'Test', 'Activo') RETURNING id`,
+      [tenantId]
+    );
+    const schemeId = schemeIns[0].id;
+    await pool.query(
+      `INSERT INTO commission_scheme_rules (tenant_id, scheme_id, rule_type, service_name, porcentaje_comision, prioridad)
+       VALUES (?, ?, 'service', 'Alisado Gravado Exc', 30, 1)`,
+      [tenantId, schemeId]
+    );
+
     // Seed 2 active staff_records (WITHOUT users accounts!) + 1 inactive staff_record
     const [emp1Ins] = await pool.query(
-      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salario_base, tipo_nomina, estado, fecha_ingreso)
-       VALUES (?, 'Estilista Uno', 'Estilista', 'Sucursal 1', 25000, 'Quincenal', 'Activo', '2026-01-01') RETURNING id`,
-      [tenantId]
+      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salario_base, tipo_salario, status, fecha_entrada, commission_scheme_id)
+       VALUES (?, 'Estilista Uno', 'Estilista', 'Sucursal 1', 25000, 'Quincenal', 'Activo', '2026-01-01', ?) RETURNING id`,
+      [tenantId, schemeId]
     );
     const emp1Id = emp1Ins[0].id;
 
     const [emp2Ins] = await pool.query(
-      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salario_base, tipo_nomina, estado, fecha_ingreso)
-       VALUES (?, 'Estilista Dos', 'Estilista', 'Sucursal 1', 25000, 'Quincenal', 'Activo', '2026-01-01') RETURNING id`,
-      [tenantId]
+      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salario_base, tipo_salario, status, fecha_entrada, commission_scheme_id)
+       VALUES (?, 'Estilista Dos', 'Estilista', 'Sucursal 1', 25000, 'Quincenal', 'Activo', '2026-01-01', ?) RETURNING id`,
+      [tenantId, schemeId]
     );
     const emp2Id = emp2Ins[0].id;
 
     await pool.query(
-      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salario_base, tipo_nomina, estado, fecha_ingreso)
+      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salario_base, tipo_salario, status, fecha_entrada)
        VALUES (?, 'Ex Empleado', 'Estilista', 'Sucursal 1', 20000, 'Quincenal', 'Inactivo', '2025-01-01')`,
       [tenantId]
     );
@@ -194,16 +206,7 @@ async function runTests() {
     });
     assert.strictEqual(svcTasaCero.status, 200, `svcTasaCero failed: ${svcTasaCero.text}`);
 
-    // Create employee-specific commission rule (30% for emp1 on Alisado Gravado Exc)
-    const [schemeIns] = await pool.query(
-      `INSERT INTO commission_schemes (tenant_id, name, description, is_active) VALUES (?, 'Esquema Regresión', 'Test', TRUE) RETURNING id`,
-      [tenantId]
-    );
-    await pool.query(
-      `INSERT INTO commission_scheme_rules (tenant_id, scheme_id, rule_type, empleado_id, service_id, percentage, fixed_amount, is_active)
-       VALUES (?, ?, 'employee', ?, ?, 30, 0, TRUE)`,
-      [tenantId, schemeIns[0].id, emp1Id, svcGravExc.body.id]
-    );
+    // Scheme & rule already seeded above for emp1 and emp2
 
     // Emit mixed invoice with all 4 items + B02 NCF
     const mixedInvoice = await requestJson(baseUrl, 'POST', '/api/visits', {
@@ -400,20 +403,20 @@ async function runTests() {
     let locId = locRows?.[0]?.id;
     if (!locId) {
       const [locIns] = await pool.query(
-        `INSERT INTO inventory_locations (tenant_id, branch_id, name, code, is_active) VALUES (?, ?, 'Principal', 'MAIN', TRUE) RETURNING id`,
+        `INSERT INTO inventory_locations (tenant_id, salon_id, name, code, is_default, is_active) VALUES (?, ?, 'Principal', 'MAIN', TRUE, TRUE) RETURNING id`,
         [tenantId, branch1Id]
       );
       locId = locIns[0].id;
     }
     const [invProdRows] = await pool.query(
-      'SELECT id FROM inventory_products WHERE tenant_id = ? AND (service_id = ? OR LOWER(name) = LOWER(?)) LIMIT 1',
-      [tenantId, prodServiceId, 'Shampoo Keratina Test']
+      'SELECT id FROM inventory_products WHERE tenant_id = ? AND LOWER(name) = LOWER(?) LIMIT 1',
+      [tenantId, 'Shampoo Keratina Test']
     );
     let invProdId = invProdRows?.[0]?.id;
     if (!invProdId) {
       const [ipIns] = await pool.query(
-        `INSERT INTO inventory_products (tenant_id, service_id, name, sku, is_active) VALUES (?, ?, 'Shampoo Keratina Test', ?, TRUE) RETURNING id`,
-        [tenantId, prodServiceId, `SKU-${ts}`]
+        `INSERT INTO inventory_products (tenant_id, name, sku, category, sale_price, track_stock, is_active) VALUES (?, 'Shampoo Keratina Test', ?, 'Productos', 850, TRUE, TRUE) RETURNING id`,
+        [tenantId, `SKU-${ts}`]
       );
       invProdId = ipIns[0].id;
     }
