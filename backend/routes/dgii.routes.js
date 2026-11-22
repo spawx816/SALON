@@ -576,7 +576,7 @@ function createDgiiRouter(pool) {
 
       // 1. Ventas facturadas y anuladas en visits durante el período
       let visitQuery = `
-        SELECT id, ticket_number, client_name, total, subtotal, descuento, itbis, status, ncf, tipo_ncf, items_detail, metodo_pago, visited_at, salon_id
+        SELECT id, ticket_number, client_name, total, subtotal, descuento, itbis, status, ncf, ncf_type, items_detail, metodo_pago, visited_at, salon_id
         FROM visits
         WHERE tenant_id = ?
           AND visited_at >= ? AND visited_at <= ?
