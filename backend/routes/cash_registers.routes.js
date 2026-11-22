@@ -278,13 +278,19 @@ function createCashRegistersRouter(pool) {
   // Financial Idempotency Guard (open, close, cash movements)
   router.use(createIdempotencyMiddleware());
 
+  const ALLOWED_MANUAL_MOVEMENT_TYPES = new Set([
+    'ingreso', 'in', 'entrada', 'entrada_adicional',
+    'salida', 'gasto', 'retiro', 'sangria', 'prestamo', 'devolucion', 'refund'
+  ]);
+
   const resolveBranchIdForTenant = async (tenantId, requestedSalonId) => {
     if (requestedSalonId && String(requestedSalonId).length > 10 && requestedSalonId !== 'all') {
       const [bRows] = await pool.query('SELECT id FROM branches WHERE id::text = ? AND tenant_id = ? LIMIT 1', [String(requestedSalonId), tenantId]);
-      if (bRows.length > 0) return bRows[0].id;
+      if (bRows.length > 0) return { ok: true, branchId: bRows[0].id };
+      return { ok: false, branchId: null };
     }
     const [bRows] = await pool.query('SELECT id FROM branches WHERE tenant_id = ? ORDER BY is_main DESC, created_at ASC LIMIT 1', [tenantId]);
-    return bRows[0]?.id || null;
+    return { ok: true, branchId: bRows[0]?.id || null };
   };
 
   // 0. Listado de cajas con filtros (salon_id, status, start_date, end_date)
@@ -478,39 +484,73 @@ function createCashRegistersRouter(pool) {
       // Operador extraído estrictamente de req.auth para prevenir suplantación de identidad (REM-P1-08)
       const effectiveOpenedBy = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.opened_by || 'Recepción';
 
-      // Verificar si ya hay una caja abierta en esta empresa y sucursal
-      let checkQuery = "SELECT id FROM cash_registers WHERE tenant_id = ? AND status = 'Abierta'";
-      const checkParams = [tenantId];
-      if (salon_id && String(salon_id).length > 10) {
-        checkQuery += " AND (branch_id::text = ? OR salon_id::text = ?)";
-        checkParams.push(String(salon_id), String(salon_id));
-      } else {
-        checkQuery += " AND (salon_id::text = ? OR salon_id IS NULL)";
-        checkParams.push(String(salon_id || 1));
-      }
-      checkQuery += " LIMIT 1";
-
-      const [existing] = await pool.query(checkQuery, checkParams);
-      if (existing.length > 0) {
+      const branchResolution = await resolveBranchIdForTenant(tenantId, salon_id);
+      if (!branchResolution.ok) {
         return res.status(400).json({
-          error: 'Ya existe una caja abierta para esta sucursal. Ciérrala antes de abrir una nueva.',
-          code: 'REGISTER_ALREADY_OPEN',
-          register_id: existing[0].id
+          error: 'La sucursal especificada no pertenece a esta empresa.',
+          code: 'INVALID_BRANCH'
         });
       }
-
-      const branchId = await resolveBranchIdForTenant(tenantId, salon_id);
+      const branchId = branchResolution.branchId;
       const numericSalonId = (salon_id && !isNaN(Number(salon_id))) ? Number(salon_id) : 1;
       const openingBalanceCents = Math.round(openingBalance * 100);
 
-      const [result] = await pool.query(
-        `INSERT INTO cash_registers (tenant_id, branch_id, salon_id, monto_inicial, opening_balance_cents, opened_by_name, observaciones, status, opened_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'Abierta', NOW())
-         RETURNING id`,
-        [tenantId, branchId, numericSalonId, openingBalance, openingBalanceCents, effectiveOpenedBy, notes]
-      );
+      // Operación atómica con advisory lock por empresa+sucursal para impedir doble apertura concurrente
+      const lockKey = `cash_open:${tenantId}:${branchId || numericSalonId}`;
+      const conn = typeof pool.getConnection === 'function' ? await pool.getConnection() : null;
+      let newId = null;
+      let alreadyOpenId = null;
+      try {
+        if (conn) {
+          await conn.beginTransaction();
+          await conn.query('SELECT pg_advisory_xact_lock(hashtext(?))', [lockKey]);
+          let checkQuery = "SELECT id FROM cash_registers WHERE tenant_id = ? AND status = 'Abierta'";
+          const checkParams = [tenantId];
+          if (branchId) {
+            checkQuery += ' AND (branch_id::text = ? OR salon_id::text = ?)';
+            checkParams.push(String(branchId), String(branchId));
+          } else {
+            checkQuery += ' AND (salon_id::text = ? OR salon_id IS NULL)';
+            checkParams.push(String(numericSalonId));
+          }
+          checkQuery += ' LIMIT 1';
+          const [existing] = await conn.query(checkQuery, checkParams);
+          if (existing.length > 0) {
+            alreadyOpenId = existing[0].id;
+            await conn.rollback();
+          } else {
+            const [result] = await conn.query(
+              `INSERT INTO cash_registers (tenant_id, branch_id, salon_id, monto_inicial, opening_balance_cents, opened_by_name, observaciones, status, opened_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'Abierta', NOW())
+               RETURNING id`,
+              [tenantId, branchId, numericSalonId, openingBalance, openingBalanceCents, effectiveOpenedBy, notes]
+            );
+            newId = result.insertId || result[0]?.id;
+            await conn.commit();
+          }
+        } else {
+          const [result] = await pool.query(
+            `INSERT INTO cash_registers (tenant_id, branch_id, salon_id, monto_inicial, opening_balance_cents, opened_by_name, observaciones, status, opened_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'Abierta', NOW())
+             RETURNING id`,
+            [tenantId, branchId, numericSalonId, openingBalance, openingBalanceCents, effectiveOpenedBy, notes]
+          );
+          newId = result.insertId || result[0]?.id;
+        }
+      } catch (txErr) {
+        if (conn) await conn.rollback().catch(() => {});
+        throw txErr;
+      } finally {
+        if (conn) conn.release();
+      }
 
-      const newId = result.insertId || result[0]?.id;
+      if (alreadyOpenId) {
+        return res.status(400).json({
+          error: 'Ya existe una caja abierta para esta sucursal. Ciérrala antes de abrir una nueva.',
+          code: 'REGISTER_ALREADY_OPEN',
+          register_id: alreadyOpenId
+        });
+      }
       const [created] = await pool.query('SELECT * FROM cash_registers WHERE id = ? AND tenant_id = ?', [newId, tenantId]);
       const createdReg = created[0] || {
         id: newId,
@@ -687,7 +727,7 @@ function createCashRegistersRouter(pool) {
         }
       }
 
-      await pool.query(
+      const [updateRows] = await pool.query(
         `UPDATE cash_registers SET
            monto_final = ?,
            closing_balance_cents = ?,
@@ -705,7 +745,8 @@ function createCashRegistersRouter(pool) {
            observaciones = COALESCE(?, observaciones),
            status = 'Cerrada',
            closed_at = NOW()
-         WHERE id = ? AND tenant_id = ?`,
+         WHERE id = ? AND tenant_id = ? AND LOWER(COALESCE(status, '')) != 'cerrada'
+         RETURNING id`,
         [
           actualClosing,
           actualClosingCents,
@@ -725,6 +766,14 @@ function createCashRegistersRouter(pool) {
           tenantId
         ]
       );
+
+      if (!updateRows || updateRows.length === 0) {
+        return res.status(409).json({
+          error: 'Esta caja ya se encuentra cerrada.',
+          code: 'ALREADY_CLOSED',
+          id: register.id,
+        });
+      }
 
       const emailResult = await sendCashRegisterCloseEmail(pool, {
         tenantId,
@@ -892,17 +941,41 @@ function createCashRegistersRouter(pool) {
       }
       const { type = 'Salida', amount, concept, reason, payment_method = 'Efectivo' } = req.body;
 
-      const [regCheck] = await pool.query('SELECT id FROM cash_registers WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
+      const normalizedType = String(type || '').trim().toLowerCase();
+      if (!ALLOWED_MANUAL_MOVEMENT_TYPES.has(normalizedType)) {
+        return res.status(400).json({
+          error: `Tipo de movimiento inválido ('${type}').`,
+          code: 'INVALID_MOVEMENT_TYPE'
+        });
+      }
+
+      const [regCheck] = await pool.query(
+        'SELECT id, status, branch_id, salon_id FROM cash_registers WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [id, tenantId]
+      );
       if (regCheck.length === 0) {
         return res.status(404).json({ error: 'Caja no encontrada en esta empresa.' });
       }
-
-      const numAmount = Number(amount);
-      if (!numAmount || numAmount <= 0) {
-        return res.status(400).json({ error: 'El monto debe ser mayor a 0.' });
+      const reg = regCheck[0];
+      if (!isBranchAuthorized(req, reg.branch_id ?? reg.salon_id)) {
+        return res.status(403).json({
+          error: 'No tienes autorización para registrar movimientos en esta sucursal.',
+          code: 'BRANCH_ACCESS_DENIED'
+        });
+      }
+      if (String(reg.status || '').toLowerCase() === 'cerrada') {
+        return res.status(409).json({
+          error: 'No se pueden registrar movimientos en una caja cerrada.',
+          code: 'REGISTER_CLOSED'
+        });
       }
 
-      const finalConcept = concept || reason || 'Movimiento de caja';
+      const numAmount = Number(amount);
+      if (!Number.isFinite(numAmount) || numAmount <= 0) {
+        return res.status(400).json({ error: 'El monto debe ser un número válido mayor a 0.', code: 'INVALID_MOVEMENT_AMOUNT' });
+      }
+
+      const finalConcept = String(concept || reason || 'Movimiento de caja').trim() || 'Movimiento de caja';
       const amountCents = Math.round(numAmount * 100);
       const operatorId = req.auth?.id ? String(req.auth.id) : null;
       const operatorName = req.auth?.name || req.auth?.email || 'Recepción';
@@ -911,7 +984,7 @@ function createCashRegistersRouter(pool) {
         `INSERT INTO cash_register_movements (tenant_id, cash_register_id, type, payment_method, amount, amount_cents, concept, user_id, user_name, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
          RETURNING id`,
-        [tenantId, id, type, payment_method, numAmount, amountCents, finalConcept, operatorId, operatorName]
+        [tenantId, id, String(type).trim(), payment_method, numAmount, amountCents, finalConcept, operatorId, operatorName]
       );
 
       res.json({
@@ -924,17 +997,36 @@ function createCashRegistersRouter(pool) {
     }
   });
 
-  // 7. Historial de cajas cerradas/abiertas del tenant autenticado
+  // 7. Historial de cajas cerradas/abiertas del tenant autenticado (con scope de sucursal)
   router.get('/history', async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { salon_id } = req.query;
+      const scope = getBranchScope(req);
       let query = 'SELECT * FROM cash_registers WHERE tenant_id = ?';
       const params = [tenantId];
-      if (salon_id && salon_id !== 'all') {
+
+      if (!scope.allBranches) {
+        if (salon_id && salon_id !== 'all') {
+          if (!isBranchAuthorized(req, salon_id)) {
+            return res.status(403).json({
+              error: 'No tienes acceso autorizado a la sucursal solicitada.',
+              code: 'BRANCH_ACCESS_DENIED'
+            });
+          }
+          query += ' AND (salon_id::text = ? OR branch_id::text = ?)';
+          params.push(String(salon_id), String(salon_id));
+        } else {
+          if (scope.branchIds.length === 0) return res.json([]);
+          const placeholders = scope.branchIds.map(() => '?').join(', ');
+          query += ` AND (branch_id::text IN (${placeholders}) OR salon_id::text IN (${placeholders}))`;
+          params.push(...scope.branchIds, ...scope.branchIds);
+        }
+      } else if (salon_id && salon_id !== 'all') {
         query += ' AND (salon_id::text = ? OR branch_id::text = ?)';
         params.push(String(salon_id), String(salon_id));
       }
+
       query += ' ORDER BY opened_at DESC LIMIT 100';
       const [rows] = await pool.query(query, params);
       res.json(rows);
