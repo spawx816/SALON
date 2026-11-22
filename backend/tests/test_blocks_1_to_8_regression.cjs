@@ -577,10 +577,10 @@ async function runTests() {
       [tenantId]
     );
     await pool.query(
-      `INSERT INTO tenant_feature_overrides (tenant_id, feature_key, is_enabled, reason, acquired_blocks, acquired_branch_capacity, enabled_branch_ids)
-       VALUES (?, 'memberships', TRUE, 'Fixture B8: 1 bloque adquirido', 1, 3, ?::jsonb)
-       ON CONFLICT (tenant_id, feature_key) DO UPDATE SET is_enabled = TRUE, reason = EXCLUDED.reason, acquired_blocks = 1, acquired_branch_capacity = 3, enabled_branch_ids = EXCLUDED.enabled_branch_ids`,
-      [tenantId, JSON.stringify([branch1Id])]
+      `INSERT INTO tenant_feature_overrides (tenant_id, feature_key, is_enabled, reason, actor_id, acquired_blocks, acquired_branch_capacity, enabled_branch_ids)
+       VALUES (?, 'memberships', TRUE, 'Fixture B8: 1 bloque adquirido', ?, 1, 3, ?::jsonb)
+       ON CONFLICT (tenant_id, feature_key) DO UPDATE SET is_enabled = TRUE, reason = EXCLUDED.reason, actor_id = EXCLUDED.actor_id, acquired_blocks = 1, acquired_branch_capacity = 3, enabled_branch_ids = EXCLUDED.enabled_branch_ids`,
+      [tenantId, ownerId, JSON.stringify([branch1Id])]
     );
 
     // Cotizar asignación de 3 sucursales dentro del bloque ya adquirido (sin cobro adicional)
