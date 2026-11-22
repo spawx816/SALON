@@ -6,6 +6,8 @@ const { requirePermission } = require('../middleware/rbac.middleware');
  */
 function createDgii606Router(pool) {
   const router = express.Router();
+  const isPositiveIntId = (v) => /^\d+$/.test(String(v || '').trim()) && Number(v) > 0;
+  const isNonNegFinite = (v) => Number.isFinite(Number(v)) && Number(v) >= 0;
 
   // 1. GET /api/dgii/report-606 - List 606 purchases for the authenticated tenant
   router.get('/', requirePermission('accounting.view'), async (req, res) => {
@@ -147,6 +149,14 @@ function createDgii606Router(pool) {
       if (!rnc_cedula || !ncf) {
         return res.status(400).json({ error: 'RNC/Cédula y NCF son obligatorios para el reporte 606.' });
       }
+      if (
+        !isNonNegFinite(monto_servicios) ||
+        !isNonNegFinite(monto_bienes) ||
+        !isNonNegFinite(total_facturado) ||
+        !isNonNegFinite(itbis_facturado)
+      ) {
+        return res.status(400).json({ error: 'Los montos del reporte 606 deben ser valores numéricos mayores o iguales a 0.' });
+      }
 
       const rawFecha = fecha_factura || fecha_comprobante;
       const cleanFechaFact = rawFecha ? String(rawFecha).split('T')[0] : new Date().toISOString().split('T')[0];
@@ -199,6 +209,13 @@ function createDgii606Router(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!isPositiveIntId(id)) {
+        return res.status(404).json({ error: 'Registro 606 no encontrado en esta empresa.' });
+      }
+      const [existing] = await pool.query('SELECT id FROM dgii_606_purchases WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
+      if (!existing || existing.length === 0) {
+        return res.status(404).json({ error: 'Registro 606 no encontrado en esta empresa.' });
+      }
       const {
         rnc_cedula,
         proveedor,
@@ -215,6 +232,15 @@ function createDgii606Router(pool) {
         notas,
         notes
       } = req.body;
+
+      if (
+        (monto_servicios !== undefined && !isNonNegFinite(monto_servicios)) ||
+        (monto_bienes !== undefined && !isNonNegFinite(monto_bienes)) ||
+        (total_facturado !== undefined && !isNonNegFinite(total_facturado)) ||
+        (itbis_facturado !== undefined && !isNonNegFinite(itbis_facturado))
+      ) {
+        return res.status(400).json({ error: 'Los montos del reporte 606 deben ser mayores o iguales a 0.' });
+      }
 
       const resolvedProveedor = proveedor || razon_social || null;
       const resolvedFecha = fecha_factura || fecha_comprobante || null;
@@ -263,6 +289,13 @@ function createDgii606Router(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!isPositiveIntId(id)) {
+        return res.status(404).json({ error: 'Registro 606 no encontrado en esta empresa.' });
+      }
+      const [existing] = await pool.query('SELECT id FROM dgii_606_purchases WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
+      if (!existing || existing.length === 0) {
+        return res.status(404).json({ error: 'Registro 606 no encontrado en esta empresa.' });
+      }
       await pool.query('DELETE FROM dgii_606_purchases WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       res.json({ success: true });
     } catch (err) {

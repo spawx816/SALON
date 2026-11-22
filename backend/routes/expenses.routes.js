@@ -482,14 +482,20 @@ function createExpensesRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const reason = String(req.body?.reason || req.body?.void_reason || 'Anulado por usuario autorizado').trim();
-      const [result] = await pool.query(
+      const [existing] = await pool.query(
+        'SELECT id, status FROM expenses WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+        [String(req.params.id), tenantId]
+      );
+      if (!existing || existing.length === 0) {
+        return res.status(404).json({ error: 'Egreso no encontrado' });
+      }
+      if (String(existing[0].status || '').toLowerCase() === 'anulado') {
+        return res.status(409).json({ error: 'Este egreso ya se encuentra anulado.', code: 'ALREADY_VOIDED' });
+      }
+      await pool.query(
         "UPDATE expenses SET status = 'Anulado', void_reason = ? WHERE id::text = ? AND tenant_id = ?",
         [reason, String(req.params.id), tenantId]
       );
-      const affected = result.affectedRows ?? result.rowCount ?? 0;
-      if (affected === 0) {
-        return res.status(404).json({ error: 'Egreso no encontrado' });
-      }
       res.json({ success: true, voided: true, status: 'Anulado', void_reason: reason });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -501,6 +507,17 @@ function createExpensesRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      const [existing] = await pool.query(
+        'SELECT id, status FROM expenses WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+        [String(id), tenantId]
+      );
+      if (!existing || existing.length === 0) {
+        return res.status(404).json({ error: 'Egreso no encontrado en esta empresa.' });
+      }
+      if (String(existing[0].status || '').toLowerCase() === 'anulado') {
+        return res.status(409).json({ error: 'No se puede modificar un egreso anulado.', code: 'EXPENSE_VOIDED' });
+      }
+
       const {
         concept,
         concept_name,
@@ -527,6 +544,16 @@ function createExpensesRouter(pool) {
         is_loan,
         status
       } = req.body || {};
+
+      if (status !== undefined && String(status).trim().toLowerCase() === 'anulado') {
+        return res.status(400).json({
+          error: 'Para anular un egreso utiliza el endpoint oficial de anulación.',
+          code: 'USE_VOID_ENDPOINT'
+        });
+      }
+      if (amount !== undefined && (!Number.isFinite(Number(amount)) || Number(amount) <= 0)) {
+        return res.status(400).json({ error: 'El monto del gasto debe ser un número válido mayor a 0.' });
+      }
       const rawDate = payment_date || date;
       const cleanDate = rawDate ? String(rawDate).split('T')[0] : null;
       const finalConcept = concept_name || concept || null;
@@ -602,6 +629,10 @@ function createExpensesRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      const [existing] = await pool.query('SELECT id FROM expenses WHERE id::text = ? AND tenant_id = ? LIMIT 1', [String(id), tenantId]);
+      if (!existing || existing.length === 0) {
+        return res.status(404).json({ error: 'Egreso no encontrado en esta empresa.' });
+      }
       await pool.query('DELETE FROM expenses WHERE id::text = ? AND tenant_id = ?', [String(id), tenantId]);
       res.json({ success: true });
     } catch (err) {
