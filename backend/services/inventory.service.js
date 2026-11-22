@@ -77,11 +77,11 @@ class InventoryService {
   }
 
   // === EXISTENCIAS ===
-  async getStock(tenantId, productId, locationId = null) {
+  async getStock(tenantId, productId, locationId = null, salonId = null) {
     if (!tenantId || !productId) throw new Error('tenant_id y productId son requeridos');
     let locId = locationId;
     if (!locId) {
-      const defLoc = await this.getDefaultLocation(tenantId);
+      const defLoc = await this.getDefaultLocation(tenantId, salonId);
       locId = defLoc.id;
     }
     return this.repo.getStock(tenantId, productId, locId);
@@ -103,7 +103,7 @@ class InventoryService {
   }
 
   // === ENTRADA INICIAL DE MERCANCÍA ===
-  async receiveInitialStock(tenantId, { productId, locationId = null, quantity, unitCost = 0, userId = null, userName = null, reason = 'Entrada inicial de inventario' }) {
+  async receiveInitialStock(tenantId, { productId, locationId = null, salonId = null, quantity, unitCost = 0, userId = null, userName = null, reason = 'Entrada inicial de inventario' }) {
     if (!tenantId || !productId) throw new Error('Parámetros requeridos faltantes');
     const qty = Number(quantity);
     if (qty <= 0) throw new Error('La cantidad inicial debe ser mayor a cero');
@@ -122,7 +122,7 @@ class InventoryService {
 
     let locId = locationId;
     if (!locId) {
-      const defLoc = await this.getDefaultLocation(tenantId);
+      const defLoc = await this.getDefaultLocation(tenantId, salonId);
       locId = defLoc.id;
     }
 
@@ -159,7 +159,7 @@ class InventoryService {
   }
 
   // === DESCUENTO AUTOMÁTICO POR VENTA (POS CHECKOUT) ===
-  async recordSaleDeduction(tenantId, { productId, locationId = null, quantity, visitId, lineId = null, userId = null, userName = null, txConn = null }) {
+  async recordSaleDeduction(tenantId, { productId, locationId = null, salonId = null, quantity, visitId, lineId = null, userId = null, userName = null, txConn = null }) {
     if (!tenantId || !productId) throw new Error('Parámetros requeridos faltantes');
     const qty = Number(quantity);
     if (qty <= 0) return { skipped: true, reason: 'Cantidad cero o negativa' };
@@ -186,7 +186,7 @@ class InventoryService {
 
     let locId = locationId;
     if (!locId) {
-      const defLoc = await this.getDefaultLocation(tenantId);
+      const defLoc = await this.getDefaultLocation(tenantId, salonId);
       locId = defLoc.id;
     }
 
@@ -208,7 +208,7 @@ class InventoryService {
   }
 
   // === REVERSIÓN POR ANULACIÓN DE VENTA (POS VOID) ===
-  async recordSaleVoid(tenantId, { productId, locationId = null, quantity, visitId, lineId = null, userId = null, userName = null, reason = 'Anulación de venta POS' }) {
+  async recordSaleVoid(tenantId, { productId, locationId = null, salonId = null, quantity, visitId, lineId = null, userId = null, userName = null, reason = 'Anulación de venta POS' }) {
     if (!tenantId || !productId) throw new Error('Parámetros requeridos faltantes');
     const qty = Number(quantity);
     if (qty <= 0) return { skipped: true };
@@ -220,7 +220,7 @@ class InventoryService {
 
     let locId = locationId;
     if (!locId) {
-      const defLoc = await this.getDefaultLocation(tenantId);
+      const defLoc = await this.getDefaultLocation(tenantId, salonId);
       locId = defLoc.id;
     }
 
@@ -240,7 +240,7 @@ class InventoryService {
   }
 
   // === AJUSTES DE STOCK (IN/OUT) CON AUTORIZACIÓN ===
-  async makeAdjustment(tenantId, { productId, locationId = null, quantity, adjustmentType, reason, userId = null, userName = null, userRole = null, hasInventoryManagePermission = false }) {
+  async makeAdjustment(tenantId, { productId, locationId = null, salonId = null, quantity, adjustmentType, reason, userId = null, userName = null, userRole = null, hasInventoryManagePermission = false }) {
     if (!tenantId || !productId || !adjustmentType) {
       throw new Error('Parámetros de ajuste incompletos');
     }
@@ -271,7 +271,7 @@ class InventoryService {
 
     let locId = locationId;
     if (!locId) {
-      const defLoc = await this.getDefaultLocation(tenantId);
+      const defLoc = await this.getDefaultLocation(tenantId, salonId);
       locId = defLoc.id;
     }
 

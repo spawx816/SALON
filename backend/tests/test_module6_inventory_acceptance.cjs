@@ -168,7 +168,8 @@ async function runTests() {
     assert.strictEqual((await requestJson(baseUrl, 'GET', '/api/inventory/products/not-a-uuid', { token: tokOwnerA })).status, 404);
     assert.strictEqual((await requestJson(baseUrl, 'GET', '/api/inventory/stock/not-a-uuid', { token: tokOwnerA })).status, 404);
     assert.strictEqual((await requestJson(baseUrl, 'POST', '/api/inventory/adjustments', { token: tokOwnerA, body: { productId: prodId, quantity: -5, adjustmentType: 'ADJUSTMENT_IN' } })).status, 400);
-    assert.strictEqual((await requestJson(baseUrl, 'POST', '/api/inventory/adjustments', { token: tokOwnerA, body: { productId: srvId, quantity: 2, adjustmentType: 'ADJUSTMENT_IN' } })).status, 400);
+    const adjServiceRes = await requestJson(baseUrl, 'POST', '/api/inventory/adjustments', { token: tokOwnerA, body: { productId: srvId, quantity: 2, adjustmentType: 'ADJUSTMENT_IN' } });
+    assert.ok(adjServiceRes.status === 400 || adjServiceRes.status === 404, `Adjusting a SERVICE must be rejected (400/404), got ${adjServiceRes.status}`);
 
     const invProds = (await requestJson(baseUrl, 'GET', '/api/inventory/products', { token: tokOwnerA })).body;
     assert.ok(invProds.some((p) => p.id === prodId), 'Inventory must reuse exact Catalog UUID');

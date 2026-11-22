@@ -103,7 +103,12 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
       if (!UUID_RE.test(String(req.params.productId || ''))) {
         return res.status(404).json({ error: 'Producto no encontrado.', code: 'NOT_FOUND' });
       }
-      const stock = await inventoryService.getStock(tenantId, req.params.productId, req.query.locationId);
+      const stock = await inventoryService.getStock(
+        tenantId,
+        req.params.productId,
+        req.query.locationId || null,
+        req.query.salonId || req.query.branchId || req.auth?.branchId || null
+      );
       res.json(stock);
     } catch (err) {
       res.status(500).json({ error: err.message, code: 'INVENTORY_ERROR' });
@@ -161,6 +166,7 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
       const result = await inventoryService.makeAdjustment(tenantId, {
         productId,
         locationId,
+        salonId: req.body.salonId || req.body.branchId || req.auth?.branchId || null,
         quantity: parsedQty,
         adjustmentType,
         reason,
