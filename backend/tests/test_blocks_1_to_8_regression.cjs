@@ -589,7 +589,10 @@ async function runTests() {
       body: { branchIds: [branch1Id, branch2Id, branch3Id] },
     });
     assert.strictEqual(q3.status, 200, `Quote 3 branches failed: ${q3.text}`);
-    assert.strictEqual(Number(q3.body.quote?.additionalBlocksRequired ?? q3.body.additionalBlocksRequired ?? 0), 0, '3 sucursales dentro de 1 bloque adquirido no requieren bloque adicional');
+    const q3Obj = q3.body.quote || q3.body;
+    assert.strictEqual(Number(q3Obj.additionalBlocksToBuy), 0, '3 sucursales dentro de 1 bloque adquirido no requieren bloque adicional');
+    assert.strictEqual(Boolean(q3Obj.withinAcquiredCapacity), true, '3 sucursales deben estar dentro de la capacidad adquirida');
+    assert.strictEqual(Boolean(q3Obj.requiresPayment), false, '3 sucursales dentro del bloque adquirido no deben requerir pago');
 
     // Cotizar 4 sucursales (excede capacidad de 3 -> requiere 1 bloque adicional = 2 bloques totales)
     const q4 = await requestJson(baseUrl, 'POST', '/api/saas/billing/addons/memberships/quote', {
@@ -598,8 +601,10 @@ async function runTests() {
     });
     assert.strictEqual(q4.status, 200, `Quote 4 branches failed: ${q4.text}`);
     const q4Obj = q4.body.quote || q4.body;
-    assert.strictEqual(Number(q4Obj.blocksRequired ?? q4Obj.requiredBlocks ?? q4Obj.totalBlocks), 2, `4 sucursales deben requerir 2 bloques totales, recibido: ${JSON.stringify(q4Obj)}`);
-    assert.strictEqual(Number(q4Obj.additionalBlocksToPurchase ?? q4Obj.additionalBlocksRequired), 1, `4 sucursales sobre 1 bloque adquirido deben requerir 1 bloque adicional, recibido: ${JSON.stringify(q4Obj)}`);
+    assert.strictEqual(Number(q4Obj.requiredBlocks), 2, `4 sucursales deben requerir 2 bloques totales, recibido: ${JSON.stringify(q4Obj)}`);
+    assert.strictEqual(Number(q4Obj.additionalBlocksToBuy), 1, `4 sucursales sobre 1 bloque adquirido deben requerir 1 bloque adicional, recibido: ${JSON.stringify(q4Obj)}`);
+    assert.strictEqual(Boolean(q4Obj.requiresPayment), true, '4 sucursales sobre 1 bloque adquirido deben requerir pago');
+    assert.strictEqual(Number(q4Obj.newAddonMonthlyUsd), 198, '2 bloques deben cotizar US$198/mes');
     console.log('  ✅ [PASS] B8: Bloques 0/1/3/4/6/7 y capacidad adquirida vs asignada verificados.');
 
     console.log('\n========================================================================');
