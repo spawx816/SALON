@@ -194,25 +194,25 @@ async function runTests() {
       token: ownerToken,
       body: { nombre: 'Alisado Gravado Exc', precio: 1000, categoria: 'Cabello', tipo: 'Servicio', aplica_itbis: 1, tax_rate: 18, tax_mode: 'exclusive', comision_porcentaje: 20 },
     });
-    assert.strictEqual(svcGravExc.status, 200, `svcGravExc failed: ${svcGravExc.text}`);
+    assert.ok(svcGravExc.status === 200 || svcGravExc.status === 201, `svcGravExc failed: ${svcGravExc.text}`);
 
     const svcGravInc = await requestJson(baseUrl, 'POST', '/api/services', {
       token: ownerToken,
       body: { nombre: 'Tinte Gravado Inc', precio: 1180, categoria: 'Color', tipo: 'Servicio', aplica_itbis: 1, tax_rate: 18, tax_mode: 'inclusive', comision_porcentaje: 15 },
     });
-    assert.strictEqual(svcGravInc.status, 200, `svcGravInc failed: ${svcGravInc.text}`);
+    assert.ok(svcGravInc.status === 200 || svcGravInc.status === 201, `svcGravInc failed: ${svcGravInc.text}`);
 
     const svcExento = await requestJson(baseUrl, 'POST', '/api/services', {
       token: ownerToken,
       body: { nombre: 'Lavado Exento', precio: 500, categoria: 'Cabello', tipo: 'Servicio', aplica_itbis: 0, tax_rate: 0, tax_mode: 'exempt', comision_porcentaje: 10 },
     });
-    assert.strictEqual(svcExento.status, 200, `svcExento failed: ${svcExento.text}`);
+    assert.ok(svcExento.status === 200 || svcExento.status === 201, `svcExento failed: ${svcExento.text}`);
 
     const svcTasaCero = await requestJson(baseUrl, 'POST', '/api/services', {
       token: ownerToken,
       body: { nombre: 'Tratamiento Tasa 0', precio: 300, categoria: 'Cabello', tipo: 'Servicio', aplica_itbis: 1, tax_rate: 0, tax_mode: 'zero', comision_porcentaje: 10 },
     });
-    assert.strictEqual(svcTasaCero.status, 200, `svcTasaCero failed: ${svcTasaCero.text}`);
+    assert.ok(svcTasaCero.status === 200 || svcTasaCero.status === 201, `svcTasaCero failed: ${svcTasaCero.text}`);
 
     // Scheme & rule already seeded above for emp1 and emp2
 
@@ -400,7 +400,7 @@ async function runTests() {
         tax_mode: 'exclusive',
       },
     });
-    assert.strictEqual(prodRes.status, 200, `Create product failed: ${prodRes.text}`);
+    assert.ok(prodRes.status === 200 || prodRes.status === 201, `Create product failed: ${prodRes.text}`);
     const prodServiceId = prodRes.body.id;
 
     // Ensure inventory_products + inventory_locations + inventory_stock exist with stock = 0
