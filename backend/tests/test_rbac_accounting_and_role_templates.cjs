@@ -11,7 +11,7 @@ const crypto = require('crypto');
 const http = require('http');
 const bcrypt = require('bcryptjs');
 
-const { validateTestEnvironment, createIsolatedTestPool } = require('./helpers/test_runner_guard.cjs');
+const { validateTestEnvironment, createIsolatedTestPool } = require('../utils/test_env_guard.cjs');
 const { createApp } = require('../app');
 const { signAuthToken, issueSingleActiveUserSession } = require('../middleware/auth.middleware');
 const { migrateAll } = require('../migrations/migrate_all.cjs');
