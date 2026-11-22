@@ -530,7 +530,7 @@ function createDgiiRouter(pool) {
 
   // 4d. /api/dgii/it1* - Cálculo local de Declaración Jurada IT-1 (sin emisión ni transmisión electrónica a DGII)
   const getTenantIt1Store = async (tenantId) => {
-    const [tRows] = await pool.query('SELECT modules_config, name, rnc FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
+    const [tRows] = await pool.query('SELECT modules_config, business_name, rnc FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
     const tRow = tRows?.[0] || {};
     let cfg = {};
     try {
@@ -539,7 +539,7 @@ function createDgiiRouter(pool) {
       cfg = {};
     }
     return {
-      tenantName: tRow.name || 'Empresa',
+      tenantName: tRow.business_name || 'Empresa',
       tenantRnc: tRow.rnc || '',
       cfg,
       it1Settings: cfg.it1_settings || {},
