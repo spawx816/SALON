@@ -237,9 +237,13 @@ async function main() {
       path.resolve(__dirname, '..', '..', 'migrations', '20261115_create_saas_checkout_orders.sql'),
       'utf8'
     );
-    await pool.query(checkoutOrdersSql);
+    await pool.query(checkoutOrdersSql).catch((e) => {
+      if (e.code !== '42501') throw e;
+    });
     const termsMigration = require('../migrations/20261115_tenant_terms_and_welcome.cjs');
-    await termsMigration.up(pool);
+    await termsMigration.up(pool).catch((e) => {
+      if (e.code !== '42501') throw e;
+    });
 
     // Asegurar tasa FX vigente en salon_saas_test (59.50 DOP/USD)
     const [existingFx] = await pool.query('SELECT * FROM saas_fx_rates WHERE pair = ?', ['USD_DOP']);
@@ -361,7 +365,7 @@ async function main() {
     const TENANT_A = onbA.body.tenant_id;
     const ORDER_A = onbA.body.order;
     createdTenantIds.push(TENANT_A);
-    const cookieA = onbA.setCookies.map((c) => c.split(';')[0]).join('; ');
+    let cookieA = onbA.setCookies.map((c) => c.split(';')[0]).join('; ');
 
     // 2*99 + 1*30 + 1*99 = US$327 * 59.50 = RD$19,456.50 -> 1945650 minor DOP
     assert.strictEqual(ORDER_A.currency, 'DOP');
@@ -405,6 +409,9 @@ async function main() {
     assert.strictEqual(dupSamePass.body.reused, true);
     assert.strictEqual(dupSamePass.body.tenant_id, TENANT_A);
     assert.strictEqual(dupSamePass.body.order.id, ORDER_A.id);
+    if (dupSamePass.setCookies && dupSamePass.setCookies.length > 0) {
+      cookieA = dupSamePass.setCookies.map((c) => c.split(';')[0]).join('; ');
+    }
     console.log('  ✅ 2. Términos v2026.1 (SHA-256 + consentimiento separado), anti-tamper, SMTP fail-safe, cero datos ficticios y reintento idempotente PASS.');
 
     // =========================================================================

@@ -101,7 +101,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
     }
   });
 
-  // 1a. Cotización consolidada mensual en DOP (sucursales + usuarios extra + add-ons por sucursal + impuestos)
+  // 1a. Cotización consolidada mensual en DOP (sucursales + usuarios extra + add-ons por sucursal + impuestos) + Estado Real de Renovación
   router.get('/renewal/quote', async (req, res) => {
     try {
       const tenantId = req.tenantId;
@@ -113,6 +113,104 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
       }
       const renewalSvc = new ConsolidatedRenewalService({ pool, fxRateService, lifecycleService });
       const quote = await renewalSvc.calculateConsolidatedQuote({ tenantId });
+
+      const [subRows] = await pool.query(
+        'SELECT status, billing_cycle, periodicity_mode, billing_anchor_day, auto_renew, cancel_at_period_end, recurring_consent_at, recurring_consent_version, current_period_end FROM tenant_subscriptions WHERE tenant_id = ? LIMIT 1',
+        [tenantId]
+      ).catch(() => [[]]);
+      const subRow = subRows?.[0] || {};
+
+      const [termsRows] = await pool.query(
+        `SELECT id, terms_version, document_hash, accepted_at_utc, recurring_authorized, acceptance_mechanism
+         FROM tenant_terms_acceptances
+         WHERE tenant_id = ?
+         ORDER BY accepted_at_utc DESC, id DESC
+         LIMIT 1`,
+        [tenantId]
+      ).catch(() => [[]]);
+      const latestAcceptance = termsRows?.[0] || null;
+
+      const [pmRows] = await pool.query(
+        `SELECT id, brand, last4, exp_month, exp_year, token_reference, provider_customer_id, is_default
+         FROM saas_payment_methods
+         WHERE tenant_id = ?
+         ORDER BY is_default DESC, created_at DESC
+         LIMIT 1`,
+        [tenantId]
+      ).catch(() => [[]]);
+      const defaultPm = pmRows?.[0] || null;
+
+      const gateway = checkoutService?.getGatewayStatus
+        ? checkoutService.getGatewayStatus()
+        : (cardnetCheckoutProvider ? cardnetCheckoutProvider.getConfigurationStatus() : { configured: false });
+
+      const requiredTermsVersion = String(req.query.required_terms_version || process.env.SAAS_REQUIRED_TERMS_VERSION || 'v2026.1').trim();
+      const rawStatus = String(subRow.status || '').toLowerCase();
+      const isCancelled = ['cancelled', 'canceled'].includes(rawStatus) || Boolean(subRow.cancel_at_period_end);
+      const isAutoRenewDisabled = subRow.auto_renew === false;
+      const isRevokedInTerms = latestAcceptance && latestAcceptance.recurring_authorized === false && Boolean(subRow.recurring_consent_at);
+      const consentVersion = subRow.recurring_consent_version || (latestAcceptance?.recurring_authorized === true ? latestAcceptance.terms_version : null);
+      const consentAt = subRow.recurring_consent_at || (latestAcceptance?.recurring_authorized === true ? latestAcceptance.accepted_at_utc : null);
+
+      const customerAuthorized = Boolean(
+        !isCancelled &&
+        !isAutoRenewDisabled &&
+        !isRevokedInTerms &&
+        consentAt &&
+        consentVersion &&
+        (Boolean(subRow.recurring_consent_at) || latestAcceptance?.recurring_authorized === true)
+      );
+
+      const requiresConditionAcceptance = Boolean(
+        !isCancelled &&
+        customerAuthorized &&
+        consentVersion &&
+        consentVersion !== requiredTermsVersion
+      );
+
+      const hasEligiblePaymentMethod = Boolean(defaultPm && defaultPm.token_reference);
+      const workerEnabled = Boolean(renewalSvc.isWorkerEnabled());
+      const gatewayConfigured = Boolean(gateway?.configured);
+      const serviceAvailable = Boolean(workerEnabled && gatewayConfigured);
+
+      let effectiveStatus = 'active';
+      if (isCancelled) {
+        effectiveStatus = 'cancelled';
+      } else if (!customerAuthorized) {
+        effectiveStatus = 'missing_consent';
+      } else if (requiresConditionAcceptance) {
+        effectiveStatus = 'condition_change_pending';
+      } else if (!hasEligiblePaymentMethod) {
+        effectiveStatus = 'missing_payment_method';
+      } else if (!serviceAvailable) {
+        effectiveStatus = 'authorized_service_inactive';
+      }
+
+      const renewalState = {
+        effectiveStatus,
+        isCancelled,
+        customerAuthorized,
+        consentVersion: consentVersion || null,
+        consentAt: consentAt || null,
+        requiredTermsVersion,
+        requiresConditionAcceptance,
+        hasEligiblePaymentMethod,
+        paymentMethod: defaultPm
+          ? {
+              id: defaultPm.id,
+              brand: defaultPm.brand,
+              last4: defaultPm.last4,
+              expMonth: defaultPm.exp_month,
+              expYear: defaultPm.exp_year,
+            }
+          : null,
+        workerEnabled,
+        gatewayConfigured,
+        serviceAvailable,
+        periodicityMode: subRow.periodicity_mode || quote.periodicityMode || 'fixed_30_days',
+        billingCycle: subRow.billing_cycle || 'monthly',
+      };
+
       res.json({
         success: true,
         quote: {
@@ -122,14 +220,15 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
             amount_minor: String(it.amount_minor),
           })),
         },
-        workerEnabled: renewalSvc.isWorkerEnabled(),
+        workerEnabled,
+        renewalState,
       });
     } catch (err) {
       res.status(err.statusCode || 500).json({ error: err.message, code: err.code || 'QUOTE_FAILED' });
     }
   });
 
-  // 1ab. Autorización separada para renovación automática mensual en DOP
+  // 1ab. Autorización separada para renovación automática mensual en DOP (acción única contextual o actualización de condiciones)
   router.post('/renewal/authorize', async (req, res) => {
     try {
       const tenantId = req.tenantId;
@@ -138,19 +237,16 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
         return res.status(403).json({ error: 'Contexto de empresa y usuario requerido', code: 'UNAUTHORIZED' });
       }
       const { authorize_recurring, consent_version, accept_calendar_migration } = req.body || {};
-      if (!authorize_recurring) {
+      if (authorize_recurring !== true) {
         return res.status(400).json({ error: 'Debes autorizar expresamente los cargos recurrentes automáticos.', code: 'RECURRING_CONSENT_REQUIRED' });
       }
 
       const [pmRows] = await pool.query(
-        'SELECT id, brand, last4 FROM saas_payment_methods WHERE tenant_id = ? ORDER BY is_default DESC, created_at DESC LIMIT 1',
+        'SELECT id, brand, last4, token_reference FROM saas_payment_methods WHERE tenant_id = ? ORDER BY is_default DESC, created_at DESC LIMIT 1',
         [tenantId]
-      );
-      if (!pmRows?.[0]) {
-        return res.status(400).json({ error: 'Debes registrar primero una tarjeta válida en CardNet antes de activar la renovación automática.', code: 'PAYMENT_METHOD_REQUIRED' });
-      }
+      ).catch(() => [[]]);
 
-      const version = String(consent_version || 'v2026.1').trim();
+      const version = String(consent_version || process.env.SAAS_REQUIRED_TERMS_VERSION || 'v2026.1').trim();
       await termsService.recordAcceptance({
         tenantId,
         userId,
@@ -161,7 +257,8 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
         userAgent: req.headers['user-agent'],
       });
 
-      const migrateCalendar = Boolean(accept_calendar_migration);
+      // NUNCA migrar ciclos de 30 días a mes calendario sin aceptación explícita (accept_calendar_migration === true)
+      const migrateCalendar = accept_calendar_migration === true;
       await pool.query(
         `UPDATE tenant_subscriptions
          SET auto_renew = TRUE,
@@ -179,7 +276,11 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
         success: true,
         recurringAuthorized: true,
         consentVersion: version,
-        paymentMethod: pmRows[0],
+        migratedToCalendarMonth: migrateCalendar,
+        hasEligiblePaymentMethod: Boolean(pmRows?.[0]?.token_reference),
+        paymentMethod: pmRows?.[0]
+          ? { id: pmRows[0].id, brand: pmRows[0].brand, last4: pmRows[0].last4 }
+          : null,
       });
     } catch (err) {
       res.status(err.statusCode || 500).json({ error: err.message, code: err.code || 'AUTHORIZE_FAILED' });
@@ -459,9 +560,11 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
         total_minor: serialized.total_minor,
         amount_paid_minor: serialized.amount_paid_minor,
         total_formatted: fmtMinor(serialized.total_minor, serialized.currency || 'DOP'),
-        usd_original_minor: fx?.usd?.total_minor || null,
-        usd_original_formatted: fx?.usd?.total_minor ? fmtMinor(fx.usd.total_minor, 'USD') : null,
-        fx_rate_formatted: fx?.rate_formatted || (fx?.rate ? Number(fx.rate).toFixed(4) : null),
+        usd_original_minor: fx?.usd?.total_minor || serialized.subtotal_usd_minor || null,
+        usd_original_formatted: (fx?.usd?.total_minor || serialized.subtotal_usd_minor)
+          ? fmtMinor(fx?.usd?.total_minor || serialized.subtotal_usd_minor, 'USD')
+          : null,
+        fx_rate_formatted: fx?.rate_formatted || fx?.rateFormatted || (fx?.rate ? Number(fx.rate).toFixed(4) : null),
         authorization_code: serialized.cardnet_authorization_code || serialized.payment_reference || null,
         masked_card: serialized.masked_card || null,
         period_start: serialized.period_start || null,

@@ -363,6 +363,13 @@ async function migrateAll(options = {}) {
       async getConnection() {
         const c = await targetPool.getConnection();
         await c.query(`SET search_path TO "${schema}";`);
+        const origRelease = c.release.bind(c);
+        c.release = async (...args) => {
+          try {
+            await c.query('SET search_path TO public;');
+          } catch (_) {}
+          return origRelease(...args);
+        };
         return c;
       },
       async query(sql, params) {
@@ -468,6 +475,9 @@ async function migrateAll(options = {}) {
     console.error('\n❌ [FATAL MIGRATION RUNNER ERROR]: Fallo durante la ejecución de migraciones:', err.message);
     throw err;
   } finally {
+    try {
+      await conn.query('SET search_path TO public;');
+    } catch (_) {}
     conn.release();
   }
 }

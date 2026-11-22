@@ -568,22 +568,26 @@ export const BIChart = ({
     );
   }
 
-  // 2. Sales Evolution Chart (Exact match for Mockup 1)
+  // 2. Sales Evolution Chart (Exact match for Mockup 1 - Cero datos ficticios cuando data está vacío)
   if (chartConfig.type === 'sales_evolution') {
-    const rawData = data && data.length > 0 ? data : [
-      { date: '1 oct', label: '1 oct', total: 25000 },
-      { date: '2 oct', label: '2 oct', total: 34000 },
-      { date: '3 oct', label: '3 oct', total: 41000 },
-      { date: '4 oct', label: '4 oct', total: 38000 },
-      { date: '5 oct', label: '5 oct', total: 48000 },
-      { date: '6 oct', label: '6 oct', total: 47000 },
-      { date: '7 oct', label: '7 oct', total: 54000 },
-      { date: '8 oct', label: '8 oct', total: 63000 },
-      { date: '9 oct', label: '9 oct', total: 58000 },
-      { date: '10 oct', label: '10 oct', total: 46000 },
-      { date: '11 oct', label: '11 oct', total: 51000 },
-      { date: '12 oct', label: '12 oct', total: 60000 }
-    ];
+    const rawData = Array.isArray(data) ? data : [];
+    if (rawData.length === 0) {
+      return (
+        <div style={{
+          background: '#ffffff',
+          borderRadius: '1rem',
+          padding: '1.5rem',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          marginBottom: '1.5rem',
+          textAlign: 'center',
+          color: '#64748b',
+          fontSize: '0.88rem'
+        }}>
+          No hay ventas facturadas en el período seleccionado.
+        </div>
+      );
+    }
 
     const maxVal = Math.max(...rawData.map(d => Number(d.total || 0)), 10000);
     const yTicks = [
@@ -803,14 +807,26 @@ export const BIChart = ({
     );
   }
 
-  // 3. Donut / Payment Methods Breakdown Chart
+  // 3. Donut / Payment Methods Breakdown Chart (Cero datos ficticios cuando data está vacío)
   if (chartConfig.type === 'donut') {
-    const rawData = data && data.length > 0 ? data : [
-      { label: 'Efectivo', count: 180, amount: 210000, percentage: 46.7, color: '#10b981' },
-      { label: 'Tarjeta de Crédito / Débito', count: 145, amount: 165000, percentage: 36.6, color: '#2563eb' },
-      { label: 'Transferencia Bancaria', count: 35, amount: 50000, percentage: 11.1, color: '#8b5cf6' },
-      { label: 'Otros / Beneficios', count: 15, amount: 25000, percentage: 5.6, color: '#f59e0b' }
-    ];
+    const rawData = Array.isArray(data) ? data : [];
+    if (rawData.length === 0) {
+      return (
+        <div style={{
+          background: '#ffffff',
+          borderRadius: '1rem',
+          padding: '1.5rem',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          marginBottom: '1.5rem',
+          textAlign: 'center',
+          color: '#64748b',
+          fontSize: '0.88rem'
+        }}>
+          No hay cobros registrados en el período seleccionado.
+        </div>
+      );
+    }
 
     return (
       <div style={{

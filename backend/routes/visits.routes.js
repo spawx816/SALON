@@ -44,7 +44,7 @@ function createVisitsRouter(pool, helpers = {}) {
           const nextNum = parseInt(upd[0].last_sequence, 10) || 1;
           return `${prefix}-${String(nextNum).padStart(5, '0')}`;
         }
-      } catch (_) {}
+      } catch (_) { }
       return `${prefix}-${Date.now().toString().slice(-5)}`;
     }
   };
@@ -782,13 +782,13 @@ function createVisitsRouter(pool, helpers = {}) {
         const sid = String(salon_id || '1');
         const [regRows] = sid.length > 10
           ? await pool.query(
-              "SELECT id FROM cash_registers WHERE tenant_id = ? AND status = 'Abierta' AND (branch_id::text = ? OR salon_id::text = ?) ORDER BY opened_at DESC LIMIT 1",
-              [tenantId, sid, sid]
-            )
+            "SELECT id FROM cash_registers WHERE tenant_id = ? AND status = 'Abierta' AND (branch_id::text = ? OR salon_id::text = ?) ORDER BY opened_at DESC LIMIT 1",
+            [tenantId, sid, sid]
+          )
           : await pool.query(
-              "SELECT id FROM cash_registers WHERE tenant_id = ? AND status = 'Abierta' AND (salon_id::text = ? OR salon_id IS NULL) ORDER BY opened_at DESC LIMIT 1",
-              [tenantId, sid]
-            );
+            "SELECT id FROM cash_registers WHERE tenant_id = ? AND status = 'Abierta' AND (salon_id::text = ? OR salon_id IS NULL) ORDER BY opened_at DESC LIMIT 1",
+            [tenantId, sid]
+          );
         if (regRows.length > 0) {
           activeRegisterId = regRows[0].id;
         } else if (process.env.NODE_ENV !== 'test' || req.body?.require_open_register !== false) {
@@ -900,7 +900,7 @@ function createVisitsRouter(pool, helpers = {}) {
               postCommitAlerts.push({ productId: line.productId, locationId: dedRes.location_id || resolvedLocationId });
             }
           } catch (invErr) {
-            if (txConn) { try { await txConn.query('ROLLBACK'); } catch (_) {} }
+            if (txConn) { try { await txConn.query('ROLLBACK'); } catch (_) { } }
             if (invErr.code === 'INSUFFICIENT_STOCK' || invErr.code === 'PRODUCT_ARCHIVED') {
               return res.status(400).json({
                 error: invErr.message,
@@ -930,7 +930,7 @@ function createVisitsRouter(pool, helpers = {}) {
       if (allowTestFaultInjection && req.headers['x-test-abort-connection-after-stock'] === 'true' && txConn) {
         // Simular caída abrupta sin COMMIT ni catch-void: liberar/destruir conexión directamente (PG hace ROLLBACK automático)
         if (typeof txConn.release === 'function') {
-          try { txConn.release(true); } catch (_) { try { txConn.release(); } catch (__) {} }
+          try { txConn.release(true); } catch (_) { try { txConn.release(); } catch (__) { } }
         }
         txConn = null;
         return res.status(503).json({ error: 'SIMULATED_PROCESS_CRASH_ABORT', code: 'SIMULATED_CRASH' });
@@ -1190,11 +1190,11 @@ function createVisitsRouter(pool, helpers = {}) {
       // Post-commit non-transactional side effects (alerts & survey email)
       if (inventoryService && postCommitAlerts.length > 0 && typeof inventoryService.evaluateLowStockAlert === 'function') {
         for (const a of postCommitAlerts) {
-          inventoryService.evaluateLowStockAlert(tenantId, a.productId, a.locationId).catch(() => {});
+          inventoryService.evaluateLowStockAlert(tenantId, a.productId, a.locationId).catch(() => { });
         }
       }
       if (targetClientId && typeof sendSurveyEmail === 'function') {
-        sendSurveyEmail(pool, targetClientId, client_name, null, tenantId).catch(() => {});
+        sendSurveyEmail(pool, targetClientId, client_name, null, tenantId).catch(() => { });
       }
 
       res.json({
@@ -1211,13 +1211,13 @@ function createVisitsRouter(pool, helpers = {}) {
       });
     } catch (err) {
       if (txConn) {
-        try { await txConn.query('ROLLBACK'); } catch (_) {}
+        try { await txConn.query('ROLLBACK'); } catch (_) { }
       }
       console.error('[CHECKOUT TICKET ERROR]:', err);
       res.status(500).json({ error: err.message });
     } finally {
       if (txConn) {
-        try { txConn.release(); } catch (_) {}
+        try { txConn.release(); } catch (_) { }
       }
     }
   });
@@ -1436,7 +1436,7 @@ function createVisitsRouter(pool, helpers = {}) {
            VALUES (?, ?, 'VOID', ?, ?, NOW())`,
           [tenantId, id, reason, effectiveVoidedBy]
         );
-      } catch (e) {}
+      } catch (e) { }
 
       // === REVERSIÓN DE INVENTARIO POR ANULACIÓN DE VENTA (PASO 11) ===
       if (inventoryService) {
@@ -1448,7 +1448,7 @@ function createVisitsRouter(pool, helpers = {}) {
             try {
               if (row.items_detail) rawItems = typeof row.items_detail === 'string' ? JSON.parse(row.items_detail) : row.items_detail;
               else if (row.servicios) rawItems = typeof row.servicios === 'string' ? JSON.parse(row.servicios) : row.servicios;
-            } catch (e) {}
+            } catch (e) { }
 
             if (Array.isArray(rawItems)) {
               let fallbackVoidLocId = null;
@@ -1537,7 +1537,7 @@ function createVisitsRouter(pool, helpers = {}) {
            VALUES (?, ?, 'REASSIGN_COMMISSION', ?, ?, NOW())`,
           [tenantId, id, reason, user_name]
         );
-      } catch (e) {}
+      } catch (e) { }
 
       res.json({ success: true, message: 'Comisionista actualizado correctamente' });
     } catch (err) {
@@ -1561,7 +1561,43 @@ function createVisitsRouter(pool, helpers = {}) {
     }
   });
 
-  // 12. DELETE /api/visits/:id & POST /api/visits/:id/delete - Delete pending ticket within the authenticated tenant
+  // 12. POST /api/visits/:id/cancel - Cancelar un ticket pendiente antes de facturar conservando trazabilidad (motivo, usuario, fecha)
+  router.post('/:id/cancel', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const { id } = req.params;
+      const { reason = 'Cancelado en recepción antes de facturar' } = req.body || {};
+      const actorName = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.cancelled_by || 'Recepción';
+
+      const [existing] = await pool.query(
+        'SELECT id, status, salon_id, ncf FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [id, tenantId]
+      );
+      if (!existing || existing.length === 0) {
+        return res.status(404).json({ error: 'Ticket no encontrado en esta empresa.', code: 'TICKET_NOT_FOUND' });
+      }
+      if (existing[0].salon_id && !isBranchAuthorized(req, existing[0].salon_id)) {
+        return res.status(403).json({ error: 'No tienes autorización para cancelar tickets en esta sucursal.', code: 'BRANCH_ACCESS_DENIED' });
+      }
+      const curStatus = String(existing[0].status || '').trim();
+      if (curStatus === 'Facturado') {
+        return res.status(409).json({
+          error: 'Este ticket ya fue facturado. Utiliza la opción de anulación de factura.',
+          code: 'ALREADY_INVOICED'
+        });
+      }
+
+      await pool.query(
+        "UPDATE visits SET status = 'Cancelado', void_reason = ?, voided_by = ?, voided_at = NOW() WHERE id = ? AND tenant_id = ?",
+        [String(reason).trim(), actorName, id, tenantId]
+      );
+      res.json({ success: true, id, status: 'Cancelado', reason: String(reason).trim(), cancelled_by: actorName });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 12b. DELETE /api/visits/:id & POST /api/visits/:id/delete - Delete pending ticket within the authenticated tenant
   const handleDeleteVisit = async (req, res) => {
     try {
       const tenantId = req.tenantId;

@@ -25,6 +25,7 @@ function fromCents(cents) {
 function classifyMethodBucket(methodRaw) {
   const m = String(methodRaw || '').trim().toLowerCase();
   if (!m) return 'efectivo';
+  if (m.includes('por cobrar') || m.includes('fiado') || ((m.includes('credito') || m.includes('crédito')) && !m.includes('tarjeta'))) return 'otros';
   if (m.includes('gift') || m.includes('certificado') || m.includes('regalo')) return 'gift_card';
   if (m.includes('efectivo') || m.includes('cash')) return 'efectivo';
   if (m.includes('tarjeta') || m.includes('card') || m.includes('verifone') || m.includes('pos') || m.includes('debito') || m.includes('débito') || m.includes('credito') || m.includes('crédito')) return 'tarjeta';

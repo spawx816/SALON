@@ -275,12 +275,26 @@ function createPublicRouter(pool, options = {}) {
       // No crear datos operativos de ejemplo ni planes B2C si no corresponden al alta SaaS
 
       // Inserción atómica de Suscripción Inicial en espera de pago CardNet (NUNCA 'active' sin cobro verificado)
+      const onboardingRecurringAuthorized = req.body.authorize_recurring === true;
+      const onboardingTermsVersion = String(req.body.terms_version || 'v2026.1').trim();
       await conn.query(`
         INSERT INTO tenant_subscriptions (
-          tenant_id, plan_code, status, current_period_start, current_period_end, updated_at
-        ) VALUES (?, 'PRINCIPAL', 'pending_payment', NOW(), NOW(), NOW())
-        ON CONFLICT (tenant_id) DO UPDATE SET plan_code = 'PRINCIPAL', status = 'pending_payment', updated_at = NOW()
-      `, [tenantId]);
+          tenant_id, plan_code, status, current_period_start, current_period_end,
+          auto_renew, recurring_consent_at, recurring_consent_version, updated_at
+        ) VALUES (?, 'PRINCIPAL', 'pending_payment', NOW(), NOW(), ?, CASE WHEN ? THEN NOW() ELSE NULL END, ?, NOW())
+        ON CONFLICT (tenant_id) DO UPDATE SET
+          plan_code = 'PRINCIPAL',
+          status = 'pending_payment',
+          auto_renew = EXCLUDED.auto_renew,
+          recurring_consent_at = COALESCE(EXCLUDED.recurring_consent_at, tenant_subscriptions.recurring_consent_at),
+          recurring_consent_version = COALESCE(EXCLUDED.recurring_consent_version, tenant_subscriptions.recurring_consent_version),
+          updated_at = NOW()
+      `, [
+        tenantId,
+        onboardingRecurringAuthorized,
+        onboardingRecurringAuthorized,
+        onboardingRecurringAuthorized ? onboardingTermsVersion : null,
+      ]);
 
       // Registro de Auditoría de Creación de Suscripción Inicial
       const requestedAddonBranches = wants_memberships_addon

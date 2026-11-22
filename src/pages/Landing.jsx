@@ -175,6 +175,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const [ownerPassword, setOwnerPassword] = useState('');
   const [showOwnerPassword, setShowOwnerPassword] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
+  const [authorizeRecurring, setAuthorizeRecurring] = useState(false);
   const [regLoading, setRegLoading] = useState(false);
   const [regError, setRegError] = useState('');
   const [regSuccess, setRegSuccess] = useState(false);
@@ -374,6 +375,8 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
     setRegStep(1);
     setRegError('');
     setRegSuccess(false);
+    setAcceptTerms(false);
+    setAuthorizeRecurring(false);
     setIsRegisterModalOpen(true);
     setMobileMenuOpen(false);
   };
@@ -473,6 +476,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
           wants_memberships_addon: wantsMembershipsAddon,
           addon_branches_count: wantsMembershipsAddon ? Math.min(addonBranchesCount, branchesCount) : 0,
           accept_terms: acceptTerms,
+          authorize_recurring: Boolean(authorizeRecurring),
           terms_version: 'v2026.1'
         })
       });
@@ -1720,6 +1724,17 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                             Política de Privacidad
                           </Link>
                           .
+                        </span>
+                      </label>
+                      <label className="et-checkbox-row" style={{ marginTop: 8 }}>
+                        <input
+                          type="checkbox"
+                          id="reg-authorize-recurring"
+                          checked={authorizeRecurring}
+                          onChange={(e) => setAuthorizeRecurring(e.target.checked)}
+                        />
+                        <span>
+                          Autorizo de forma separada el cobro recurrente automático de mi suscripción según la periodicidad contratada (el importe en pesos se calcula con la tasa aplicable al emitir el cobro). Puedo cancelar en cualquier momento desde Mi suscripción.
                         </span>
                       </label>
                     </>

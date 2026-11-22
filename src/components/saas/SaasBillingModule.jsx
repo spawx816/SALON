@@ -16,7 +16,6 @@ import {
   X,
   Loader2,
   ExternalLink,
-  ShieldCheck,
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useEntitlements } from '../../context/EntitlementsContext';
@@ -133,8 +132,11 @@ export default function SaasBillingModule() {
   const [gatewayStatus, setGatewayStatus] = useState(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [renewalQuote, setRenewalQuote] = useState(null);
+  const [renewalState, setRenewalState] = useState(null);
+  const [showChargeBreakdown, setShowChargeBreakdown] = useState(false);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [showConditionChangeModal, setShowConditionChangeModal] = useState(false);
   const [recurringConsentChecked, setRecurringConsentChecked] = useState(false);
-  const [migrateCalendarChecked, setMigrateCalendarChecked] = useState(false);
   const [authorizingRenewal, setAuthorizingRenewal] = useState(false);
 
   const loadBillingData = useCallback(async () => {
@@ -158,6 +160,7 @@ export default function SaasBillingModule() {
       setCheckoutOrders(Array.isArray(ordersRes?.orders) ? ordersRes.orders : []);
       setGatewayStatus(cfgRes?.gateway || null);
       setRenewalQuote(quoteRes?.quote || null);
+      setRenewalState(quoteRes?.renewalState || null);
     } catch (err) {
       setError(err.message || 'Error al cargar la información de suscripción');
     } finally {
@@ -409,9 +412,10 @@ export default function SaasBillingModule() {
   }
 
   const nextBillingFormatted = formatDateEs(
-    subscription?.current_period_end || subscription?.next_billing_date
+    subscription?.current_period_end || subscription?.next_billing_date || renewalQuote?.nextChargeDate
   );
   const cancelAtPeriodEnd = Boolean(subscription?.cancel_at_period_end);
+  const isSubscriptionCancelled = status === 'canceled' || status === 'cancelled' || cancelAtPeriodEnd;
 
   const branchesUsed = entitlements?.usage?.branches ?? 0;
   const branchesLimit = entitlements?.limits?.branches ?? 1;
@@ -419,6 +423,117 @@ export default function SaasBillingModule() {
   const usersLimit = entitlements?.limits?.users ?? 3;
 
   const defaultPm = paymentMethods.find((pm) => pm.isDefault) || paymentMethods[0] || null;
+
+  // Estado real de renovación automática derivado del servidor (sin preferencia del frontend)
+  const customerAuthorized = Boolean(
+    renewalState
+      ? renewalState.customerAuthorized
+      : (!isSubscriptionCancelled && subscription?.auto_renew !== false && subscription?.recurring_consent_at && subscription?.recurring_consent_version)
+  );
+  const requiresConditionAcceptance = Boolean(renewalState?.requiresConditionAcceptance);
+  const hasEligiblePaymentMethod = Boolean(
+    renewalState !== null && renewalState !== undefined
+      ? renewalState.hasEligiblePaymentMethod
+      : defaultPm
+  );
+  const billingServiceAvailable = Boolean(renewalState?.serviceAvailable);
+  const effectiveRenewalStatus = (() => {
+    if (isSubscriptionCancelled || renewalState?.isCancelled) return 'cancelled';
+    if (renewalState?.effectiveStatus) return renewalState.effectiveStatus;
+    if (!customerAuthorized) return 'missing_consent';
+    if (requiresConditionAcceptance) return 'condition_change_pending';
+    if (!hasEligiblePaymentMethod) return 'missing_payment_method';
+    if (!billingServiceAvailable) return 'authorized_service_inactive';
+    return 'active';
+  })();
+
+  const renewalBadgeMeta = (() => {
+    switch (effectiveRenewalStatus) {
+      case 'active':
+        return { label: 'Renovación automática activa', badgeClass: 'sb-badge-active' };
+      case 'authorized_service_inactive':
+        return { label: 'Autorizada · Servicio de cobro en espera', badgeClass: 'sb-badge-neutral' };
+      case 'missing_payment_method':
+        return { label: 'Método de pago no disponible', badgeClass: 'sb-badge-warning' };
+      case 'condition_change_pending':
+        return { label: 'Requiere aceptar condiciones', badgeClass: 'sb-badge-warning' };
+      case 'missing_consent':
+        return { label: 'Sin autorización automática', badgeClass: 'sb-badge-neutral' };
+      case 'cancelled':
+      default:
+        return { label: 'Renovación desactivada', badgeClass: 'sb-badge-neutral' };
+    }
+  })();
+
+  const realRenewalSummaryText = (() => {
+    switch (effectiveRenewalStatus) {
+      case 'active':
+        return 'Renovación automática activa (autorización del cliente vigente, método de pago apto y servicio de cobro habilitado).';
+      case 'authorized_service_inactive':
+        return 'Autorización del cliente y método de pago apto registrados; el servicio de cobro automático no está habilitado.';
+      case 'missing_payment_method':
+        return 'Autorización del cliente registrada, pero no hay un método de pago reutilizable apto disponible.';
+      case 'condition_change_pending':
+        return 'Renovación en pausa hasta aceptar la actualización de condiciones vigente.';
+      case 'missing_consent':
+        return 'Cobro manual — no existe consentimiento de renovación automática registrado.';
+      case 'cancelled':
+      default:
+        return 'Renovación automática desactivada — no se realizarán cargos recurrentes futuros.';
+    }
+  })();
+
+  const contractedPeriodicityLabel = (() => {
+    if (subscription?.billing_cycle === 'annual') return 'Anual';
+    const mode = renewalState?.periodicityMode || subscription?.periodicity_mode || renewalQuote?.periodicityMode;
+    if (mode === 'calendar_month') return 'Mensual (mes calendario)';
+    return 'Mensual (ciclo de 30 días)';
+  })();
+
+  const estimatedChargeDisplay = renewalQuote?.totalDopMinor !== undefined && renewalQuote?.totalDopMinor !== null
+    ? `${formatMinor(renewalQuote.totalDopMinor, 'DOP')} DOP`
+    : (formattedPrice ? `${formattedPrice} ${currency}` : 'Según acuerdo comercial');
+
+  const dependsOnFxConversion = Boolean(
+    renewalQuote?.fxSnapshot ||
+    renewalQuote?.currency === 'DOP' ||
+    currency === 'USD'
+  );
+
+  const maskedPaymentMethodLabel = defaultPm
+    ? `${String(defaultPm.brand || 'Tarjeta').toUpperCase()} •••• ${defaultPm.last4}`
+    : null;
+
+  const handleSubmitRecurringAuthorization = async (e) => {
+    e.preventDefault();
+    if (!recurringConsentChecked || authorizingRenewal) return;
+    try {
+      setAuthorizingRenewal(true);
+      setError(null);
+      const targetVersion = renewalState?.requiredTermsVersion || 'v2026.1';
+      const res = await fetch('/api/saas/billing/renewal/authorize', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          authorize_recurring: true,
+          consent_version: targetVersion,
+          accept_calendar_migration: false,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo registrar la autorización.');
+      setSuccessMsg('Autorización de cobro recurrente registrada.');
+      setShowConsentModal(false);
+      setShowConditionChangeModal(false);
+      setRecurringConsentChecked(false);
+      await loadBillingData();
+    } catch (err) {
+      setError(err.message || 'No se pudo registrar la autorización.');
+    } finally {
+      setAuthorizingRenewal(false);
+    }
+  };
   const isLegacyTransition = membershipsAddon?.source === 'legacy_pro_transition';
   const hasOpenInvoice = invoices.some((inv) => inv.status === 'open' || inv.status === 'past_due');
   const hasOpenCheckoutOrder = checkoutOrders.some(
@@ -570,159 +685,145 @@ export default function SaasBillingModule() {
                   Próximo cobro
                 </h2>
               </div>
+              <span className={`sb-badge ${renewalBadgeMeta.badgeClass}`}>
+                {renewalBadgeMeta.label}
+              </span>
             </div>
 
-            <div className="sb-price-line">
+            <div className="sb-price-line" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
               <span className="sb-price-amount" style={{ fontSize: '26px' }}>
                 {nextBillingFormatted || 'Sin fecha programada'}
               </span>
+              <span style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+                {estimatedChargeDisplay}
+              </span>
             </div>
 
-            <p className="sb-meta-text">
-              {formattedPrice ? `${formattedPrice} · ` : ''}
-              {subscription?.billing_cycle === 'annual' ? 'Facturación anual' : 'Facturación mensual'}
+            {dependsOnFxConversion && (
+              <p className="sb-meta-text" style={{ marginTop: '2px', fontSize: '12.5px' }}>
+                El importe en pesos se calcula con la tasa aplicable al emitir el cobro.
+              </p>
+            )}
+
+            <div className="sb-kv-list" style={{ marginTop: '12px' }}>
+              <div className="sb-kv-row">
+                <span className="sb-kv-label">Periodicidad contratada</span>
+                <span className="sb-kv-value">{contractedPeriodicityLabel}</span>
+              </div>
+              <div className="sb-kv-row">
+                <span className="sb-kv-label">Método de pago</span>
+                <span className="sb-kv-value">
+                  {maskedPaymentMethodLabel || (latestApprovedOrder?.masked_card
+                    ? `No disponible (${latestApprovedOrder.masked_card} fue pago único)`
+                    : 'No disponible')}
+                </span>
+              </div>
+              <div className="sb-kv-row">
+                <span className="sb-kv-label">Autorización del cliente</span>
+                <span className="sb-kv-value">
+                  {isSubscriptionCancelled
+                    ? 'Desactivada por cancelación'
+                    : requiresConditionAcceptance
+                      ? `Requiere aceptar actualización (${renewalState?.requiredTermsVersion || 'v2026.1'})`
+                      : customerAuthorized
+                        ? `Autorizada (${renewalState?.consentVersion || subscription?.recurring_consent_version || 'v2026.1'})`
+                        : 'Sin consentimiento registrado'}
+                </span>
+              </div>
+              <div className="sb-kv-row">
+                <span className="sb-kv-label">Servicio de cobro automático</span>
+                <span className="sb-kv-value">
+                  {billingServiceAvailable ? 'Disponible' : 'No habilitado'}
+                </span>
+              </div>
+            </div>
+
+            <p className="sb-meta-text" style={{ marginTop: '10px' }}>
+              {realRenewalSummaryText}
             </p>
-            <p className="sb-meta-text" style={{ marginTop: '4px' }}>
-              {cancelAtPeriodEnd || status === 'canceled' || status === 'cancelled'
-                ? 'Renovación automática desactivada.'
-                : subscription?.auto_renew_enabled
-                  ? 'Suscripción activa · Renovación automática habilitada.'
-                  : 'Suscripción activa · Renovación automática desactivada (cobro manual).'}
-            </p>
+
+            {Array.isArray(renewalQuote?.lineItems) && renewalQuote.lineItems.length > 0 && (
+              <div style={{ marginTop: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowChargeBreakdown((prev) => !prev)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    color: '#2563eb',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  {showChargeBreakdown ? 'Ocultar desglose' : 'Ver desglose'}
+                </button>
+
+                {showChargeBreakdown && (
+                  <div
+                    className="sb-kv-list"
+                    style={{
+                      marginTop: '8px',
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                    }}
+                  >
+                    {renewalQuote.lineItems.map((it, idx) => (
+                      <div className="sb-kv-row" key={idx}>
+                        <span className="sb-kv-label">{it.description}</span>
+                        <span className="sb-kv-value">
+                          {formatMinor(it.amount_minor, 'DOP')} DOP
+                        </span>
+                      </div>
+                    ))}
+                    <div className="sb-kv-row">
+                      <span className="sb-kv-label" style={{ fontWeight: 700, color: '#0f172a' }}>
+                        Importe estimado
+                      </span>
+                      <span className="sb-kv-value" style={{ fontWeight: 800 }}>
+                        {formatMinor(renewalQuote.totalDopMinor, 'DOP')} DOP
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!isSubscriptionCancelled && (!customerAuthorized || requiresConditionAcceptance) && (
+              <div className="sb-card-actions" style={{ marginTop: '12px' }}>
+                {!customerAuthorized && (
+                  <button
+                    type="button"
+                    className="sb-btn"
+                    onClick={() => {
+                      setRecurringConsentChecked(false);
+                      setShowConsentModal(true);
+                    }}
+                  >
+                    Autorizar renovación automática
+                  </button>
+                )}
+                {customerAuthorized && requiresConditionAcceptance && (
+                  <button
+                    type="button"
+                    className="sb-btn"
+                    onClick={() => {
+                      setRecurringConsentChecked(false);
+                      setShowConditionChangeModal(true);
+                    }}
+                  >
+                    Revisar actualización de condiciones
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </section>
       </div>
-
-      {/* Row 1b: Renovación Mensual Consolidada en DOP y Consentimiento Separado */}
-      {renewalQuote && (
-        <section className="sb-card" aria-labelledby="sb-consolidated-renewal-title" style={{ marginBottom: '1.25rem' }}>
-          <div className="sb-card-head">
-            <div className="sb-card-title-wrap">
-              <span className="sb-icon-box" aria-hidden="true">
-                <ShieldCheck size={18} />
-              </span>
-              <h2 id="sb-consolidated-renewal-title" className="sb-card-title">
-                Renovación Mensual Consolidada (DOP)
-              </h2>
-            </div>
-            <span className="sb-badge sb-badge-info">
-              {renewalQuote.periodicityMode === 'calendar_month'
-                ? `Mes calendario (día ${renewalQuote.anchorDay})`
-                : 'Ciclo previo de 30 días'}
-            </span>
-          </div>
-
-          <div className="sb-kv-list" style={{ marginTop: '0.75rem' }}>
-            {(renewalQuote.lineItems || []).map((it, idx) => (
-              <div className="sb-kv-row" key={idx}>
-                <span className="sb-kv-label">{it.description}</span>
-                <span className="sb-kv-value">
-                  RD$ {(Number(it.amount_minor || 0) / 100).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-            ))}
-            <div className="sb-kv-row">
-              <span className="sb-kv-label">Tasa manual vigente USD/DOP</span>
-              <span className="sb-kv-value">{renewalQuote.fxSnapshot?.rateFormatted || '—'}</span>
-            </div>
-            <div className="sb-kv-row">
-              <span className="sb-kv-label">Total recurrente consolidado (sin cargos únicos)</span>
-              <span className="sb-kv-value" style={{ fontWeight: 800 }}>
-                RD$ {(Number(renewalQuote.totalDopMinor || 0) / 100).toLocaleString('es-DO', { minimumFractionDigits: 2 })} DOP
-              </span>
-            </div>
-            <div className="sb-kv-row">
-              <span className="sb-kv-label">Próximo cargo estimado</span>
-              <span className="sb-kv-value">
-                {renewalQuote.nextChargeDate ? new Date(renewalQuote.nextChargeDate).toLocaleDateString('es-DO') : '—'}
-              </span>
-            </div>
-          </div>
-
-          <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(148,163,184,0.2)', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={recurringConsentChecked}
-                onChange={(e) => setRecurringConsentChecked(e.target.checked)}
-              />
-              <span>
-                Autorizo expresamente el cobro mensual automático consolidado en <strong>DOP</strong> (convertido con la tasa manual vigente al emitir cada factura) mediante mi tarjeta registrada en CardNet. Puedo cancelar directamente en cualquier momento desde esta pantalla sin penalidad.
-              </span>
-            </label>
-
-            {renewalQuote.periodicityMode !== 'calendar_month' && (
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={migrateCalendarChecked}
-                  onChange={(e) => setMigrateCalendarChecked(e.target.checked)}
-                />
-                <span>
-                  Acepto migrar mi periodicidad actual de 30 días a <strong>mes calendario</strong> (conservando mi día aniversario).
-                </span>
-              </label>
-            )}
-
-            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-              <button
-                type="button"
-                className="sb-btn sb-btn-primary"
-                disabled={authorizingRenewal || !recurringConsentChecked}
-                onClick={async () => {
-                  try {
-                    setAuthorizingRenewal(true);
-                    setError(null);
-                    const res = await fetch('/api/saas/billing/renewal/authorize', {
-                      method: 'POST',
-                      credentials: 'include',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        authorize_recurring: recurringConsentChecked,
-                        accept_calendar_migration: migrateCalendarChecked,
-                      }),
-                    });
-                    const data = await res.json();
-                    if (!res.ok) throw new Error(data.error || 'No se pudo autorizar la renovación');
-                    setSuccessMsg('Autorización de renovación mensual automática registrada.');
-                    await loadBillingData();
-                  } catch (err) {
-                    setError(err.message);
-                  } finally {
-                    setAuthorizingRenewal(false);
-                  }
-                }}
-              >
-                {authorizingRenewal ? 'Guardando...' : 'Confirmar autorización automática'}
-              </button>
-
-              {subscription?.auto_renew !== false && (
-                <button
-                  type="button"
-                  className="sb-btn sb-btn-secondary"
-                  onClick={async () => {
-                    try {
-                      setError(null);
-                      const res = await fetch('/api/saas/billing/subscription/cancel-renewal', {
-                        method: 'POST',
-                        credentials: 'include',
-                      });
-                      const data = await res.json();
-                      if (!res.ok) throw new Error(data.error || 'No se pudo desactivar la renovación');
-                      setSuccessMsg(data.message || 'Renovación automática desactivada.');
-                      await loadBillingData();
-                    } catch (err) {
-                      setError(err.message);
-                    }
-                  }}
-                >
-                  Desactivar renovación automática
-                </button>
-              )}
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* Row 2: Tus licencias + Método de pago */}
       <div className="sb-grid-2">
@@ -815,7 +916,9 @@ export default function SaasBillingModule() {
                   <span className="sb-badge sb-badge-active">Principal</span>
                 </div>
                 <p className="sb-meta-text" style={{ marginTop: '8px', fontSize: '12px' }}>
-                  Tarjeta guardada con la pasarela. No hay cobro recurrente automático activo.
+                  {effectiveRenewalStatus === 'active'
+                    ? 'Tarjeta registrada con la pasarela y habilitada para renovación automática.'
+                    : 'Tarjeta registrada con la pasarela. No se realizan cobros automáticos mientras el servicio o la autorización no estén activos.'}
                 </p>
               </div>
             ) : latestApprovedOrder ? (
@@ -835,7 +938,7 @@ export default function SaasBillingModule() {
               className="sb-btn"
               onClick={() => setShowAddCardModal(true)}
             >
-              {defaultPm ? 'Actualizar tarjeta' : 'Agregar método de pago'}
+              Actualizar método de pago
             </button>
           </div>
         </section>
@@ -1416,6 +1519,170 @@ export default function SaasBillingModule() {
                     {canceling ? 'Procesando...' : 'Confirmar cancelación'}
                   </button>
                 )}
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Flujo contextual único para cuentas existentes sin consentimiento válido */}
+      {showConsentModal && (
+        <div
+          className="sb-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sb-consent-modal-title"
+        >
+          <div className="sb-modal-card">
+            <div className="sb-modal-header">
+              <h3 id="sb-consent-modal-title">Autorizar renovación automática</h3>
+              <button
+                type="button"
+                className="sb-modal-close"
+                onClick={() => {
+                  if (!authorizingRenewal) {
+                    setShowConsentModal(false);
+                    setRecurringConsentChecked(false);
+                  }
+                }}
+                disabled={authorizingRenewal}
+                aria-label="Cerrar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="sb-meta-text" style={{ marginBottom: '12px' }}>
+              Esta autorización se registra una sola vez para tu suscripción actual ({contractedPeriodicityLabel}, importe estimado {estimatedChargeDisplay}). El importe en pesos se calcula con la tasa aplicable al emitir el cobro.
+            </p>
+
+            <form onSubmit={handleSubmitRecurringAuthorization}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px',
+                  padding: '12px',
+                  borderRadius: '10px',
+                  border: '1px solid #cbd5e1',
+                  background: '#f8fafc',
+                  fontSize: '13.5px',
+                  color: '#0f172a',
+                  cursor: 'pointer',
+                  lineHeight: 1.5,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={recurringConsentChecked}
+                  onChange={(e) => setRecurringConsentChecked(e.target.checked)}
+                />
+                <span>
+                  Autorizo de forma expresa el cobro recurrente automático de mi suscripción conforme a los términos aceptados ({renewalState?.requiredTermsVersion || 'v2026.1'}). Puedo cancelar en cualquier momento desde Mi suscripción.
+                </span>
+              </label>
+
+              <div className="sb-modal-footer">
+                <button
+                  type="button"
+                  className="sb-btn"
+                  onClick={() => {
+                    setShowConsentModal(false);
+                    setRecurringConsentChecked(false);
+                  }}
+                  disabled={authorizingRenewal}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="sb-btn sb-btn-primary"
+                  disabled={authorizingRenewal || !recurringConsentChecked}
+                >
+                  {authorizingRenewal ? 'Guardando...' : 'Guardar autorización'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Flujo específico cuando cambia una condición que requiere aceptación */}
+      {showConditionChangeModal && (
+        <div
+          className="sb-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sb-condition-modal-title"
+        >
+          <div className="sb-modal-card">
+            <div className="sb-modal-header">
+              <h3 id="sb-condition-modal-title">Actualización de condiciones de suscripción</h3>
+              <button
+                type="button"
+                className="sb-modal-close"
+                onClick={() => {
+                  if (!authorizingRenewal) {
+                    setShowConditionChangeModal(false);
+                    setRecurringConsentChecked(false);
+                  }
+                }}
+                disabled={authorizingRenewal}
+                aria-label="Cerrar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="sb-meta-text" style={{ marginBottom: '12px' }}>
+              Existe una actualización en las condiciones de renovación ({renewalState?.requiredTermsVersion || 'v2026.1'}). Tu periodicidad contratada ({contractedPeriodicityLabel}) se conserva sin cambios.
+            </p>
+
+            <form onSubmit={handleSubmitRecurringAuthorization}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px',
+                  padding: '12px',
+                  borderRadius: '10px',
+                  border: '1px solid #cbd5e1',
+                  background: '#f8fafc',
+                  fontSize: '13.5px',
+                  color: '#0f172a',
+                  cursor: 'pointer',
+                  lineHeight: 1.5,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={recurringConsentChecked}
+                  onChange={(e) => setRecurringConsentChecked(e.target.checked)}
+                />
+                <span>
+                  Acepto la actualización de condiciones ({renewalState?.requiredTermsVersion || 'v2026.1'}) manteniendo mi autorización de cobro recurrente.
+                </span>
+              </label>
+
+              <div className="sb-modal-footer">
+                <button
+                  type="button"
+                  className="sb-btn"
+                  onClick={() => {
+                    setShowConditionChangeModal(false);
+                    setRecurringConsentChecked(false);
+                  }}
+                  disabled={authorizingRenewal}
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="submit"
+                  className="sb-btn sb-btn-primary"
+                  disabled={authorizingRenewal || !recurringConsentChecked}
+                >
+                  {authorizingRenewal ? 'Guardando...' : 'Aceptar actualización'}
+                </button>
               </div>
             </form>
           </div>

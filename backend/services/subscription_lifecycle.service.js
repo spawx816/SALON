@@ -326,8 +326,28 @@ class SubscriptionLifecycleService {
       await this.subscriptionRepo.save(updated);
     }
 
-    // Desactivar renovaciones programadas en órdenes locales si existen
+    // Desactivar renovaciones programadas en suscripción, corridas de renovación y órdenes locales si existen
     if (pool) {
+      try {
+        await pool.query(
+          `UPDATE tenant_subscriptions
+           SET auto_renew = FALSE, cancel_at_period_end = TRUE, updated_at = NOW()
+           WHERE tenant_id = ?`,
+          [tenantId]
+        );
+      } catch {
+        // Ignore if columns absent in isolated unit tests
+      }
+      try {
+        await pool.query(
+          `UPDATE saas_renewal_runs
+           SET status = 'cancelled', locked_until = NULL, updated_at = NOW()
+           WHERE tenant_id = ? AND status IN ('pending', 'retry_scheduled', 'reconciling')`,
+          [tenantId]
+        );
+      } catch {
+        // Ignore if table absent in isolated unit tests
+      }
       try {
         await pool.query(
           'UPDATE saas_checkout_orders SET auto_renew_enabled = FALSE, updated_at = NOW() WHERE tenant_id = ? AND auto_renew_enabled = TRUE',
@@ -385,7 +405,7 @@ class SubscriptionLifecycleService {
     if (pool) {
       try {
         const [tRows] = await pool.query(
-          'SELECT business_name, name, owner_email, email FROM tenants WHERE id = ? LIMIT 1',
+          'SELECT business_name, legal_name, owner_email, email FROM tenants WHERE id = ? LIMIT 1',
           [tenantId]
         );
         const tenantRow = tRows?.[0] || {};
@@ -402,7 +422,7 @@ class SubscriptionLifecycleService {
               from: fromAddress,
               to: recipient,
               subject: 'Confirmación de Cancelación de Suscripción — Etereas',
-              text: `Confirmamos la cancelación de la suscripción de ${tenantRow.business_name || tenantRow.name || 'tu empresa'} el ${cancelledAtRd} (hora de Santo Domingo). ${accessText} Términos aplicables: ${termsVersion}.`,
+              text: `Confirmamos la cancelación de la suscripción de ${tenantRow.business_name || tenantRow.legal_name || 'tu empresa'} el ${cancelledAtRd} (hora de Santo Domingo). ${accessText} Términos aplicables: ${termsVersion}.`,
               html: `
                 <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;">
                   <h2 style="margin-top: 0; color: #0f172a;">Confirmación de Cancelación</h2>

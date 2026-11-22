@@ -115,11 +115,11 @@ class TermsAndWelcomeEmailService {
         }
 
         const [tRows] = await this.pool.query(
-          `SELECT nombre, business_name, status FROM tenants WHERE id = ? LIMIT 1`,
+          `SELECT business_name, legal_name, status FROM tenants WHERE id = ? LIMIT 1`,
           [tenantId]
         );
         if (tRows && tRows.length > 0) {
-          finalCompany = finalCompany || tRows[0].business_name || tRows[0].nombre;
+          finalCompany = finalCompany || tRows[0].business_name || tRows[0].legal_name;
           finalStatus = tRows[0].status || finalStatus;
         }
       } catch (lookupErr) {

@@ -14,7 +14,9 @@ function normalizeInvoiceRow(row, items = [], payments = [], order = null) {
   if (!row) return null;
   const latestPayment = payments[0] || null;
   const orderMeta = order && typeof order.metadata === 'object' ? order.metadata : {};
-  const fxSnapshot = orderMeta?.fx_snapshot || null;
+  const rowMeta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+  const rowFx = row.fx_snapshot && typeof row.fx_snapshot === 'object' ? row.fx_snapshot : null;
+  const fxSnapshot = orderMeta?.fx_snapshot || rowMeta?.fx_snapshot || rowFx || null;
 
   return {
     ...row,
@@ -226,14 +228,19 @@ class PgSaasBillingRepository extends SaasBillingRepository {
     const amountRefundedMinor = toBigInt(invoiceData.amount_refunded_minor, 0n);
     const currency = String(invoiceData.currency || 'DOP').trim().toUpperCase().slice(0, 3);
 
+    const metaObj = {
+      ...(invoiceData.metadata && typeof invoiceData.metadata === 'object' ? invoiceData.metadata : {}),
+      ...(invoiceData.fx_snapshot ? { fx_snapshot: invoiceData.fx_snapshot } : {}),
+    };
+
     const [inserted] = await this.pool.query(
       `INSERT INTO saas_invoices (
          tenant_id, invoice_number, subscription_id, plan_code, billing_cycle,
          price_book_version, period_start, period_end,
          subtotal_minor, tax_minor, total_minor, amount_paid_minor, amount_due_minor, amount_refunded_minor,
-         currency, status, due_date, paid_at
+         currency, status, due_date, paid_at, metadata
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
        RETURNING *`,
       [
         invoiceData.tenant_id,
@@ -253,7 +260,8 @@ class PgSaasBillingRepository extends SaasBillingRepository {
         currency,
         invoiceData.status || 'open',
         invoiceData.due_date || new Date().toISOString(),
-        invoiceData.paid_at || null
+        invoiceData.paid_at || null,
+        JSON.stringify(metaObj)
       ]
     );
     const invRow = inserted[0];

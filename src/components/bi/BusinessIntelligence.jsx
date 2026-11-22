@@ -289,18 +289,17 @@ export const BusinessIntelligence = ({ standalone = true, onOpenClassicView = nu
       if (res && Array.isArray(res.kpis)) {
         setReportData(res);
         setReportError(null);
-      } else if (['memberships_summary', 'upcoming_charges', 'contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery', 'cash_flow', 'employee_productivity'].includes(selectedReportId) && !useSampleData) {
-        // En producción: cero datos simulados.
+      } else if (!useSampleData) {
+        // En operación real: cero datos simulados.
         // Si no se reciben KPIs válidos desde el backend, reflejar error formal y no fallback a mock.
         setReportError(callError?.message || 'No se pudo obtener la información desde el servidor.');
         setReportData(null);
       } else {
-        // Fallback generator adhering strictly to developer specs and mockups
         generateMockReport(params);
       }
     } catch (err) {
       console.error('Error fetching BI report:', err);
-      if (['memberships_summary', 'upcoming_charges', 'contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery', 'cash_flow', 'employee_productivity'].includes(selectedReportId) && !useSampleData) {
+      if (!useSampleData) {
         setReportError(err?.message || 'Error de conexión al cargar el reporte desde el servidor.');
         setReportData(null);
       } else {
