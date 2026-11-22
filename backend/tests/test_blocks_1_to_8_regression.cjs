@@ -363,6 +363,7 @@ async function runTests() {
     const createPeriod = await requestJson(baseUrl, 'POST', '/api/payroll/generate', {
       token: ownerToken,
       body: {
+        period_name: `Quincena Regresión ${ts}`,
         name: `Quincena Regresión ${ts}`,
         fecha_inicio: '2026-11-01',
         fecha_fin: '2026-11-15',
