@@ -17,6 +17,7 @@ const { validateTestEnvironment, createIsolatedTestPool } = require('../utils/te
 const { createVisitsRouter } = require('../routes/visits.routes');
 const { createCashRegistersRouter } = require('../routes/cash_registers.routes');
 const { InventoryService } = require('../services/inventory.service');
+const { InventoryRepository } = require('../repositories/inventory.repository');
 
 async function reqJson(baseUrl, method, path, body, headers = {}) {
   const res = await fetch(`${baseUrl}${path}`, {
@@ -40,7 +41,8 @@ async function runModule9PosInvoicingAcceptance() {
 
   const testConfig = validateTestEnvironment({ allowDisposableSchema: true });
   const pool = createIsolatedTestPool(testConfig);
-  const inventoryService = new InventoryService(pool);
+  const inventoryRepo = new InventoryRepository(pool);
+  const inventoryService = new InventoryService(inventoryRepo);
 
   const tenantA = crypto.randomUUID();
   const tenantB = crypto.randomUUID();
