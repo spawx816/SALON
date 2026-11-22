@@ -26,6 +26,8 @@ const addDaysIso = (isoDate, days) => {
  */
 function createPayrollRouter(pool) {
   const router = express.Router();
+  const isPositiveIntId = (v) => /^\d+$/.test(String(v || '').trim()) && Number(v) > 0;
+  const ALLOWED_DRAFT_STATUSES = new Set(['En preparación', 'En revisión', 'Borrador']);
 
   // Helper middleware to strictly require verified tenant context
   const requireTenant = (req, res, next) => {
@@ -248,6 +250,9 @@ function createPayrollRouter(pool) {
   router.get('/periods/:id', async (req, res) => {
     try {
       const { id } = req.params;
+      if (!isPositiveIntId(id)) {
+        return res.status(404).json({ error: 'Período de nómina no encontrado en esta empresa.' });
+      }
       const tenantId = req.verifiedTenantId;
 
       const [periods] = await pool.query(`
@@ -1512,15 +1517,29 @@ function createPayrollRouter(pool) {
       if (!payroll_id || !Array.isArray(items)) {
         return res.status(400).json({ error: 'payroll_id e items son requeridos' });
       }
+      if (!isPositiveIntId(payroll_id)) {
+        return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
+      }
+      const cleanDraftStatus = String(status || 'En preparación').trim();
+      if (!ALLOWED_DRAFT_STATUSES.has(cleanDraftStatus)) {
+        return res.status(400).json({
+          error: `Estatus de borrador inválido ('${cleanDraftStatus}'). Utiliza el flujo oficial de aprobación o pago.`,
+          code: 'INVALID_DRAFT_STATUS'
+        });
+      }
 
+      const authBranches = await resolveAuthorizedBranchDescriptors(req, tenantId);
       const [periodRows] = await pool.query(
-        'SELECT status, is_immutable FROM payroll_periods WHERE id = ? AND tenant_id = ?',
+        'SELECT status, is_immutable, sucursal FROM payroll_periods WHERE id = ? AND tenant_id = ?',
         [payroll_id, tenantId]
       );
       if (periodRows.length === 0) {
         return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
       }
-      if (periodRows[0].status === 'Aprobada' || periodRows[0].status === 'Pagada' || periodRows[0].is_immutable === 1) {
+      if (!isSucursalAllowedForActor(periodRows[0].sucursal, authBranches)) {
+        return res.status(403).json({ error: 'No tienes permiso para modificar la nómina de esta sucursal.', code: 'FORBIDDEN_BRANCH_SCOPE' });
+      }
+      if (periodRows[0].status === 'Aprobada' || periodRows[0].status === 'Pagada' || Number(periodRows[0].is_immutable) === 1) {
         return res.status(403).json({ error: 'Esta nómina ya ha sido aprobada o pagada y es inmutable. No se pueden realizar modificaciones.', code: 'PAYROLL_IMMUTABLE' });
       }
 
@@ -1587,7 +1606,7 @@ function createPayrollRouter(pool) {
         UPDATE payroll_periods 
         SET total_ingresos = ?, total_descuentos = ?, total_neto = ?, total_empleados = ?, status = ?
         WHERE id = ? AND tenant_id = ?
-      `, [sumTotalIngresos, sumTotalDescuentos, sumTotalNeto, items.length, status, payroll_id, tenantId]);
+      `, [sumTotalIngresos, sumTotalDescuentos, sumTotalNeto, items.length, cleanDraftStatus, payroll_id, tenantId]);
 
       res.json({ success: true, message: 'Borrador de nómina actualizado exitosamente' });
     } catch (err) {
@@ -1700,6 +1719,9 @@ function createPayrollRouter(pool) {
       }
       if (!payroll_id) {
         return res.status(400).json({ error: 'payroll_id es requerido' });
+      }
+      if (!isPositiveIntId(payroll_id)) {
+        return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
       }
 
       const actorName = req.auth?.name || req.auth?.email || approved_by || 'Administrador';
@@ -1856,6 +1878,9 @@ function createPayrollRouter(pool) {
     const conn = await pool.getConnection();
     try {
       const { id } = req.params;
+      if (!isPositiveIntId(id)) {
+        return res.status(404).json({ error: 'Período de nómina no encontrado en esta empresa.' });
+      }
       const tenantId = req.verifiedTenantId;
       const { payment_method = 'Registro administrativo interno', payment_reference = '', notes = '' } = req.body || {};
       const actorName = req.auth?.name || req.auth?.email || 'Administrador';
@@ -2124,6 +2149,9 @@ function createPayrollRouter(pool) {
   router.delete('/periods/:id', requirePermission('payroll.generate'), async (req, res) => {
     try {
       const { id } = req.params;
+      if (!isPositiveIntId(id)) {
+        return res.status(404).json({ error: 'Período de nómina no encontrado en esta empresa.' });
+      }
       const tenantId = req.verifiedTenantId;
       const authBranches = await resolveAuthorizedBranchDescriptors(req, tenantId);
       const [existing] = await pool.query(
