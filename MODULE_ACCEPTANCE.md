@@ -2,7 +2,7 @@
 
 Documento único y autoritativo de validación sistemática de Etereas por módulos y procesos de negocio.
 
-- **Release candidato actual**: commit `fa15f28` / imagen `salonpro-app:fa15f28` (staging).
+- **Release candidato actual**: commit `4610b28` / imagen `salonpro-app:4610b28` (staging).
 - **Base de pruebas automatizadas**: `salon_saas_test` (PostgreSQL 17, aislada con guardas canónicas).
 - **Entorno de producción**: intacto (`salon_saas_prod` sin escrituras, sin cargos CardNet reales, `SAAS_RENEWAL_WORKER_ENABLED` deshabilitado, `DGII_MODE=disabled` / `DGII_ENABLED` deshabilitado).
 
@@ -40,7 +40,7 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **7** | **Clientes (CRM)** (`registro 2 pasos → perfil/edición → búsqueda/paginación cursor → borrado/archivo histórico → aislamiento B2C/RBAC/BASE`) | Módulo 1, Plan Principal, POS (`visits`), Membresías (`contracts`) | `74ec5d5` (`5c19b33`) | `test_module7_clients_acceptance.cjs` (8/8), `test_pagination_cursors.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` + DOM real `/registro-cliente`, `/clientes` | **`aprobado`** | Ninguno (`M7-01`–`M7-06` corregidos, verificados y desplegados en staging `74ec5d5`) |
 | **8** | **Cajas (apertura, movimientos, cierre, arqueo)** (`apertura atómica → ingresos/gastos/retiros → ventas efectivo/tarjeta/anulaciones → cierre atómico/PIN → reporte → alcance sucursal`) | Módulos 1, 2, 9 | `bcb4cf1` (`01d365a`) | `test_module8_cash_registers_acceptance.cjs` (6/6), `test_cash_reconciliation.cjs` (7/7), `test_blocks_1_to_8_regression.cjs` + DOM real `/cajas` | **`aprobado`** | Ninguno (`M8-01`–`M8-04` corregidos, verificados y desplegados en staging `bcb4cf1`) |
 | **9** | **POS, tickets y facturación convencional** (`ticket pendiente → borrador → precuenta 0 NCF → checkout B02/NONE + efectivo neto + stock → inmutabilidad → anulación atómica → reimpresión`) | Módulos 1, 5, 6, 7, 8, Secuencias NCF | `fa15f28` | `test_module9_pos_invoicing_acceptance.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` (B1/B5/B6/B9b) + DOM real `/visitas`, `/facturas` | **`aprobado`** | Ninguno (`M9-01`–`M9-03` corregidos, verificados y desplegados en staging `fa15f28`) |
-| **10** | Comisiones y descuentos | Módulos 3, 4, 9 | — | `test_blocks_1_to_8_regression.cjs` (B1/B2) | `pendiente` | — |
+| **10** | **Comisiones y descuentos** (`descuentos colaborador CRUD → inmutabilidad Saldado/Anulado → reasignación comisión → cascada anulación POS → TO_CHAR PG`) | Módulos 3, 4, 9 | `4610b28` | `test_module10_commissions_discounts_acceptance.cjs` (5/5), `test_module4_commissions_acceptance.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` + DOM real `/descuentos-empleados`, `/comisiones` | **`aprobado`** | Ninguno (`M10-01`–`M10-04` corregidos, verificados y desplegados en staging `4610b28`; decisión de fallback `15%` sigue rastreada en Módulo 4) |
 | **11** | Nómina | Módulos 3, 10 | — | `test_blocks_1_to_8_regression.cjs` (B3) | `pendiente` | — |
 | **12** | Contabilidad y reportes (Egresos, 606, 607, IT-1, NCF) | Módulos 2, 9 | — | `test_blocks_1_to_8_regression.cjs` (B4), RBAC Contabilidad | `pendiente` | — |
 | **13** | Membresías (Add-on US$99/bloque 3 suc.) | Módulos 7, 9, 14 | — | `test_blocks_1_to_8_regression.cjs` (B8) | `pendiente` | — |
@@ -378,3 +378,37 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **M9-DOM** | Flujo real Chromium: login → `/visitas` (POS con caja abierta y catálogo) → `/facturas` (factura `B0200000001` visible y reimpresión) | `posLoaded=true`, `invoiceVisible=true`, `reprintClicked=true`, `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:fa15f28`) | **PASS** |
 
 - **Gates y Despliegue**: `test:scanner` (0 violaciones), `test:runner-guards` (PASS), `lint`, `build`, `verify:release`, `graphify update .`, `test_blocks_1_to_8_regression.cjs` (PASS), limpieza de `salon_saas_test`, respaldo previo de `salon_saas_staging` y despliegue verificado de `salonpro-app:fa15f28` (`Up (healthy)`, `/api/health` → `200`). **Estado: APROBADO**.
+
+---
+
+## Módulo 10 — Comisiones y Descuentos
+
+### A. Análisis de Arquitectura y Dependencias (Graphify + Código)
+
+- **UI**: [EmployeeDiscountsModule.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/admin/EmployeeDiscountsModule.jsx) (`/descuentos-empleados`), [CommissionManagement.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/commissions/CommissionManagement.jsx) (`/comisiones`).
+- **Backend**: [employee_security.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/employee_security.routes.js) (`/api/employee-discounts`, `/api/employee-security/employee-discounts`), [visits.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/visits.routes.js) (`PUT /api/visits/:id/commission-recipient`, cascada en `POST /api/visits/:id/void`), [commissions.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/commissions.routes.js).
+- **Tablas**: `employee_discounts`, `employee_commissions_log`, `visits`, `staff_records`, `audit_logs`.
+- **Reglas confirmadas**:
+  - Descuentos ya `Saldado` en nómina o `Anulado` por anulación de factura son inmutables (`409`).
+  - Reasignación de beneficiario de comisión en factura emitida exige motivo obligatorio (`400 REASON_REQUIRED`), permiso autorizado (`403 COMMISSION_EDIT_FORBIDDEN`) y se bloquea en facturas anuladas (`409 INVOICE_VOIDED`).
+  - Anular una factura cascada automáticamente `status = 'Anulada'` en `employee_commissions_log` y `status = 'Anulado'` en `employee_discounts`.
+
+### B. Fallos Corregidos (`4610b28`)
+
+- **M10-01 (PostgreSQL)**: `GET /employee-discounts` usaba `DATE_FORMAT(ed.date, '%Y-%m-%d')` (sintaxis MySQL) provocando `500` en PostgreSQL nativo → reemplazado por `TO_CHAR(ed.date, 'YYYY-MM-DD')`.
+- **M10-02 (PostgreSQL)**: `POST /employee-discounts` omitía `RETURNING id`, devolviendo `id: undefined` en PostgreSQL → corregido con `RETURNING id`.
+- **M10-03 (Validación e inmutabilidad)**: `POST`/`PUT`/`DELETE /employee-discounts` aceptaban montos negativos/no finitos, estatus arbitrarios (`Saldado` directo al crear), IDs no enteros (`500` PG) y permitían modificar/borrar registros `Anulado` → corregido (`400` validaciones, `404` IDs inválidos o colaborador ajeno, `409 DISCOUNT_ALREADY_SETTLED` / `409 DISCOUNT_VOIDED`).
+- **M10-04 (UI)**: [EmployeeDiscountsModule.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/admin/EmployeeDiscountsModule.jsx) agregó guardia `saveInFlightRef` anti-doble clic al guardar descuentos.
+
+### C. Evidencia de Aceptación (`4610b28` — APROBADO)
+
+| Caso | Esperado | Observado | Evidencia | Resultado |
+|---|---|---|---|---|
+| **M10-C1** | Alta devuelve `id` numérico (`RETURNING id`); rechaza `amount <= 0` (`400`), `status = 'Saldado'` (`400`), `employee_id` ajeno (`404`) e ID no entero (`404`) | Todos validados exactamente (`id > 0` devuelto) | `test_module10_commissions_discounts_acceptance.cjs` | **PASS** |
+| **M10-C2** | Edición valida monto y colaborador; registros `Saldado` bloquean `PUT`/`DELETE` con `409 DISCOUNT_ALREADY_SETTLED` | `PUT` y `DELETE` sobre `Saldado` → `409 DISCOUNT_ALREADY_SETTLED` | `test_module10_commissions_discounts_acceptance.cjs` | **PASS** |
+| **M10-C3** | `PUT /api/visits/:id/commission-recipient` exige motivo (`400`), bloquea rol sin permiso (`403`) y reasigna con auditoría para Owner (`200`) | `400`, `403` y `200` verificados | `test_module10_commissions_discounts_acceptance.cjs` | **PASS** |
+| **M10-C4** | Anulación de factura cascada `Anulado` a `employee_discounts`, bloquea `PUT`/`DELETE` (`409`) y bloquea reasignación (`409 INVOICE_VOIDED`) | Cascada automática verificada; `PUT`/`DELETE`/`commission-recipient` → `409` | `test_module10_commissions_discounts_acceptance.cjs` | **PASS** |
+| **M10-C5** | Aislamiento multi-tenant: Empresa B recibe `0` filas en `GET /employee-discounts` (`TO_CHAR` PG) y `404` en `PUT`/`DELETE` cruzados | `200` (`[]`) y `404` cruzados | `test_module10_commissions_discounts_acceptance.cjs` | **PASS** |
+| **M10-DOM** | Flujo real Chromium en `/descuentos-empleados` y `/comisiones` | `discountsLoaded=true`, `commissionsLoaded=true`, `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:4610b28`) | **PASS** |
+
+- **Gates y Despliegue**: `test:scanner` (0 violaciones), `test:runner-guards` (PASS), `lint`, `build`, `verify:release`, `graphify update .`, `test_module4_commissions_acceptance.cjs` (6/6 PASS), `test_blocks_1_to_8_regression.cjs` (PASS), limpieza de `salon_saas_test`, respaldo previo de `salon_saas_staging` y despliegue verificado de `salonpro-app:4610b28` (`Up (healthy)`, `/api/health` → `200`). **Estado: APROBADO**.
