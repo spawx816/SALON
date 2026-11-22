@@ -855,9 +855,6 @@ function createVisitsRouter(pool, helpers = {}) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      if (!isValidUuid(id)) {
-        return res.status(404).json({ error: 'Ticket no encontrado en esta empresa.', code: 'TICKET_NOT_FOUND' });
-      }
       const {
         client_id,
         client_name,
@@ -946,9 +943,6 @@ function createVisitsRouter(pool, helpers = {}) {
       const { id, ticket_id, servicios, items_detail, total } = req.body;
       const targetId = id || ticket_id;
       if (targetId) {
-        if (!isValidUuid(targetId)) {
-          return res.status(404).json({ error: 'Ticket no encontrado en esta empresa.', code: 'TICKET_NOT_FOUND' });
-        }
         const [existingRows] = await pool.query(
           'SELECT id, status, salon_id FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1',
           [targetId, tenantId]
@@ -1978,10 +1972,6 @@ function createVisitsRouter(pool, helpers = {}) {
 
       const effectiveVoidedBy = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.voided_by || 'Supervisor Autorizado';
 
-      if (!isValidUuid(id)) {
-        return res.status(404).json({ error: 'Factura no encontrada en esta empresa.' });
-      }
-
       const [existing] = await pool.query(
         'SELECT id, status, total, salon_id, cash_register_id, metodo_pago FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1',
         [id, tenantId]
@@ -2498,9 +2488,6 @@ function createVisitsRouter(pool, helpers = {}) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      if (!isValidUuid(id)) {
-        return res.status(404).json({ error: 'Ticket no encontrado en esta empresa.', code: 'TICKET_NOT_FOUND' });
-      }
       const { reason = 'Cancelado en recepción antes de facturar' } = req.body || {};
       const actorName = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.cancelled_by || 'Recepción';
 
@@ -2537,9 +2524,6 @@ function createVisitsRouter(pool, helpers = {}) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      if (!isValidUuid(id)) {
-        return res.status(404).json({ error: 'Visita no encontrada' });
-      }
       const [existing] = await pool.query(
         'SELECT id, status, salon_id FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1',
         [id, tenantId]

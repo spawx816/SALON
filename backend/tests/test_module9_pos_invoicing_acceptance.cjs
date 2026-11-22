@@ -148,7 +148,7 @@ async function runModule9PosInvoicingAcceptance() {
       servicios: ['Lavado M9'],
       total: 600,
     });
-    assert.strictEqual(tktRes.status, 200, `Ticket create failed: ${JSON.stringify(tktRes.data)}`);
+    assert.strictEqual(tktRes.status, 201, `Ticket create failed: ${JSON.stringify(tktRes.data)}`);
     const visitId = tktRes.data.id;
 
     const draftRes = await reqJson(baseUrl, 'PUT', `/api/visits/${visitId}/draft`, {
@@ -250,7 +250,7 @@ async function runModule9PosInvoicingAcceptance() {
     // --- M9-C5: Pending ticket void rejected (409 NOT_INVOICED), pending delete allowed, SIN_COMPROBANTE checkout ---
     console.log('--- M9-C5: Pending ticket guards & SIN_COMPROBANTE checkout ---');
     const pend1 = await reqJson(baseUrl, 'POST', '/api/visits/ticket', { client_name: 'Pendiente 1', salon_id: branchA1, servicios: ['Lavado M9'], total: 600 });
-    assert.strictEqual(pend1.status, 200);
+    assert.strictEqual(pend1.status, 201);
     const voidPend = await reqJson(baseUrl, 'POST', `/api/visits/${pend1.data.id}/void`, { reason: 'No facturado' });
     assert.strictEqual(voidPend.status, 409);
     assert.strictEqual(voidPend.data.code, 'NOT_INVOICED');
@@ -292,7 +292,7 @@ async function runModule9PosInvoicingAcceptance() {
     // --- M9-C6: Branch scope & multi-tenant isolation ---
     console.log('--- M9-C6: Branch scope & multi-tenant isolation ---');
     const tktA2 = await reqJson(baseUrl, 'POST', '/api/visits/ticket', { client_name: 'Clienta A2', salon_id: branchA2, servicios: ['Lavado M9'], total: 600 });
-    assert.strictEqual(tktA2.status, 200);
+    assert.strictEqual(tktA2.status, 201);
 
     // Restrict operator to branchA1
     currentAuth.role = 'cajero';
