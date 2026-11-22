@@ -577,9 +577,9 @@ async function runTests() {
       [tenantId]
     );
     await pool.query(
-      `INSERT INTO tenant_feature_overrides (tenant_id, feature_key, is_enabled, acquired_blocks, acquired_branch_capacity, enabled_branch_ids)
-       VALUES (?, 'memberships', TRUE, 1, 3, ?::jsonb)
-       ON CONFLICT (tenant_id, feature_key) DO UPDATE SET is_enabled = TRUE, acquired_blocks = 1, acquired_branch_capacity = 3, enabled_branch_ids = EXCLUDED.enabled_branch_ids`,
+      `INSERT INTO tenant_feature_overrides (tenant_id, feature_key, is_enabled, reason, acquired_blocks, acquired_branch_capacity, enabled_branch_ids)
+       VALUES (?, 'memberships', TRUE, 'Fixture B8: 1 bloque adquirido', 1, 3, ?::jsonb)
+       ON CONFLICT (tenant_id, feature_key) DO UPDATE SET is_enabled = TRUE, reason = EXCLUDED.reason, acquired_blocks = 1, acquired_branch_capacity = 3, enabled_branch_ids = EXCLUDED.enabled_branch_ids`,
       [tenantId, JSON.stringify([branch1Id])]
     );
 
