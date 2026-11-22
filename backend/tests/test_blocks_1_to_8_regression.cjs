@@ -360,25 +360,28 @@ async function runTests() {
     // BLOQUE 3: EMPLEADO SIN CUENTA `users` INCLUIDO EN NÓMINA
     // =========================================================================
     console.log('[B3] Probando inclusión de empleado sin cuenta `users` en nómina y motivos de exclusión...');
-    const createPeriod = await requestJson(baseUrl, 'POST', '/api/payroll/periods', {
+    const createPeriod = await requestJson(baseUrl, 'POST', '/api/payroll/generate', {
       token: ownerToken,
       body: {
         name: `Quincena Regresión ${ts}`,
+        fecha_inicio: '2026-11-01',
+        fecha_fin: '2026-11-15',
         start_date: '2026-11-01',
         end_date: '2026-11-15',
         pay_date: '2026-11-15',
+        tipo: 'Quincenal',
         type: 'Quincenal',
       },
     });
     assert.ok(createPeriod.status === 200 || createPeriod.status === 201, `Crear período nómina falló: ${createPeriod.text}`);
-    const periodId = createPeriod.body.id || createPeriod.body.period?.id;
+    const periodId = createPeriod.body.id || createPeriod.body.period_id || createPeriod.body.period?.id;
     const periodDetail = await requestJson(baseUrl, 'GET', `/api/payroll/periods/${periodId}`, { token: ownerToken });
     assert.strictEqual(periodDetail.status, 200);
-    const records = periodDetail.body.records || periodDetail.body.items || [];
+    const records = periodDetail.body.items || periodDetail.body.records || [];
     const excluded = periodDetail.body.excluded_employees || [];
     assert.ok(records.some((r) => Number(r.employee_id || r.staff_id) === Number(emp1Id)), 'Estilista Uno (sin cuenta users) debe estar incluido en nómina');
     assert.ok(records.some((r) => Number(r.employee_id || r.staff_id) === Number(emp2Id)), 'Estilista Dos (sin cuenta users) debe estar incluido en nómina');
-    assert.ok(excluded.some((e) => String(e.nombre || '').includes('Ex Empleado') && e.reason), 'Ex Empleado inactivo debe reportarse en excluded_employees con motivo comprensible');
+    assert.ok(excluded.some((e) => String(e.nombre || e.name || '').includes('Ex Empleado') && (e.reason || e.motivo)), 'Ex Empleado inactivo debe reportarse en excluded_employees con motivo comprensible');
     console.log(`  ✅ [PASS] B3: ${records.length} empleados sin cuenta users incluidos en nómina; ${excluded.length} excluido(s) con motivo.`);
 
     // =========================================================================
