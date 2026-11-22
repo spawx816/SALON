@@ -728,7 +728,8 @@ function createPayrollRouter(pool) {
           WHERE tenant_id = ?
             AND (employee_id::text = ? OR employee_id::text = ? OR employee_name = ?)
             AND created_at >= ? AND created_at <= ?
-            AND COALESCE(status, 'Pendiente') NOT IN ('Anulada', 'Pagada')
+            AND COALESCE(status, 'Pendiente') NOT IN ('Anulada', 'Pagada', 'Pagado')
+            AND payout_id IS NULL
         `, [tenantId, empId, `EMP-${empId}`, empName, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
         comisiones = Number(parseFloat(commRows[0]?.total_comm || 0).toFixed(2));
       } catch (e) {
@@ -1059,7 +1060,8 @@ function createPayrollRouter(pool) {
                 AND (employee_id::text = ? OR employee_id::text = ? OR employee_name = ?)
                 AND service_name LIKE ?
                 AND created_at >= ? AND created_at <= ?
-                AND COALESCE(status, 'Pendiente') NOT IN ('Anulada', 'Pagada')
+                AND COALESCE(status, 'Pendiente') NOT IN ('Anulada', 'Pagada', 'Pagado')
+                AND payout_id IS NULL
             `, [tenantId, empId, `EMP-${empId}`, empName, `%${cr.service_name}%`, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
 
             const totalPerformed = performed[0]?.count || 0;
@@ -1822,7 +1824,8 @@ function createPayrollRouter(pool) {
           SET status = 'Pagada'
           WHERE tenant_id = ?
             AND created_at >= ? AND created_at <= ? 
-            AND COALESCE(status, 'Pendiente') NOT IN ('Anulada', 'Pagada')
+            AND COALESCE(status, 'Pendiente') NOT IN ('Anulada', 'Pagada', 'Pagado')
+            AND payout_id IS NULL
             AND ${commWhereEmp}
         `, commParams);
       }

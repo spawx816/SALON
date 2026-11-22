@@ -161,7 +161,7 @@ const CommissionManagement = () => {
       loadAllData();
       window.dispatchEvent(new CustomEvent('commissionCategoriesUpdated'));
     } catch (err) {
-      alert('Error eliminando categoría');
+      alert(err.message || 'Error eliminando categoría');
     }
   };
 
@@ -198,7 +198,7 @@ const CommissionManagement = () => {
       if (selectedSchemeId === id) setSelectedSchemeId(null);
       loadAllData();
     } catch (err) {
-      alert('Error eliminando esquema');
+      alert(err.message || 'Error eliminando esquema');
     }
   };
 

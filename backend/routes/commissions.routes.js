@@ -151,6 +151,32 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      const [existing] = await pool.query(
+        'SELECT id, nombre FROM commission_categories WHERE id = ? AND tenant_id = ?',
+        [id, tenantId]
+      );
+      if (!existing || existing.length === 0) {
+        return res.status(404).json({ error: 'Categoría no encontrada en esta empresa.', code: 'CATEGORY_NOT_FOUND' });
+      }
+      const catName = existing[0].nombre;
+      const [linkedServices] = await pool.query(
+        'SELECT COUNT(*)::int AS cnt FROM services WHERE tenant_id = ? AND (commission_category_id = ? OR LOWER(COALESCE(categoria, \'\')) = LOWER(?))',
+        [tenantId, id, catName]
+      );
+      const [linkedRules] = await pool.query(
+        'SELECT COUNT(*)::int AS cnt FROM commission_scheme_rules WHERE tenant_id = ? AND LOWER(COALESCE(category_name, \'\')) = LOWER(?)',
+        [tenantId, catName]
+      );
+      const srvCount = Number(linkedServices[0]?.cnt || 0);
+      const ruleCount = Number(linkedRules[0]?.cnt || 0);
+      if (srvCount > 0 || ruleCount > 0) {
+        return res.status(409).json({
+          error: `No se puede eliminar la categoría "${catName}" porque tiene ${srvCount} ítem(s) en catálogo y ${ruleCount} regla(s) de comisión vinculadas. Desactívala cambiando su estado a Inactiva para conservar el historial.`,
+          code: 'CATEGORY_IN_USE',
+          linked_services: srvCount,
+          linked_rules: ruleCount,
+        });
+      }
       await pool.query('DELETE FROM commission_categories WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       res.json({ success: true, message: 'Categoría eliminada' });
     } catch (err) {
@@ -203,8 +229,34 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      await pool.query('DELETE FROM commission_schemes WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      const [existing] = await pool.query(
+        'SELECT id, nombre FROM commission_schemes WHERE id = ? AND tenant_id = ?',
+        [id, tenantId]
+      );
+      if (!existing || existing.length === 0) {
+        return res.status(404).json({ error: 'Esquema no encontrado en esta empresa.', code: 'SCHEME_NOT_FOUND' });
+      }
+      const schemeName = existing[0].nombre;
+      const [assignedStaff] = await pool.query(
+        'SELECT COUNT(*)::int AS cnt FROM staff_records WHERE tenant_id = ? AND commission_scheme_id = ?',
+        [tenantId, id]
+      );
+      const [histLogs] = await pool.query(
+        'SELECT COUNT(*)::int AS cnt FROM employee_commissions_log WHERE tenant_id = ? AND scheme_id = ?',
+        [tenantId, id]
+      );
+      const staffCnt = Number(assignedStaff[0]?.cnt || 0);
+      const histCnt = Number(histLogs[0]?.cnt || 0);
+      if (staffCnt > 0 || histCnt > 0) {
+        return res.status(409).json({
+          error: `No se puede eliminar el esquema "${schemeName}" porque tiene ${staffCnt} colaborador(es) asignado(s) y ${histCnt} comisión(es) histórica(s). Desactívalo cambiando su estado a Inactivo para conservar el historial.`,
+          code: 'SCHEME_IN_USE',
+          assigned_staff: staffCnt,
+          historical_commissions: histCnt,
+        });
+      }
       await pool.query('DELETE FROM commission_scheme_rules WHERE scheme_id = ? AND tenant_id = ?', [id, tenantId]);
+      await pool.query('DELETE FROM commission_schemes WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       res.json({ success: true, message: 'Esquema y sus reglas eliminados' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -220,12 +272,20 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
       const schemeId = parseInt(id, 10);
       if (isNaN(schemeId)) return res.status(400).json({ error: 'ID de esquema inválido' });
 
+      const [schRows] = await pool.query(
+        'SELECT id FROM commission_schemes WHERE id = ? AND tenant_id = ?',
+        [schemeId, tenantId]
+      );
+      if (!schRows || schRows.length === 0) {
+        return res.status(404).json({ error: 'Esquema no encontrado en esta empresa.', code: 'SCHEME_NOT_FOUND' });
+      }
+
       const empIds = Array.isArray(employee_ids) ? employee_ids.map(x => parseInt(x, 10)).filter(x => !isNaN(x)) : [];
 
       if (empIds.length > 0) {
         const placeholders = empIds.map(() => '?').join(',');
         await pool.query(
-          `UPDATE staff_records SET commission_scheme_id = ?, scheme_effective_date = NOW() WHERE tenant_id = ? AND id IN (${placeholders})`,
+          `UPDATE staff_records SET commission_scheme_id = ?, scheme_effective_date = COALESCE(scheme_effective_date, NOW()) WHERE tenant_id = ? AND id IN (${placeholders})`,
           [schemeId, tenantId, ...empIds]
         );
         await pool.query(
@@ -297,6 +357,38 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
         : (isCategoria || isServicio ? (parseFloat(valor) || 0) : 0);
       const finalCantidadMeta = isEspecial && finalOperacion === 'Contar' ? (parseInt(cantidad_meta, 10) || 0) : 0;
       const finalBonoMonto = isEspecial && finalOperacion === 'Contar' ? (parseFloat(bono_monto) || 0) : 0;
+
+      // Verificar pertenencia del esquema al tenant y evitar reglas contradictorias/duplicadas
+      const [schCheck] = await pool.query(
+        'SELECT id FROM commission_schemes WHERE id = ? AND tenant_id = ?',
+        [id, tenantId]
+      );
+      if (!schCheck || schCheck.length === 0) {
+        return res.status(404).json({ error: 'Esquema no encontrado en esta empresa.', code: 'SCHEME_NOT_FOUND' });
+      }
+      if (isCategoria && finalCategoryName) {
+        const [dupCat] = await pool.query(
+          `SELECT id FROM commission_scheme_rules WHERE tenant_id = ? AND scheme_id = ? AND LOWER(rule_type) = 'categoria' AND LOWER(COALESCE(category_name, '')) = LOWER(?) LIMIT 1`,
+          [tenantId, id, finalCategoryName]
+        );
+        if (dupCat && dupCat.length > 0) {
+          return res.status(409).json({
+            error: `Ya existe una regla de categoría para "${finalCategoryName}" en este esquema. Elimina la regla anterior para evitar reglas contradictorias.`,
+            code: 'DUPLICATE_SCHEME_RULE',
+          });
+        }
+      } else if ((isServicio || isEspecial) && finalServiceName) {
+        const [dupSrv] = await pool.query(
+          `SELECT id FROM commission_scheme_rules WHERE tenant_id = ? AND scheme_id = ? AND LOWER(rule_type) = ? AND LOWER(COALESCE(service_name, '')) = LOWER(?) LIMIT 1`,
+          [tenantId, id, cleanRuleType, finalServiceName]
+        );
+        if (dupSrv && dupSrv.length > 0) {
+          return res.status(409).json({
+            error: `Ya existe una regla de tipo "${cleanRuleType}" para "${finalServiceName}" en este esquema. Elimina la regla anterior para evitar contradicciones.`,
+            code: 'DUPLICATE_SCHEME_RULE',
+          });
+        }
+      }
 
       await pool.query(
         `INSERT INTO commission_scheme_rules (
@@ -371,8 +463,10 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
     }
   });
 
-  // --- Liquidaciones (Payouts) ---
+  // --- Liquidaciones (Payouts) — Atómico con FOR UPDATE + Auditoría + Anti doble pago ---
   router.post('/payout', async (req, res) => {
+    const conn = typeof pool.getConnection === 'function' ? await pool.getConnection() : null;
+    const db = conn || pool;
     try {
       const tenantId = req.tenantId;
       const { employee_id, employee_name, commission_ids, metodo_pago, notas, usuario_liquidador } = req.body;
@@ -381,52 +475,104 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
         return res.status(400).json({ error: 'Empleado y comisiones seleccionadas son obligatorias.' });
       }
 
-      const placeholders = commission_ids.map(() => '?').join(',');
-      const [commRows] = await pool.query(
-        `SELECT * FROM employee_commissions_log WHERE tenant_id = ? AND id IN (${placeholders}) AND status = 'Pendiente'`,
-        [tenantId, ...commission_ids]
+      const uniqueIds = [...new Set(commission_ids.map((x) => parseInt(x, 10)).filter((x) => !isNaN(x)))];
+      if (uniqueIds.length === 0) {
+        return res.status(400).json({ error: 'IDs de comisiones inválidos.' });
+      }
+
+      if (conn) await conn.beginTransaction();
+
+      const placeholders = uniqueIds.map(() => '?').join(',');
+      const cleanEmpId = String(employee_id).replace('EMP-', '').trim();
+      const [commRows] = await db.query(
+        `SELECT * FROM employee_commissions_log
+         WHERE tenant_id = ?
+           AND id IN (${placeholders})
+           AND status = 'Pendiente'
+           AND payout_id IS NULL
+           AND (employee_id::text = ? OR employee_id::text = ?)
+         ORDER BY id ASC
+         FOR UPDATE`,
+        [tenantId, ...uniqueIds, cleanEmpId, `EMP-${cleanEmpId}`]
       );
 
       if (commRows.length === 0) {
-        return res.status(400).json({ error: 'No se encontraron comisiones pendientes elegibles para liquidar.' });
+        if (conn) await conn.rollback();
+        return res.status(409).json({
+          error: 'No se encontraron comisiones pendientes elegibles para liquidar (ya fueron liquidadas, anuladas o pertenecen a otro colaborador/empresa).',
+          code: 'NO_ELIGIBLE_PENDING_COMMISSIONS',
+        });
       }
 
-      const montoTotal = commRows.reduce((acc, c) => acc + Number(c.monto_comision), 0);
+      const lockedIds = commRows.map((c) => c.id);
+      const lockedPh = lockedIds.map(() => '?').join(',');
+      const montoTotalCents = commRows.reduce((acc, c) => acc + Math.round((Number(c.monto_comision) || 0) * 100), 0);
+      const montoTotal = Number((montoTotalCents / 100).toFixed(2));
       const dateCode = new Date().toISOString().slice(0, 10).replace(/-/g, '');
       const payoutNumber = `LIQ-${dateCode}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const actorName = usuario_liquidador || req.auth?.name || req.auth?.email || 'Admin';
 
-      const [payoutResult] = await pool.query(
+      const [payoutResult] = await db.query(
         `INSERT INTO commission_payouts (tenant_id, payout_number, employee_id, employee_name, monto_total, total_items, metodo_pago, notas, usuario_liquidador, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
          RETURNING id`,
         [
           tenantId,
           payoutNumber,
-          employee_id,
+          cleanEmpId,
           employee_name || commRows[0].employee_name || 'Empleado',
           montoTotal,
           commRows.length,
           metodo_pago || 'Efectivo',
           notas || '',
-          usuario_liquidador || 'Admin'
+          actorName
         ]
       );
 
       const payoutId = payoutResult.insertId || payoutResult[0]?.id;
 
-      await pool.query(
-        `UPDATE employee_commissions_log SET status = 'Pagado', payout_id = ? WHERE tenant_id = ? AND id IN (${placeholders})`,
-        [payoutId, tenantId, ...commission_ids]
+      await db.query(
+        `UPDATE employee_commissions_log
+         SET status = 'Pagado', payout_id = ?
+         WHERE tenant_id = ? AND id IN (${lockedPh}) AND status = 'Pendiente' AND payout_id IS NULL`,
+        [payoutId, tenantId, ...lockedIds]
       );
+
+      await db.query(
+        `INSERT INTO audit_logs (tenant_id, entity_type, entity_id, action, reason, user_name, details, metadata, created_at)
+         VALUES (?, 'commission_payout', ?, 'COMMISSION_PAYOUT', ?, ?, ?, ?::jsonb, NOW())`,
+        [
+          tenantId,
+          String(payoutId),
+          notas || `Liquidación ${payoutNumber}`,
+          actorName,
+          `Liquidación ${payoutNumber} por RD$ ${montoTotal.toFixed(2)} (${commRows.length} comisión(es))`,
+          JSON.stringify({
+            payout_id: payoutId,
+            payout_number: payoutNumber,
+            employee_id: cleanEmpId,
+            commission_ids: lockedIds,
+            monto_total: montoTotal,
+            metodo_pago: metodo_pago || 'Efectivo',
+          }),
+        ]
+      ).catch(() => {});
+
+      if (conn) await conn.commit();
 
       res.json({
         success: true,
+        payoutId,
         payoutNumber,
         montoTotal,
+        settledCount: lockedIds.length,
         message: `Liquidación ${payoutNumber} realizada exitosamente por RD$ ${montoTotal.toFixed(2)}`
       });
     } catch (err) {
+      if (conn) await conn.rollback().catch(() => {});
       res.status(500).json({ error: err.message });
+    } finally {
+      if (conn) conn.release();
     }
   });
 

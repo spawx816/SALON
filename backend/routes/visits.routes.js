@@ -317,9 +317,26 @@ function createVisitsRouter(pool, helpers = {}) {
           netAfterCommercialDisc = Number((netAfterCommercialDisc / (1 + effectiveTaxRate)).toFixed(2));
         }
 
-        // Verificar esquema asignado al empleado
+        // Verificar esquema asignado al empleado y vigencia (scheme_effective_date)
         const empSchemeId = emp.commission_scheme_id ? Number(emp.commission_scheme_id) : null;
-        const activeScheme = empSchemeId && schemeMapById.has(empSchemeId) ? schemeMapById.get(empSchemeId) : null;
+        let schemeIsEffective = true;
+        if (empSchemeId && emp.scheme_effective_date) {
+          const toCalendarDay = (val) => {
+            if (!val) return null;
+            if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val.trim())) {
+              return val.trim().slice(0, 10);
+            }
+            const d = new Date(val);
+            if (Number.isNaN(d.getTime())) return null;
+            return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santo_Domingo' }).format(d);
+          };
+          const visitDay = toCalendarDay(item.visitedAt);
+          const effectiveDay = toCalendarDay(emp.scheme_effective_date);
+          if (visitDay && effectiveDay && visitDay < effectiveDay) {
+            schemeIsEffective = false;
+          }
+        }
+        const activeScheme = empSchemeId && schemeIsEffective && schemeMapById.has(empSchemeId) ? schemeMapById.get(empSchemeId) : null;
         const schemeRules = activeScheme ? (rulesBySchemeId.get(activeScheme.id) || []) : [];
 
         // Clasificar reglas del esquema según prioridad canónica:
