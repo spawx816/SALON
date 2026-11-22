@@ -533,6 +533,14 @@ async function runTests() {
     const methods = pmList.body.paymentMethods || pmList.body.methods || pmList.body || [];
     assert.ok(Array.isArray(methods) && methods.length === 1 && methods[0].last4 === '4242', 'Método de pago anterior 4242 debe conservarse intacto');
 
+    // Asegurar tasa FX USD_DOP activa para cotizaciones SaaS en salon_saas_test
+    await pool.query(
+      `INSERT INTO saas_fx_rates (pair, rate, rate_scaled_10000, updated_by_user_id, updated_by_email, reason)
+       VALUES ('USD_DOP', 60.0000, 600000, ?, 'test@regresion.local', 'Fixture regresion B7-B8')
+       ON CONFLICT (pair) DO NOTHING`,
+      [ownerId]
+    );
+
     // Verificar que quote-add-branch NO incluye add-on de Membresías
     const branchQuote = await requestJson(baseUrl, 'POST', '/api/salons/quote-add-branch', {
       token: ownerToken,
