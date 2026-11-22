@@ -216,8 +216,9 @@ async function runTests() {
 
     // Scheme & rule already seeded above for emp1 and emp2
 
-    // Emit mixed invoice with all 4 items + B02 NCF via canonical /api/visits/new/checkout
-    const mixedInvoice = await requestJson(baseUrl, 'POST', '/api/visits/new/checkout', {
+    // Emit mixed invoice with all 4 items + B02 NCF via canonical /api/visits/:id/checkout
+    const mixedVisitUuid = crypto.randomUUID();
+    const mixedInvoice = await requestJson(baseUrl, 'POST', `/api/visits/${mixedVisitUuid}/checkout`, {
       token: ownerToken,
       body: {
         client_name: 'Clienta Fiscal Test',
@@ -264,25 +265,32 @@ async function runTests() {
     assert.ok(Number(alisadoComm.commission_amount) > 0, `Comisión debe ser > 0, fue ${alisadoComm.commission_amount}`);
     console.log(`  ✅ [PASS] B1+B5: ITBIS exacto (RD$${savedVisit.itbis} / ${savedVisit.itbis_cents}c), NCF=${savedVisit.ncf}, comisión persistida RD$${alisadoComm.commission_amount}.`);
 
-    // Test employee discount without duplication via canonical /api/visits/new/checkout
-    const empDiscVisit = await requestJson(baseUrl, 'POST', '/api/visits/new/checkout', {
-      token: ownerToken,
-      body: {
-        client_name: 'Estilista Uno',
-        salon_id: branch1Id,
-        cash_register_id: cashRegisterId,
-        metodo_pago: 'Nomina',
-        employee_consumption: {
-          employee_id: emp1Id,
-          employee_name: 'Estilista Uno',
-          monto: 500,
-          authorized: true,
-        },
-        items_detail: [{ id: svcExento.body.id, nombre: 'Lavado Exento', precio: 500, precioBase: 500, precioAplicado: 500, cantidad: 1, estilista_id: emp2Id, empleado_id: emp2Id, estilista: 'Estilista Dos' }],
+    // Test employee discount without duplication via canonical /api/visits/:id/checkout (and idempotent retry)
+    const empDiscVisitUuid = crypto.randomUUID();
+    const empDiscPayload = {
+      client_name: 'Estilista Uno',
+      salon_id: branch1Id,
+      cash_register_id: cashRegisterId,
+      metodo_pago: 'Nomina',
+      employee_consumption: {
+        employee_id: emp1Id,
+        employee_name: 'Estilista Uno',
+        monto: 500,
+        authorized: true,
       },
+      items_detail: [{ id: svcExento.body.id, nombre: 'Lavado Exento', precio: 500, precioBase: 500, precioAplicado: 500, cantidad: 1, estilista_id: emp2Id, empleado_id: emp2Id, estilista: 'Estilista Dos' }],
+    };
+    const empDiscVisit = await requestJson(baseUrl, 'POST', `/api/visits/${empDiscVisitUuid}/checkout`, {
+      token: ownerToken,
+      body: empDiscPayload,
     });
     assert.ok(empDiscVisit.status === 200 || empDiscVisit.status === 201, `empDiscVisit failed: ${empDiscVisit.text}`);
-    const [edRows] = await pool.query('SELECT * FROM employee_discounts WHERE tenant_id = ? AND visit_id = ?', [tenantId, empDiscVisit.body.id]);
+    // Reintento idempotente sobre el mismo visitId no debe duplicar el descuento
+    await requestJson(baseUrl, 'POST', `/api/visits/${empDiscVisitUuid}/checkout`, {
+      token: ownerToken,
+      body: empDiscPayload,
+    });
+    const [edRows] = await pool.query('SELECT * FROM employee_discounts WHERE tenant_id = ? AND visit_id = ?', [tenantId, empDiscVisitUuid]);
     assert.strictEqual(edRows.length, 1, `Debe existir exactamente 1 descuento por nómina sin duplicación (encontrados: ${edRows.length})`);
     console.log('  ✅ [PASS] B1: Descuento por nómina de empleado persistido sin duplicación.');
 
@@ -438,8 +446,8 @@ async function runTests() {
       [tenantId, invProdId, locId]
     );
 
-    // Attempt sale at stock = 0 via canonical /api/visits/new/checkout
-    const zeroStockSale = await requestJson(baseUrl, 'POST', '/api/visits/new/checkout', {
+    // Attempt sale at stock = 0 via canonical /api/visits/:id/checkout
+    const zeroStockSale = await requestJson(baseUrl, 'POST', `/api/visits/${crypto.randomUUID()}/checkout`, {
       token: ownerToken,
       body: {
         client_name: 'Clienta Stock Cero',
@@ -465,8 +473,8 @@ async function runTests() {
       items_detail: [{ id: prodServiceId, product_id: invProdId, nombre: 'Shampoo Keratina Test', precio: 850, precioBase: 850, precioAplicado: 850, cantidad: 1, tipo: 'Producto', item_type: 'PRODUCTO', track_stock: true }],
     };
     const [c1, c2] = await Promise.all([
-      requestJson(baseUrl, 'POST', '/api/visits/new/checkout', { token: ownerToken, body: salePayload }),
-      requestJson(baseUrl, 'POST', '/api/visits/new/checkout', { token: ownerToken, body: salePayload }),
+      requestJson(baseUrl, 'POST', `/api/visits/${crypto.randomUUID()}/checkout`, { token: ownerToken, body: salePayload }),
+      requestJson(baseUrl, 'POST', `/api/visits/${crypto.randomUUID()}/checkout`, { token: ownerToken, body: salePayload }),
     ]);
     const statuses = [c1.status, c2.status].sort((a, b) => a - b);
     assert.ok(
