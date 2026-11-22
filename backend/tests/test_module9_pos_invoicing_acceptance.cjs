@@ -124,9 +124,9 @@ async function runModule9PosInvoicingAcceptance() {
     const serviceId = crypto.randomUUID();
     const productId = crypto.randomUUID();
     await pool.query(
-      `INSERT INTO services (id, tenant_id, nombre, precio, item_type, tax_mode, tax_rate, activo)
-       VALUES (?, ?, 'Lavado M9', 600, 'SERVICIO', 'EXENTO', 0, 1),
-              (?, ?, 'Shampoo M9', 300, 'PRODUCTO', 'EXENTO', 0, 1)`,
+      `INSERT INTO services (id, tenant_id, name, nombre, price, precio, item_type, tax_mode, tax_rate, activo)
+       VALUES (?, ?, 'Lavado M9', 'Lavado M9', 600, 600, 'SERVICIO', 'EXENTO', 0, 1),
+              (?, ?, 'Shampoo M9', 'Shampoo M9', 300, 300, 'PRODUCTO', 'EXENTO', 0, 1)`,
       [serviceId, tenantA, productId, tenantA]
     );
 
