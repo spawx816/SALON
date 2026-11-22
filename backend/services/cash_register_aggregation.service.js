@@ -165,6 +165,34 @@ function buildCanonicalAppliedPayments({
     }
   }
 
+  // Normalización canónica de efectivo neto: si el efectivo entregado excede el total de la venta
+  // (porque hubo cambio/devuelta), la caja registra únicamente el efectivo neto retenido de la venta.
+  let cashTenderedCents = buckets.efectivo_cents;
+  let changeCents = 0;
+  if (expectedTotalCents >= 0 && buckets.efectivo_cents > 0) {
+    const nonCashCents =
+      buckets.tarjeta_cents +
+      buckets.transferencia_cents +
+      buckets.gift_card_cents +
+      buckets.otros_cents +
+      buckets.consumo_empleado_cents +
+      buckets.plan_beauty_cents;
+    const maxNetCashCents = Math.max(0, expectedTotalCents - nonCashCents);
+    if (buckets.efectivo_cents > maxNetCashCents) {
+      changeCents = buckets.efectivo_cents - maxNetCashCents;
+      buckets.efectivo_cents = maxNetCashCents;
+      let remainingCashToAssign = maxNetCashCents;
+      for (const entry of breakdown) {
+        if (entry.bucket === 'efectivo') {
+          const capped = Math.min(entry.amount_cents, remainingCashToAssign);
+          entry.amount_cents = capped;
+          entry.amount = fromCents(capped);
+          remainingCashToAssign = Math.max(0, remainingCashToAssign - capped);
+        }
+      }
+    }
+  }
+
   return {
     efectivo: fromCents(buckets.efectivo_cents),
     tarjeta: fromCents(buckets.tarjeta_cents),
@@ -181,6 +209,8 @@ function buildCanonicalAppliedPayments({
     consumo_empleado_cents: buckets.consumo_empleado_cents,
     plan_beauty_cents: buckets.plan_beauty_cents,
     plan_beauty_count: buckets.plan_beauty_count,
+    cash_tendered_cents: cashTenderedCents,
+    change_cents: changeCents,
     breakdown,
     currency: 'DOP',
   };

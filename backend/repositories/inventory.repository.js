@@ -3,6 +3,12 @@
  * Toda consulta tenant-owned incluye obligatoriamente tenant_id.
  */
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value) {
+  return typeof value === 'string' && UUID_REGEX.test(value.trim());
+}
+
 class InventoryRepository {
   constructor(pool = null) {
     this.pool = pool;
@@ -97,10 +103,16 @@ class InventoryRepository {
 
   async getProductById(tenantId, productId) {
     if (!tenantId || !productId) throw new Error('tenant_id y productId son requeridos');
+    if (!isValidUuid(String(productId))) {
+      const err = new Error('El identificador del producto no es un UUID válido.');
+      err.code = 'INVALID_PRODUCT_ID';
+      err.statusCode = 400;
+      throw err;
+    }
     if (this.pool) {
       const [rows] = await this.pool.query(
         "SELECT * FROM services WHERE id = ? AND tenant_id = ? AND item_type = 'PRODUCTO' LIMIT 1",
-        [productId, tenantId]
+        [String(productId).trim(), tenantId]
       );
       return this._mapServiceToProduct(rows[0] || null);
     }

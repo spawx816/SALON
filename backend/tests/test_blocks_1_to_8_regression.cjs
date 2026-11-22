@@ -607,8 +607,120 @@ async function runTests() {
     assert.strictEqual(Number(q4Obj.newAddonMonthlyUsd), 198, '2 bloques deben cotizar US$198/mes');
     console.log('  ✅ [PASS] B8: Bloques 0/1/3/4/6/7 y capacidad adquirida vs asignada verificados.');
 
+    // =========================================================================
+    // BLOQUE 9b: REGRESIÓN EXACTA CHECKOUT POS (UUID vs UI KEY, EFECTIVO NETO CON CAMBIO, SIN NCF, DOBLE CLIC)
+    // =========================================================================
+    console.log('[B9b] Probando contrato UUID de líneas POS, rechazo 400 sin SQL, efectivo neto con cambio y doble clic...');
+    const prodPosRes = await requestJson(baseUrl, 'POST', '/api/services', {
+      token: ownerToken,
+      body: {
+        nombre: 'Acondicionador POS 450',
+        precio: 450,
+        categoria: 'Productos',
+        tipo: 'Producto',
+        item_type: 'PRODUCTO',
+        aplica_itbis: 1,
+        tax_rate: 18,
+        tax_mode: 'exclusive',
+        track_stock: true,
+        initial_stock: 3,
+        salon_id: branch1Id,
+      },
+    });
+    assert.ok(prodPosRes.status === 200 || prodPosRes.status === 201, `prodPosRes failed: ${prodPosRes.text}`);
+    const prodPosId = prodPosRes.body.id || prodPosRes.body.service?.id;
+    assert.ok(prodPosId, 'prodPosId requerido');
+
+    // 1. Producto con ID temporal float SIN product_id ni service_id válidos -> 400 estructurado (SIN exponer SQL)
+    const badUuidTicketId = `TKT-BAD-${Date.now()}`;
+    const badUuidRes = await requestJson(baseUrl, 'POST', `/api/visits/${badUuidTicketId}/checkout`, {
+      token: ownerToken,
+      body: {
+        salon_id: branch1Id,
+        cash_register_id: cashRegisterId,
+        client_id: 'INVITADO',
+        client_name: 'Cliente Invitado',
+        metodo_pago: 'Efectivo',
+        ncf_type: 'NONE',
+        items_detail: [
+          { id: 1795315192850.0046, nombre: 'Acondicionador POS 450', item_type: 'PRODUCTO', tipo_item: 'Producto', precioBase: 450, precioAplicado: 450, cantidad: 1, aplica_itbis: 1, tax_rate: 0.18, tax_mode: 'exclusive' }
+        ],
+      },
+    });
+    assert.strictEqual(badUuidRes.status, 400, `Esperado 400 para product_id float, recibido ${badUuidRes.status}: ${badUuidRes.text}`);
+    assert.strictEqual(badUuidRes.body.code, 'INVALID_PRODUCT_ID');
+    assert.ok(!String(badUuidRes.body.error || '').toLowerCase().includes('invalid input syntax for type uuid'), 'No debe exponer error SQL crudo al frontend');
+
+    // 2. Caso exacto de la captura: producto con ui_line_id float + service_id UUID real, RD$450 + 18% ITBIS = RD$531,
+    //    efectivo entregado RD$600 (cambio RD$69), sin comprobante fiscal (NONE), cliente invitado.
+    const captureTicketId = `TKT-CAP-${Date.now()}`;
+    const capturePayload = {
+      salon_id: branch1Id,
+      cash_register_id: cashRegisterId,
+      client_id: 'INVITADO',
+      client_name: 'Cliente Invitado',
+      metodo_pago: 'Efectivo',
+      monto_recibido: 600,
+      devuelta: 69,
+      ncf_type: 'NONE',
+      applied_payments: [{ method: 'Efectivo', amount: 600 }],
+      items_detail: [
+        {
+          id: 1795315192850.0046,
+          ui_line_id: 'ui-line-1795315192850',
+          service_id: prodPosId,
+          nombre: 'Acondicionador POS 450',
+          item_type: 'PRODUCTO',
+          tipo_item: 'Producto',
+          precioBase: 450,
+          precioAplicado: 450,
+          cantidad: 1,
+          aplica_itbis: 1,
+          tax_rate: 0.18,
+          tax_mode: 'exclusive',
+        },
+      ],
+    };
+    const capRes1 = await requestJson(baseUrl, 'POST', `/api/visits/${captureTicketId}/checkout`, {
+      token: ownerToken,
+      body: capturePayload,
+    });
+    assert.strictEqual(capRes1.status, 200, `Checkout captura falló: ${capRes1.text}`);
+    assert.strictEqual(Number(capRes1.body.subtotal), 450);
+    assert.strictEqual(Number(capRes1.body.itbis), 81);
+    assert.strictEqual(Number(capRes1.body.total), 531);
+    assert.strictEqual(capRes1.body.ncf, null, 'Sin comprobante fiscal no debe asignar NCF');
+
+    // Verificar en BD que applied_payments registró efectivo NETO = 531.00 (53100c), NO 600.00, y cambio = 69.00 (6900c)
+    const [capVisitRow] = await pool.query(
+      'SELECT total_cents, itbis_cents, applied_payments FROM visits WHERE id = ? AND tenant_id = ?',
+      [captureTicketId, tenantId]
+    );
+    assert.strictEqual(Number(capVisitRow[0].total_cents), 53100);
+    assert.strictEqual(Number(capVisitRow[0].itbis_cents), 8100);
+    const ap = typeof capVisitRow[0].applied_payments === 'string'
+      ? JSON.parse(capVisitRow[0].applied_payments)
+      : capVisitRow[0].applied_payments;
+    assert.strictEqual(Number(ap.efectivo_cents), 53100, `Caja debe registrar efectivo neto 53100c (no 60000c), recibido: ${JSON.stringify(ap)}`);
+    assert.strictEqual(Number(ap.change_cents), 6900, `Cambio debe quedar registrado como 6900c, recibido: ${JSON.stringify(ap)}`);
+
+    // 3. Reintento / doble clic idempotente sobre el mismo ticket: NO debe descontar stock dos veces
+    const capRes2 = await requestJson(baseUrl, 'POST', `/api/visits/${captureTicketId}/checkout`, {
+      token: ownerToken,
+      body: capturePayload,
+    });
+    assert.strictEqual(capRes2.status, 200);
+    assert.strictEqual(Boolean(capRes2.body.idempotent), true, 'Reintento sobre mismo ticket debe ser idempotente');
+
+    const [stockAfterCapture] = await pool.query(
+      'SELECT quantity FROM inventory_stock WHERE tenant_id = ? AND product_id = ?',
+      [tenantId, prodPosId]
+    );
+    assert.strictEqual(Number(stockAfterCapture[0].quantity), 2, 'Stock debe pasar de 3 a 2 (1 sola deducción, sin duplicar en doble clic)');
+    console.log('  ✅ [PASS] B9b: Contrato UUID POS, 400 sin SQL, efectivo neto RD$531 (cambio RD$69), stock atómico y doble clic idempotente verificados.');
+
     console.log('\n========================================================================');
-    console.log('✅ TODOS LOS BLOQUES 1–8 DE REGRESIÓN PASARON EN salon_saas_test');
+    console.log('✅ TODOS LOS BLOQUES 1–9b DE REGRESIÓN PASARON EN salon_saas_test');
     console.log('========================================================================');
   } finally {
     try {

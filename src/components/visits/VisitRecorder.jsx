@@ -119,11 +119,17 @@ const getBirthdayCountdown = (client) => {
   return { isToday: false, isAvailable: false, label: 'Cumpleaños no registrado', text: 'Cumpleaños no registrado', diffDays: null };
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuidString = (val) => typeof val === 'string' && UUID_REGEX.test(val.trim());
+const createUiLineId = () => `ui-line-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
 const VisitRecorder = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
   const { hasMembershipsAddon, hasFeature } = useEntitlements();
+  const checkoutInFlightRef = useRef(false);
+  const pendingDirectTicketIdRef = useRef(null);
 
   // `hasProPlan` = add-on de Suscripciones/Membresías B2C activo. Clientes/CRM está incluido en Plan Principal.
   const isSuperAdmin = currentUser?.role?.toLowerCase() === 'superadmin';
@@ -1446,6 +1452,7 @@ const VisitRecorder = () => {
   };
 
   const resetPosToBlankState = () => {
+    pendingDirectTicketIdRef.current = null;
     setSelectedTicket(null);
     setLineItems([]);
     setAppliedPayments([]);
@@ -1571,10 +1578,28 @@ const VisitRecorder = () => {
       })
       .map((it, idx) => {
         const p = Number(it.precioAplicado || it.precioBase || it.precio || 0);
+        const itemName = it.nombre || it.name || it.servicio || 'Servicio';
+        const isProd =
+          String(it.item_type || it.tipo_item || '').trim().toUpperCase() === 'PRODUCTO' ||
+          Boolean(it.is_product) ||
+          Boolean(it.product_id);
+        const catalogUuid =
+          (it.product_id && isUuidString(String(it.product_id)) ? String(it.product_id).trim() : null) ||
+          (it.service_id && isUuidString(String(it.service_id)) ? String(it.service_id).trim() : null) ||
+          (it.id && isUuidString(String(it.id)) ? String(it.id).trim() : null) ||
+          (() => {
+            const found = availableServices.find(
+              (s) => (s.nombre || '').trim().toLowerCase() === itemName.trim().toLowerCase()
+            );
+            return found?.id && isUuidString(String(found.id)) ? String(found.id).trim() : null;
+          })();
         return {
           ...it,
-          id: it.id || `item-${Date.now()}-${idx}`,
-          nombre: it.nombre || it.name || it.servicio || 'Servicio',
+          ui_line_id: it.ui_line_id || createUiLineId(),
+          id: catalogUuid || undefined,
+          service_id: catalogUuid || (it.isPlanWash ? it.service_id : null),
+          product_id: isProd ? catalogUuid : undefined,
+          nombre: itemName,
           precioBase: Number(it.precioBase !== undefined ? it.precioBase : p),
           precioAplicado: Number(it.precioAplicado !== undefined ? it.precioAplicado : p),
           cantidad: Number(it.cantidad || 1),
@@ -2278,7 +2303,7 @@ const VisitRecorder = () => {
         return;
       }
       const newPromoTreatmentItem = {
-        id: Date.now() + Math.random(),
+        ui_line_id: createUiLineId(),
         service_id: 'plan-beauty-treatment-promo',
         nombre: 'Tratamiento Profundo (Regalo Membresía)',
         precioBase: 0,
@@ -2301,7 +2326,7 @@ const VisitRecorder = () => {
       : 'Lavado y Secado (Membresía)';
 
     const newWashItem = {
-      id: Date.now() + Math.random(),
+      ui_line_id: createUiLineId(),
       service_id: isExtra ? 'plan-beauty-promo' : 'plan-beauty-wash',
       nombre: washTitle,
       precioBase: 0,
@@ -2382,9 +2407,15 @@ const VisitRecorder = () => {
         ? (Number(service.aplica_itbis) === 1 || service.aplica_itbis === true ? 1 : 0)
         : (Number(catalogItem?.tax_rate || 0) > 0 ? 1 : 0));
 
+    const catalogEntityId =
+      (match?.id && isUuidString(String(match.id)) ? String(match.id).trim() : null) ||
+      (service?.id && isUuidString(String(service.id)) ? String(service.id).trim() : null);
+
     const newItem = {
-      id: Date.now() + Math.random(),
-      service_id: match?.id || service.id || `srv-${Date.now()}`,
+      ui_line_id: createUiLineId(),
+      id: catalogEntityId || undefined,
+      service_id: catalogEntityId,
+      product_id: isPhysicalProduct ? catalogEntityId : undefined,
       nombre: isCoveredByPlan ? `${realName} (Membresía)` : realName,
       categoria: catalogItem?.categoria || catalogItem?.commission_category_nombre || 'General',
       item_type: isPhysicalProduct ? 'PRODUCTO' : 'SERVICIO',
@@ -2417,8 +2448,9 @@ const VisitRecorder = () => {
       const matchedSrv = availableServices.find(s => isLavadoSencillo(s.nombre));
       const regularPrice = matchedSrv ? (parseFloat(matchedSrv.precio) || 600) : 600;
       const secondWash = {
-        id: Date.now() + Math.random(),
-        service_id: matchedSrv?.id || `srv-wash-extra-${Date.now()}`,
+        ui_line_id: createUiLineId(),
+        id: matchedSrv?.id && isUuidString(String(matchedSrv.id)) ? String(matchedSrv.id).trim() : undefined,
+        service_id: matchedSrv?.id && isUuidString(String(matchedSrv.id)) ? String(matchedSrv.id).trim() : null,
         nombre: `${cleanName} (Adicional)`,
         precioBase: regularPrice,
         precioAplicado: regularPrice,
@@ -3135,15 +3167,37 @@ const VisitRecorder = () => {
     }
     setLoading(true);
     try {
-      const ticketIdToUse = selectedTicket?.id || `TKT-${Date.now()}`;
+      if (!selectedTicket?.id && !pendingDirectTicketIdRef.current) {
+        pendingDirectTicketIdRef.current = `TKT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      }
+      const ticketIdToUse = selectedTicket?.id || pendingDirectTicketIdRef.current;
       const finalClientName = clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || 'Cliente General';
       const finalClientId = clientFound?.id || selectedTicket?.client_id || 'INVITADO';
+
+      const canonicalLineItems = lineItems.map((it) => {
+        const isProd =
+          String(it.item_type || it.tipo_item || '').trim().toUpperCase() === 'PRODUCTO' ||
+          Boolean(it.is_product) ||
+          Boolean(it.product_id);
+        const resolvedUuid =
+          (it.product_id && isUuidString(String(it.product_id)) ? String(it.product_id).trim() : null) ||
+          (it.service_id && isUuidString(String(it.service_id)) ? String(it.service_id).trim() : null) ||
+          (it.id && isUuidString(String(it.id)) ? String(it.id).trim() : null);
+        const { ui_line_id, ...rest } = it;
+        return {
+          ...rest,
+          ui_line_id: ui_line_id || createUiLineId(),
+          id: resolvedUuid || undefined,
+          service_id: resolvedUuid || (it.isPlanWash ? it.service_id : null),
+          product_id: isProd ? resolvedUuid : undefined
+        };
+      });
 
       const res = await dataService.savePrecuenta({
         id: ticketIdToUse,
         ticketId: ticketIdToUse,
         total: finalTotalAmount,
-        items_detail: lineItems,
+        items_detail: canonicalLineItems,
         client_id: finalClientId,
         client_name: finalClientName,
         salon_id: salonId,
@@ -3176,6 +3230,7 @@ const VisitRecorder = () => {
 
   // Finalize Billing / Checkout with Strict Validations
   const handleFinalizeCheckout = async () => {
+    if (checkoutInFlightRef.current || loading) return;
     if (!activeRegister) {
       setShowRegisterOpenModal(true);
       return;
@@ -3311,6 +3366,8 @@ const VisitRecorder = () => {
   };
 
   const executeCheckout = async (customPayments = null, chosenNcfType = null, customRnc = null, customRazonSocial = null) => {
+    if (checkoutInFlightRef.current) return;
+    checkoutInFlightRef.current = true;
     setLoading(true);
     try {
       const activePayments = customPayments || appliedPayments;
@@ -3370,9 +3427,31 @@ const VisitRecorder = () => {
         finalMontoRecibido = totalAppliedSum;
       }
 
-      const ticketIdToUse = selectedTicket?.id || `TKT-${Date.now()}`;
+      if (!selectedTicket?.id && !pendingDirectTicketIdRef.current) {
+        pendingDirectTicketIdRef.current = `TKT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      }
+      const ticketIdToUse = selectedTicket?.id || pendingDirectTicketIdRef.current;
       const finalClientName = clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || 'Cliente General';
       const finalClientId = clientFound?.id || selectedTicket?.client_id || 'INVITADO';
+
+      const canonicalLineItems = lineItems.map((it) => {
+        const isProd =
+          String(it.item_type || it.tipo_item || '').trim().toUpperCase() === 'PRODUCTO' ||
+          Boolean(it.is_product) ||
+          Boolean(it.product_id);
+        const resolvedUuid =
+          (it.product_id && isUuidString(String(it.product_id)) ? String(it.product_id).trim() : null) ||
+          (it.service_id && isUuidString(String(it.service_id)) ? String(it.service_id).trim() : null) ||
+          (it.id && isUuidString(String(it.id)) ? String(it.id).trim() : null);
+        const { ui_line_id, ...rest } = it;
+        return {
+          ...rest,
+          ui_line_id: ui_line_id || createUiLineId(),
+          id: resolvedUuid || undefined,
+          service_id: resolvedUuid || (it.isPlanWash ? it.service_id : null),
+          product_id: isProd ? resolvedUuid : undefined
+        };
+      });
 
       const isPlanRedemptionCheck = (
         finalTotalAmount === 0 ||
@@ -3398,7 +3477,7 @@ const VisitRecorder = () => {
           monto_recibido: finalMontoRecibido,
           devuelta: finalDevuelta,
           metodo_pago: finalMetodoPago,
-          items_detail: lineItems,
+          items_detail: canonicalLineItems,
           applied_payments: sanitizedAppliedPayments,
           client_id: finalClientId,
           client_name: finalClientName,
@@ -3486,6 +3565,7 @@ const VisitRecorder = () => {
     } catch (err) {
       alert('Error al finalizar factura: ' + err.message);
     } finally {
+      checkoutInFlightRef.current = false;
       setLoading(false);
     }
   };

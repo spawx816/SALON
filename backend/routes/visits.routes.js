@@ -5,6 +5,27 @@ const { getBranchScope, isBranchAuthorized } = require('../middleware/rbac.middl
 const { permissionMapGrants } = require('../domain/rbac_catalog');
 const { buildCanonicalAppliedPayments } = require('../services/cash_register_aggregation.service');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUuid(value) {
+  return typeof value === 'string' && UUID_REGEX.test(value.trim());
+}
+
+/**
+ * Resuelve el UUID canónico de un producto de catálogo en una línea del carrito POS.
+ * Separa identificadores temporales de UI (ej. Date.now()+Math.random()) de IDs persistidos.
+ * Nunca fabrica un UUID arbitrario cuando falta la referencia real.
+ */
+function resolveCanonicalProductId(item) {
+  if (!item || typeof item !== 'object') return null;
+  const candidates = [item.product_id, item.service_id, item.id];
+  for (const candidate of candidates) {
+    if (candidate !== undefined && candidate !== null && isValidUuid(String(candidate))) {
+      return String(candidate).trim();
+    }
+  }
+  return null;
+}
+
 function createVisitsRouter(pool, helpers = {}) {
   const router = express.Router();
   const { sendSurveyEmail, inventoryService } = helpers;
@@ -1121,9 +1142,17 @@ function createVisitsRouter(pool, helpers = {}) {
         for (const [idx, it] of rawItems.entries()) {
           const isProduct = String(it.tipo_item || it.item_type || '').toUpperCase() === 'PRODUCTO' || it.is_product || Boolean(it.product_id);
           if (isProduct) {
-            const pId = it.product_id || it.id;
+            const pId = resolveCanonicalProductId(it);
             const q = Number(it.cantidad || it.qty || it.quantity || 1);
-            if (pId && q > 0) {
+            if (!pId) {
+              return res.status(400).json({
+                error: 'Uno de los productos del carrito no tiene un identificador de catálogo válido. Retíralo y vuelve a seleccionarlo desde el catálogo.',
+                code: 'INVALID_PRODUCT_ID',
+                field: 'items_detail.product_id',
+                line_index: idx
+              });
+            }
+            if (q > 0) {
               productLines.push({ productId: pId, quantity: q, lineId: idx });
             }
           }
@@ -1131,7 +1160,14 @@ function createVisitsRouter(pool, helpers = {}) {
 
         if (productLines.length > 0) {
           if (location_id) {
-            resolvedLocationId = location_id;
+            if (!isValidUuid(String(location_id))) {
+              return res.status(400).json({
+                error: 'El identificador de ubicación de inventario es inválido.',
+                code: 'INVALID_LOCATION_ID',
+                field: 'location_id'
+              });
+            }
+            resolvedLocationId = String(location_id).trim();
           } else {
             try {
               const branchLoc = await inventoryService.getDefaultLocation(tenantId, salon_id);
@@ -1719,7 +1755,16 @@ function createVisitsRouter(pool, helpers = {}) {
         try { await txConn.query('ROLLBACK'); } catch (_) { }
       }
       console.error('[CHECKOUT TICKET ERROR]:', err);
-      res.status(500).json({ error: err.message });
+      if (err && (err.code === 'INVALID_PRODUCT_ID' || err.code === '22P02')) {
+        return res.status(400).json({
+          error: 'Uno de los datos o identificadores enviados en la factura no es válido. Revisa las líneas del carrito e intenta nuevamente.',
+          code: err.code === 'INVALID_PRODUCT_ID' ? 'INVALID_PRODUCT_ID' : 'INVALID_INPUT_IDENTIFIER'
+        });
+      }
+      res.status(500).json({
+        error: 'No se pudo finalizar la factura por un error interno. Tu ticket y carrito siguen intactos para reintentar.',
+        code: 'CHECKOUT_INTERNAL_ERROR'
+      });
     } finally {
       if (txConn) {
         try { txConn.release(); } catch (_) { }
@@ -1791,9 +1836,9 @@ function createVisitsRouter(pool, helpers = {}) {
           const rawItems = typeof serializedItems === 'string' ? JSON.parse(serializedItems) : (items_detail || []);
           if (Array.isArray(rawItems)) {
             for (const [idx, it] of rawItems.entries()) {
-              const isProduct = it.tipo_item === 'Producto' || it.is_product || Boolean(it.product_id);
+              const isProduct = String(it.tipo_item || it.item_type || '').toUpperCase() === 'PRODUCTO' || it.is_product || Boolean(it.product_id);
               if (isProduct) {
-                const pId = it.product_id || it.id;
+                const pId = resolveCanonicalProductId(it);
                 const q = Number(it.cantidad || it.qty || it.quantity || 1);
                 if (pId && q > 0) {
                   try {
@@ -1959,7 +2004,7 @@ function createVisitsRouter(pool, helpers = {}) {
               for (const [idx, it] of rawItems.entries()) {
                 const isProduct = String(it.tipo_item || it.item_type || '').toUpperCase() === 'PRODUCTO' || it.is_product || Boolean(it.product_id);
                 if (isProduct) {
-                  const pId = it.product_id || it.id;
+                  const pId = resolveCanonicalProductId(it);
                   const q = Number(it.cantidad || it.qty || it.quantity || 1);
                   if (pId && q > 0) {
                     // Always restore to the exact location_id where the original SALE movement was deducted
