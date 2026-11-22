@@ -2,7 +2,7 @@
 
 Documento único y autoritativo de validación sistemática de Etereas por módulos y procesos de negocio.
 
-- **Release candidato actual**: commit `4610b28` / imagen `salonpro-app:4610b28` (staging).
+- **Release candidato actual**: commit `8e5483d` / imagen `salonpro-app:8e5483d` (staging).
 - **Base de pruebas automatizadas**: `salon_saas_test` (PostgreSQL 17, aislada con guardas canónicas).
 - **Entorno de producción**: intacto (`salon_saas_prod` sin escrituras, sin cargos CardNet reales, `SAAS_RENEWAL_WORKER_ENABLED` deshabilitado, `DGII_MODE=disabled` / `DGII_ENABLED` deshabilitado).
 
@@ -41,7 +41,7 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **8** | **Cajas (apertura, movimientos, cierre, arqueo)** (`apertura atómica → ingresos/gastos/retiros → ventas efectivo/tarjeta/anulaciones → cierre atómico/PIN → reporte → alcance sucursal`) | Módulos 1, 2, 9 | `bcb4cf1` (`01d365a`) | `test_module8_cash_registers_acceptance.cjs` (6/6), `test_cash_reconciliation.cjs` (7/7), `test_blocks_1_to_8_regression.cjs` + DOM real `/cajas` | **`aprobado`** | Ninguno (`M8-01`–`M8-04` corregidos, verificados y desplegados en staging `bcb4cf1`) |
 | **9** | **POS, tickets y facturación convencional** (`ticket pendiente → borrador → precuenta 0 NCF → checkout B02/NONE + efectivo neto + stock → inmutabilidad → anulación atómica → reimpresión`) | Módulos 1, 5, 6, 7, 8, Secuencias NCF | `fa15f28` | `test_module9_pos_invoicing_acceptance.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` (B1/B5/B6/B9b) + DOM real `/visitas`, `/facturas` | **`aprobado`** | Ninguno (`M9-01`–`M9-03` corregidos, verificados y desplegados en staging `fa15f28`) |
 | **10** | **Comisiones y descuentos** (`descuentos colaborador CRUD → inmutabilidad Saldado/Anulado → reasignación comisión → cascada anulación POS → TO_CHAR PG`) | Módulos 3, 4, 9 | `4610b28` | `test_module10_commissions_discounts_acceptance.cjs` (5/5), `test_module4_commissions_acceptance.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` + DOM real `/descuentos-empleados`, `/comisiones` | **`aprobado`** | Ninguno (`M10-01`–`M10-04` corregidos, verificados y desplegados en staging `4610b28`; decisión de fallback `15%` sigue rastreada en Módulo 4) |
-| **11** | Nómina | Módulos 3, 10 | — | `test_blocks_1_to_8_regression.cjs` (B3) | `pendiente` | — |
+| **11** | **Nómina** (`generación salario+comisiones+descuentos → borrador seguro → RBAC 3 niveles → aprobación atómica+snapshot+saldado → pago administrativo → inmutabilidad`) | Módulos 3, 10 | `8e5483d` (`885e574`) | `test_module11_payroll_acceptance.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` (B3) + DOM real `/nomina` | **`aprobado`** | Ninguno (`M11-01`–`M11-02` corregidos, verificados y desplegados en staging `8e5483d`) |
 | **12** | Contabilidad y reportes (Egresos, 606, 607, IT-1, NCF) | Módulos 2, 9 | — | `test_blocks_1_to_8_regression.cjs` (B4), RBAC Contabilidad | `pendiente` | — |
 | **13** | Membresías (Add-on US$99/bloque 3 suc.) | Módulos 7, 9, 14 | — | `test_blocks_1_to_8_regression.cjs` (B8) | `pendiente` | — |
 | **14** | Suscripción SaaS y pagos | Módulo 2 (Owner), CardNet (simulado) | — | `test_saas_branch_contracting.cjs` (9/9), B7/B8 | `pendiente` | Credenciales live CardNet / worker recurrente |
@@ -412,3 +412,36 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **M10-DOM** | Flujo real Chromium en `/descuentos-empleados` y `/comisiones` | `discountsLoaded=true`, `commissionsLoaded=true`, `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:4610b28`) | **PASS** |
 
 - **Gates y Despliegue**: `test:scanner` (0 violaciones), `test:runner-guards` (PASS), `lint`, `build`, `verify:release`, `graphify update .`, `test_module4_commissions_acceptance.cjs` (6/6 PASS), `test_blocks_1_to_8_regression.cjs` (PASS), limpieza de `salon_saas_test`, respaldo previo de `salon_saas_staging` y despliegue verificado de `salonpro-app:4610b28` (`Up (healthy)`, `/api/health` → `200`). **Estado: APROBADO**.
+
+---
+
+## Módulo 11 — Nómina
+
+### A. Análisis de Arquitectura y Dependencias (Graphify + Código)
+
+- **UI**: [PayrollModule.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/payroll/PayrollModule.jsx) (`/nomina`), [PayrollHistoryView.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/payroll/PayrollHistoryView.jsx), [PayrollCalculationSettingsModal.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/payroll/PayrollCalculationSettingsModal.jsx), [PayrollComparisonModal.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/payroll/PayrollComparisonModal.jsx).
+- **Backend**: [payroll.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/payroll.routes.js) (`/api/payroll/periods`, `/generate`, `/save-draft`, `/bulk-apply`, `/approve`, `/periods/:id/register-payment`, `/periods/:id/sync-real-data`, `/audit-logs/:payroll_id`, `DELETE /periods/:id`, `/regalias/:year`).
+- **Tablas**: `payroll_periods`, `payroll_items`, `payroll_audit_logs`, `staff_records`, `employee_commissions_log`, `employee_discounts`, `attendance_logs`.
+- **Reglas confirmadas**:
+  - Separación RBAC de 3 niveles de escritura: `payroll.generate` (generar/editar borrador/eliminar borrador), `payroll.approve` (aprobar y sellar snapshot inmutable), `payroll.pay` (registrar pago administrativo interno sin transferencia bancaria automática).
+  - Aprobación transaccional con `FOR UPDATE` que marca `is_immutable = 1`, guarda `snapshot_json`, liquida `employee_discounts` como `Saldado` y comisiones con `payout_id IS NULL` como `Pagada` (evitando doble pago).
+  - Novedades pendientes (`PAYROLL_PENDING_REVIEW`) bloquean la aprobación hasta su resolución individual.
+
+### B. Fallos Corregidos (`8e5483d` / `885e574`)
+
+- **M11-01 (Seguridad RBAC / Escalamiento de estado)**: `POST /api/payroll/save-draft` aceptaba cualquier valor de `status` desde `req.body` (permitiendo a un usuario con solo `payroll.generate` escribir `status = 'Aprobada'` o `'Pagada'` saltándose `payroll.approve`, `payroll.pay`, `snapshot_json` e `is_immutable`) y no validaba alcance de sucursal → corregido (`400 INVALID_DRAFT_STATUS` fuera de `['En preparación', 'En revisión', 'Borrador']` y `403 FORBIDDEN_BRANCH_SCOPE`).
+- **M11-02 (Robustez PostgreSQL)**: `/periods/:id`, `/save-draft`, `/approve`, `/periods/:id/register-payment` y `DELETE /periods/:id` fallaban con `500` (`22P02`) ante IDs no enteros → validados con `isPositiveIntId` devolviendo `404`.
+
+### C. Evidencia de Aceptación (`8e5483d` / `885e574` — APROBADO)
+
+| Caso | Esperado | Observado | Evidencia | Resultado |
+|---|---|---|---|---|
+| **M11-C1** | Generación de quincena integra salario base, comisiones pendientes (`500`) y descuentos (`200`) | Período e ítem creados con `comisiones = 500` exactos | `test_module11_payroll_acceptance.cjs` | **PASS** |
+| **M11-C2** | `save-draft` bloquea `status = 'Aprobada'`/`'Pagada'` (`400 INVALID_DRAFT_STATUS`), IDs no enteros → `404`, edición válida persiste y audita | Todos los bloqueos y edición legítima verificados | `test_module11_payroll_acceptance.cjs` | **PASS** |
+| **M11-C3** | RBAC 3 niveles: `generate` no aprueba ni paga (`403`); `approve` no paga ni borra (`403`); pago previo a aprobación → `409 PAYROLL_NOT_APPROVED` | Todos los códigos `403`/`409` exactos | `test_module11_payroll_acceptance.cjs` | **PASS** |
+| **M11-C4** | Dos `/approve` concurrentes: solo 1 `200`, 1 `409 PAYROLL_ALREADY_APPROVED`; comisiones → `Pagada`, descuentos → `Saldado`; edición/borrado posterior → `403 PAYROLL_IMMUTABLE` | `[200, 409]`, liquidación automática e inmutabilidad verificadas | `test_module11_payroll_acceptance.cjs` | **PASS** |
+| **M11-C5** | Dos `/register-payment` concurrentes: solo 1 `200` (`Pagada`), 1 `409 PAYROLL_ALREADY_PAID` | `[200, 409]` exactos | `test_module11_payroll_acceptance.cjs` | **PASS** |
+| **M11-C6** | Aislamiento multi-tenant: Empresa B recibe `0` períodos y `404` en consultas/borrados cruzados | `200` (`[]`) y `404` cruzados | `test_module11_payroll_acceptance.cjs` | **PASS** |
+| **M11-DOM** | Flujo real Chromium en `/nomina` | `payrollLoaded=true`, `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:8e5483d`) | **PASS** |
+
+- **Gates y Despliegue**: `test:scanner` (0 violaciones), `test:runner-guards` (PASS), `lint`, `build`, `verify:release`, `graphify update .`, `test_blocks_1_to_8_regression.cjs` (PASS), limpieza de `salon_saas_test`, respaldo previo de `salon_saas_staging` y despliegue verificado de `salonpro-app:8e5483d` (`Up (healthy)`, `/api/health` → `200`). **Estado: APROBADO**.
