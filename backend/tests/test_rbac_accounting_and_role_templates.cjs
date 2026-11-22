@@ -13,7 +13,7 @@ const bcrypt = require('bcryptjs');
 
 const { validateTestEnvironment, createIsolatedTestPool } = require('../utils/test_env_guard.cjs');
 const { createApp } = require('../app');
-const { signAuthToken, issueSingleActiveUserSession } = require('../middleware/auth.middleware');
+const { signAuthToken } = require('../middleware/auth.middleware');
 const { migrateAll } = require('../migrations/migrate_all.cjs');
 const { installPredefinedRolesForTenant } = require('../services/role_templates.service');
 const { PREDEFINED_ROLE_TEMPLATES, PERMISSION_MODULES } = require('../domain/rbac_catalog');
@@ -76,16 +76,6 @@ async function runTests() {
   const createdUserIds = [ownerAId, ownerBId];
 
   const makeTokenForUser = async ({ userId, tenantId, branchId, role, email, name }) => {
-    const { sessionId } = await issueSingleActiveUserSession(pool, {
-      userId: String(userId),
-      tenantId,
-      userName: name,
-      role,
-      salonId: String(branchId),
-      ipAddress: '127.0.0.1',
-      userAgent: 'TestSuite/1.0',
-      isKioskAccount: false,
-    });
     return signAuthToken({
       sub: String(userId),
       id: String(userId),
@@ -94,7 +84,6 @@ async function runTests() {
       role,
       tenantId,
       branchId,
-      sessionId,
       isSuperAdmin: false,
       tokenVersion: 1,
     });
