@@ -712,8 +712,8 @@ function createSaasRouter(pool, options = {}) {
 
       if (pool) {
         const query = publicOnly
-          ? "SELECT * FROM saas_plans WHERE UPPER(code) = 'PRINCIPAL' AND is_public = true AND is_active = true ORDER BY id ASC"
-          : "SELECT * FROM saas_plans WHERE UPPER(code) = 'PRINCIPAL' ORDER BY id ASC";
+          ? "SELECT * FROM saas_plans WHERE is_public = true AND COALESCE(is_active, true) = true ORDER BY (UPPER(code) = 'PRINCIPAL') DESC, id ASC"
+          : "SELECT * FROM saas_plans ORDER BY (UPPER(code) = 'PRINCIPAL') DESC, id ASC";
         const [plans] = await pool.query(query);
         if (plans && plans.length > 0) {
           let planFeaturesRows = [];
@@ -751,7 +751,7 @@ function createSaasRouter(pool, options = {}) {
               : { ...rawIncluded };
 
             const matrixForPlan = planFeaturesRows.filter(
-              r => String(r.plan_code || '').toUpperCase() === String(p.code || '').toUpperCase() || normalizePlanCode(r.plan_code) === normCode
+              r => String(r.plan_code || '').toUpperCase() === String(p.code || '').toUpperCase() || (normCode && normalizePlanCode(r.plan_code) === normCode)
             );
             for (const row of matrixForPlan) {
               baseIncluded[row.feature_key] = Boolean(row.is_included);
@@ -768,7 +768,7 @@ function createSaasRouter(pool, options = {}) {
 
             return {
               ...p,
-              code: normCode,
+              code: normCode || String(p.code || '').toUpperCase(),
               currency: p.currency || 'USD',
               price: canonicalPerBranch,
               price_per_branch: canonicalPerBranch,

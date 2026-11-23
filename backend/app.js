@@ -802,12 +802,6 @@ function createApp(dependencies = {}) {
     });
   });
   app.use('/api/saas', createSaasRouter(pool, { entitlementsService, saasCheckoutService, saasFxRateService, cardnetCheckoutProvider }));
-  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createTenantRouter(pool, { entitlementsService, tenantBrandingService }));
-  app.use('/api', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createPrintTemplatesRouter(pool));
-  app.use('/api/tenant/files', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createFilesRouter(pool));
-  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createPrivateFilesRoutes({ pool, authMiddleware: authenticate }));
-  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('analytics.export', 'security.manage'), createTenantPortabilityRoutes({ pool, authMiddleware: authenticate }));
-
   const contactRouter = createContactRouter(pool);
   app.use('/api/contact', contactRouter);
   app.use('/api/contact-messages', authenticate, requireControlPlaneRole, async (req, res) => {
@@ -818,6 +812,11 @@ function createApp(dependencies = {}) {
       res.status(500).json({ error: err.message });
     }
   });
+  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createTenantRouter(pool, { entitlementsService, tenantBrandingService }));
+  app.use('/api', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createPrintTemplatesRouter(pool));
+  app.use('/api/tenant/files', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createFilesRouter(pool));
+  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createPrivateFilesRoutes({ pool, authMiddleware: authenticate }));
+  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('analytics.export', 'security.manage'), createTenantPortabilityRoutes({ pool, authMiddleware: authenticate }));
 
   const attendanceRouter = createAttendanceRouter(pool);
   app.use('/api/attendance', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requireMethodPermission(['attendance.view', 'attendance.manage'], 'attendance.manage'), attendanceRouter);
