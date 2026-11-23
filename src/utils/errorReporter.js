@@ -6,7 +6,12 @@
 
 const DEDUP_WINDOW_MS = 60 * 1000;
 const recentFingerprints = new Map();
+const recentErrorHistory = [];
 let initialized = false;
+
+export function getRecentClientErrors() {
+  return [...recentErrorHistory];
+}
 
 function getSavedUserContext() {
   try {
@@ -40,6 +45,14 @@ export function reportClientError({
     if (targetUrl.includes('/api/client-errors')) return;
 
     const cleanMsg = String(message || '').slice(0, 500);
+    recentErrorHistory.push({
+      at: new Date().toISOString(),
+      type: String(type).slice(0, 60),
+      url: targetUrl.slice(0, 160),
+      message: cleanMsg.slice(0, 180),
+    });
+    if (recentErrorHistory.length > 5) recentErrorHistory.shift();
+
     const fp = `${type}|${targetUrl.split('?')[0]}|${cleanMsg.slice(0, 120)}`;
     const now = Date.now();
     const last = recentFingerprints.get(fp);

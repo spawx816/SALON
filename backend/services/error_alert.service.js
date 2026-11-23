@@ -184,7 +184,123 @@ function createErrorAlertService(pool, options = {}) {
     }
   }
 
-  return { reportError, sanitizeText };
+  async function reportBusinessAnomaly({ code = 'BUSINESS_ANOMALY', title = 'Anomalía crítica de negocio', details = {}, tenantId = null, userEmail = null, userRole = null, path = '' } = {}) {
+    const serializedDetails = typeof details === 'string'
+      ? details
+      : JSON.stringify(details || {}, null, 2);
+    return reportError({
+      source: 'business_invariant',
+      type: code,
+      message: `${title}\n\nDetalles:\n${serializedDetails}`,
+      path,
+      tenantId,
+      userEmail,
+      userRole,
+    });
+  }
+
+  async function reportUserIssue({
+    category = 'Error / algo no funciona',
+    description = '',
+    currentUrl = '',
+    tenantId = null,
+    tenantName = null,
+    userEmail = 'Desconocido',
+    userName = '',
+    userRole = 'N/A',
+    userAgent = '',
+    recentErrors = [],
+  } = {}) {
+    try {
+      if (process.env.NODE_ENV === 'test' && !options.allowInTest) {
+        return { sent: false, reason: 'TEST_ENV_SUPPRESSED' };
+      }
+      const smtpCfg = await smtpResolver();
+      const recipients = String(
+        options.alertEmail ||
+        process.env.ERROR_ALERT_EMAIL ||
+        process.env.BACKUP_ALERT_EMAIL ||
+        smtpCfg?.user ||
+        ''
+      ).trim();
+      if (!smtpCfg || !smtpCfg.host || !smtpCfg.user || !smtpCfg.pass || !recipients) {
+        return { sent: false, reason: 'SMTP_OR_RECIPIENT_NOT_CONFIGURED' };
+      }
+
+      const now = Date.now();
+      const reportId = `REP-${now.toString(36).toUpperCase()}`;
+      const envName = String(process.env.NODE_ENV || 'development').toUpperCase();
+      const timeDO = new Date(now).toLocaleString('es-DO', { timeZone: 'America/Santo_Domingo' });
+      const cleanCat = sanitizeText(category, 80);
+      const cleanDesc = sanitizeText(description, 2000);
+      const cleanUrl = sanitizeText(currentUrl, 300);
+      const cleanTenant = sanitizeText(tenantName || tenantId || 'Sin empresa', 120);
+      const cleanUser = sanitizeText(userName ? `${userName} (${userEmail})` : userEmail, 160);
+      const cleanRole = sanitizeText(userRole, 40);
+      const cleanUa = sanitizeText(userAgent, 220);
+      const cleanRecent = Array.isArray(recentErrors)
+        ? recentErrors.slice(-5).map((e) => sanitizeText(`${e?.at || ''} [${e?.type || 'err'}] ${e?.url || ''} — ${e?.message || ''}`, 280))
+        : [];
+
+      const subject = `[ETEREAS ${envName}][REPORTE USUARIO] ${cleanCat} — ${cleanTenant}`;
+      const textBody = [
+        `Reporte enviado por un usuario en Etereas (${envName})`,
+        `==================================================`,
+        `ID Reporte:  ${reportId}`,
+        `Fecha (RD):  ${timeDO}`,
+        `Empresa:     ${cleanTenant} (${tenantId || 'N/A'})`,
+        `Usuario:     ${cleanUser} (Rol: ${cleanRole})`,
+        `Categoría:   ${cleanCat}`,
+        `Pantalla:    ${cleanUrl}`,
+        `Navegador:   ${cleanUa}`,
+        ``,
+        `Descripción del usuario:`,
+        cleanDesc,
+        cleanRecent.length ? `\nÚltimos errores técnicos en esta sesión:\n- ${cleanRecent.join('\n- ')}` : null,
+      ].filter(Boolean).join('\n');
+
+      const htmlBody = `
+        <div style="font-family:system-ui,-apple-system,sans-serif;max-width:680px;margin:0 auto;color:#0f172a;">
+          <div style="background:#1d4ed8;color:#fff;padding:16px 20px;border-radius:10px 10px 0 0;">
+            <div style="font-size:12px;opacity:.85;letter-spacing:.04em;">ETEREAS ${escapeHtml(envName)} · REPORTE DE USUARIO</div>
+            <h2 style="margin:6px 0 0;font-size:18px;">${escapeHtml(cleanCat)}</h2>
+          </div>
+          <div style="border:1px solid #e2e8f0;border-top:none;padding:20px;border-radius:0 0 10px 10px;background:#ffffff;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
+              <tr><td style="padding:4px 8px;color:#64748b;width:130px;">ID Reporte</td><td style="padding:4px 8px;font-family:monospace;font-weight:700;">${escapeHtml(reportId)}</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b;">Fecha (RD)</td><td style="padding:4px 8px;">${escapeHtml(timeDO)}</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b;">Empresa</td><td style="padding:4px 8px;font-weight:600;">${escapeHtml(cleanTenant)}</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b;">Usuario</td><td style="padding:4px 8px;">${escapeHtml(cleanUser)} (Rol: ${escapeHtml(cleanRole)})</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b;">Pantalla</td><td style="padding:4px 8px;font-family:monospace;">${escapeHtml(cleanUrl)}</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b;">Navegador</td><td style="padding:4px 8px;font-size:12px;">${escapeHtml(cleanUa)}</td></tr>
+            </table>
+            <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px;margin-bottom:14px;">
+              <div style="font-size:11px;font-weight:700;color:#1e40af;text-transform:uppercase;margin-bottom:6px;">Descripción del usuario</div>
+              <div style="font-size:14px;white-space:pre-wrap;word-break:break-word;line-height:1.5;">${escapeHtml(cleanDesc)}</div>
+            </div>
+            ${cleanRecent.length ? `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;"><div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;margin-bottom:6px;">Últimos errores técnicos en la sesión</div><pre style="margin:0;font-size:11px;white-space:pre-wrap;word-break:break-word;color:#334155;">${escapeHtml(cleanRecent.join('\n'))}</pre></div>` : ''}
+          </div>
+        </div>
+      `;
+
+      const transporter = transporterFactory(smtpCfg);
+      await transporter.sendMail({
+        from: `"${smtpCfg.fromName || 'Etereas Soporte'}" <${smtpCfg.user}>`,
+        to: recipients,
+        replyTo: userEmail && userEmail.includes('@') ? userEmail : undefined,
+        subject,
+        text: textBody,
+        html: htmlBody,
+      });
+
+      return { sent: true, reportId };
+    } catch (err) {
+      console.error('[USER_ISSUE_DISPATCH_FAILED]:', err?.message || err);
+      return { sent: false, reason: 'DISPATCH_FAILED', error: err?.message };
+    }
+  }
+
+  return { reportError, reportBusinessAnomaly, reportUserIssue, sanitizeText };
 }
 
 module.exports = { createErrorAlertService, sanitizeText };

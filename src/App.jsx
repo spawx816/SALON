@@ -8,7 +8,7 @@ import {
   Sparkles, Star, UserPlus, Clock, Phone, Percent, Receipt, Wallet, BadgePercent,
   Landmark, ChevronDown, ChevronRight, FileSpreadsheet, ArrowDownLeft, Shield, DollarSign, History,
   Crown, ShoppingCart, UserCheck, Key, BarChart2, BarChart3, Banknote, ArrowDownCircle,
-  Building2, Package, Palette
+  Building2, Package, Palette, LifeBuoy
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -18,6 +18,7 @@ import { LanguageProvider, useTranslation } from './context/LanguageContext';
 import { NotificationProvider, useNotification } from './context/NotificationContext';
 import { hasUiPermission } from './utils/rbacCatalog';
 import ErrorBoundary from './components/common/ErrorBoundary';
+import ReportIssueModal from './components/common/ReportIssueModal';
 import FeatureForbiddenGate from './components/common/FeatureForbiddenGate';
 import NotFoundPage from './components/common/NotFoundPage';
 
@@ -119,6 +120,7 @@ const AppContent = () => {
   const [isAccountingOpen, setIsAccountingOpen] = useState(false);
   const [isBiOpen, setIsBiOpen] = useState(false);
   const [isPayrollOpen, setIsPayrollOpen] = useState(false);
+  const [isReportIssueOpen, setIsReportIssueOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -1152,12 +1154,25 @@ const AppContent = () => {
           )}
         </nav>
 
-        <div className="sidebar-footer">
+        <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+          <button
+            type="button"
+            onClick={() => {
+              closeMobileMenu();
+              setIsReportIssueOpen(true);
+            }}
+            className="logout-btn"
+            style={{ opacity: 0.9 }}
+          >
+            <LifeBuoy size={17} />
+            <span>Reportar problema</span>
+          </button>
           <button onClick={handleLogout} className="logout-btn">
             <LogOut size={18} />
             <span>{t('btn.logout')}</span>
           </button>
         </div>
+        <ReportIssueModal isOpen={isReportIssueOpen} onClose={() => setIsReportIssueOpen(false)} />
       </aside>
 
       {/* Main Content Area */}

@@ -38,6 +38,8 @@ if (typeof window !== 'undefined' && window.fetch) {
       const isBenignNavAbort =
         networkErr?.name === 'AbortError' ||
         url.includes('/api/auth/logout') ||
+        url.includes('/api/auth/session-status') ||
+        (typeof navigator !== 'undefined' && navigator.onLine === false) ||
         (typeof document !== 'undefined' && document.visibilityState === 'hidden');
       if (url.includes('/api/') && !url.includes('/api/client-errors') && !isBenignNavAbort) {
         reportClientError({

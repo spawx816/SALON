@@ -45,7 +45,30 @@ const { createErrorAlertService, sanitizeText } = require('../services/error_ale
   assert.strictEqual(r5.sent, false);
   assert.strictEqual(r5.reason, 'HOURLY_CAP_REACHED');
 
-  console.log('ALL ERROR ALERT SERVICE TESTS PASSED (4/4)');
+  // 3. Business anomaly & explicit user issue report (bypasses hourly error cap)
+  const ba = await svc.reportBusinessAnomaly({
+    code: 'CARDNET_APPROVED_ACTIVATION_FAILED',
+    title: 'Pago aprobado sin activación',
+    details: { orderId: 'ord-1' },
+    tenantId: 't-1',
+  });
+  assert.strictEqual(ba.sent, false); // capped at 3/hour in this test instance
+
+  const uiRep = await svc.reportUserIssue({
+    category: 'Cálculo o monto incorrecto',
+    description: 'El total del ticket no coincidió con el descuento.',
+    currentUrl: 'https://etereasapp.com/visitas',
+    tenantName: 'Salon Demo',
+    userEmail: 'recepcion@salon.do',
+    userRole: 'recepcion',
+    recentErrors: [{ at: '2026-11-23T18:00:00Z', type: 'api_http_500', url: '/api/visits', message: 'Timeout' }],
+  });
+  assert.strictEqual(uiRep.sent, true);
+  assert.ok(uiRep.reportId.startsWith('REP-'));
+  assert.strictEqual(sentEmails[sentEmails.length - 1].replyTo, 'recepcion@salon.do');
+  assert.ok(sentEmails[sentEmails.length - 1].subject.includes('[REPORTE USUARIO]'));
+
+  console.log('ALL ERROR ALERT SERVICE TESTS PASSED (6/6)');
 })().catch((err) => {
   console.error('ERROR ALERT TEST FAILED:', err);
   process.exit(1);

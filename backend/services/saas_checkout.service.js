@@ -41,7 +41,7 @@ function sanitizeOrderForClient(order) {
 }
 
 class SaasCheckoutService {
-  constructor({ pool, cardnetProvider, tokenizationProvider = null, fxRateService = null, entitlementsService, lifecycleService, billingRepo }) {
+  constructor({ pool, cardnetProvider, tokenizationProvider = null, fxRateService = null, entitlementsService, lifecycleService, billingRepo, errorAlertService = null }) {
     this.pool = pool;
     this.cardnetProvider = cardnetProvider;
     this.tokenizationProvider = tokenizationProvider;
@@ -49,6 +49,7 @@ class SaasCheckoutService {
     this.entitlementsService = entitlementsService;
     this.lifecycleService = lifecycleService;
     this.billingRepo = billingRepo;
+    this.errorAlertService = errorAlertService;
   }
 
   _shouldUseTokenization() {
@@ -1975,6 +1976,19 @@ class SaasCheckoutService {
       };
     } catch (err) {
       // Pago aprobado en CardNet pero falló la actualización interna -> mantener status='approved' y activated_at=NULL para reconciliar sin cobrar de nuevo
+      this.errorAlertService?.reportBusinessAnomaly({
+        code: 'CARDNET_APPROVED_ACTIVATION_FAILED',
+        title: `CRÍTICO: Pago CardNet aprobado pero falló la activación interna de la orden ${order.order_number || order.id}`,
+        details: {
+          orderId: order.id,
+          orderNumber: order.order_number,
+          tenantId: order.tenant_id,
+          amountDopCents: order.total_dop_cents,
+          error: err.message,
+        },
+        tenantId: order.tenant_id,
+        path: '/api/saas/billing/checkout/_activateAfterPayment',
+      }).catch(() => {});
       await this.pool.query(
         `UPDATE saas_checkout_orders
          SET reconcile_attempts = reconcile_attempts + 1, last_error = ?, updated_at = NOW()

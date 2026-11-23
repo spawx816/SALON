@@ -408,7 +408,7 @@ function createApp(dependencies = {}) {
           userEmail: req.user?.email || req.auth?.email || null,
           userRole: req.auth?.role || req.user?.role || null,
           userAgent: req.headers['user-agent'] || '',
-        }).catch(() => {});
+        }).catch(() => { });
       }
       return originalJson(body);
     };
@@ -645,6 +645,7 @@ function createApp(dependencies = {}) {
     entitlementsService,
     lifecycleService: saasLifecycleService,
     billingRepo: saasBillingRepo,
+    errorAlertService,
   });
 
   // Mount Modular Routers
@@ -828,6 +829,48 @@ function createApp(dependencies = {}) {
     app.use('/api/test', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }));
   }
 
+  const supportReportLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: 'Has enviado varios reportes recientemente. Intenta de nuevo en unos minutos.' }
+  });
+
+  app.post('/api/support/report-issue', authenticate, supportReportLimiter, async (req, res) => {
+    try {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const description = String(body.description || '').trim();
+      if (description.length < 5) {
+        return res.status(400).json({ success: false, error: 'Por favor describe brevemente el problema (mínimo 5 caracteres).' });
+      }
+      const tenantId = req.tenantId || req.auth?.verifiedTenantId || null;
+      let tenantName = null;
+      if (tenantId) {
+        const [tRows] = await pool.query('SELECT business_name FROM tenants WHERE id = ? LIMIT 1', [tenantId]).catch(() => [[]]);
+        tenantName = tRows?.[0]?.business_name || null;
+      }
+      const result = await errorAlertService.reportUserIssue({
+        category: body.category || 'Error / algo no funciona',
+        description,
+        currentUrl: body.currentUrl || req.headers.referer || '',
+        tenantId,
+        tenantName,
+        userEmail: req.user?.email || req.auth?.email || 'Desconocido',
+        userName: req.user?.nombre || req.user?.name || '',
+        userRole: req.auth?.role || req.user?.role || 'N/A',
+        userAgent: req.headers['user-agent'] || '',
+        recentErrors: Array.isArray(body.recentErrors) ? body.recentErrors.slice(-5) : [],
+      });
+      if (!result.sent) {
+        return res.status(503).json({ success: false, error: 'No se pudo enviar el reporte en este momento. Intenta más tarde.' });
+      }
+      return res.json({ success: true, reportId: result.reportId });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: 'Error al procesar el reporte.' });
+    }
+  });
+
   const clientErrorsLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 15,
@@ -855,7 +898,7 @@ function createApp(dependencies = {}) {
       userEmail: req.user?.email || body.userEmail || null,
       userRole: req.auth?.role || req.user?.role || body.userRole || null,
       userAgent: body.userAgent || req.headers['user-agent'] || '',
-    }).catch(() => {});
+    }).catch(() => { });
     return res.status(202).json({ accepted: true });
   });
 
@@ -902,7 +945,7 @@ function createApp(dependencies = {}) {
         userEmail: req.user?.email || req.auth?.email || null,
         userRole: req.auth?.role || req.user?.role || null,
         userAgent: req.headers['user-agent'] || '',
-      }).catch(() => {});
+      }).catch(() => { });
     }
     const sanitizedMessage = isClientError
       ? (err.message || 'Solicitud inválida.')
