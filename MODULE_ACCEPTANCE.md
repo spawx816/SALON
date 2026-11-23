@@ -2,7 +2,7 @@
 
 Documento único y autoritativo de validación sistemática de Etereas por módulos y procesos de negocio.
 
-- **Release candidato actual**: commit `7689c87` / imagen `salonpro-app:7689c87` (staging).
+- **Release candidato actual**: commit `8b0452c` (`c6899a5` tests) / imagen `salonpro-app:8b0452c` (staging).
 - **Base de pruebas automatizadas**: `salon_saas_test` (PostgreSQL 17, aislada con guardas canónicas).
 - **Entorno de producción**: intacto (`salon_saas_prod` sin escrituras, sin cargos CardNet reales, `SAAS_RENEWAL_WORKER_ENABLED` deshabilitado, `DGII_MODE=disabled` / `DGII_ENABLED` deshabilitado).
 
@@ -43,10 +43,10 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **10** | **Comisiones y descuentos** (`descuentos colaborador CRUD → inmutabilidad Saldado/Anulado → reasignación comisión → cascada anulación POS → TO_CHAR PG`) | Módulos 3, 4, 9 | `4610b28` | `test_module10_commissions_discounts_acceptance.cjs` (5/5), `test_module4_commissions_acceptance.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` + DOM real `/descuentos-empleados`, `/comisiones` | **`aprobado`** | Ninguno (`M10-01`–`M10-04` corregidos, verificados y desplegados en staging `4610b28`; decisión de fallback `15%` sigue rastreada en Módulo 4) |
 | **11** | **Nómina** (`generación salario+comisiones+descuentos → borrador seguro → RBAC 3 niveles → aprobación atómica+snapshot+saldado → pago administrativo → inmutabilidad`) | Módulos 3, 10 | `8e5483d` (`885e574`) | `test_module11_payroll_acceptance.cjs` (6/6), `test_blocks_1_to_8_regression.cjs` (B3) + DOM real `/nomina` | **`aprobado`** | Ninguno (`M11-01`–`M11-02` corregidos, verificados y desplegados en staging `8e5483d`) |
 | **12** | **Contabilidad y reportes (Egresos, 606, 607, IT-1, NCF)** (`egresos CRUD/anulación → 606 + TXT → 607/IT-1 sin DGII live → RBAC granular contabilidad → aislamiento`) | Módulos 2, 9 | `7689c87` (`547e1b5`) | `test_module12_accounting_reports_acceptance.cjs` (5/5), `test_rbac_accounting_and_role_templates.cjs` (10/10), `test_blocks_1_to_8_regression.cjs` (B4) + DOM real 5 rutas | **`aprobado`** | Ninguno (`M12-01`–`M12-02` corregidos, verificados y desplegados en staging `7689c87`) |
-| **13** | Membresías (Add-on US$99/bloque 3 suc.) | Módulos 7, 9, 14 | — | `test_blocks_1_to_8_regression.cjs` (B8) | `pendiente` | — |
-| **14** | Suscripción SaaS y pagos | Módulo 2 (Owner), CardNet (simulado) | — | `test_saas_branch_contracting.cjs` (9/9), B7/B8 | `pendiente` | Credenciales live CardNet / worker recurrente |
-| **15** | SuperAdmin | Todos los tenants, FX rates, catálogo SaaS | — | — | `pendiente` | — |
-| **16** | Respaldo, recuperación y despliegue | Esquema/migraciones, Docker, Caddy | — | `verify_schema_parity.cjs` (30/30, 0 deriva) | `pendiente` | — |
+| **13** | **Membresías (Add-on US$99/bloque 3 suc.)** (`gate add-on fail-closed → bloque 3 suc. → planes/contratos/pagos → cupo 4 lavados Plan Beauty y bloqueo en 0 → aislamiento`) | Módulos 7, 9, 14 | `8b0452c` | `test_module13_memberships_acceptance.cjs` (5/5), `test_memberships_addon_sync_pg.cjs`, `test_blocks_1_to_8_regression.cjs` (B8) + DOM real `/planes`, `/pagos` | **`aprobado`** | Ninguno (`M13-01`–`M13-04` corregidos, verificados y desplegados en staging `8b0452c`) |
+| **14** | **Suscripción SaaS y pagos** (`Owner-only billing → cotización consolidada DOP → prorrateo/sucursales → worker OFF → consentimiento explícito → CardNet simulado`) | Módulo 2 (Owner), CardNet (simulado) | `8b0452c` (`f32054b`) | `test_module14_saas_billing_acceptance.cjs` (4/4), `test_saas_branch_contracting.cjs` (9/9), `test_phase2a_entitlements_unit.cjs` (28/28), `test_blocks_1_to_8_regression.cjs` (B7/B8) + DOM real `/suscripcion` | **`aprobado`** | Sin cargos CardNet live ni worker recurrente habilitado (por diseño hasta autorización de producción) |
+| **15** | **SuperAdmin** (`Control Plane aislado → bloqueo mutuo rutas operativas/control plane → /metrics MRR por bloque US$99/3 suc. → /tenants`) | Todos los tenants, FX rates, catálogo SaaS | `8b0452c` (`c6899a5`) | `test_module15_superadmin_acceptance.cjs` (3/3), `test_phase2a_entitlements_unit.cjs` (28/28) + DOM real `/saas` | **`aprobado`** | Ninguno (`M15-01` corregido, verificado y desplegado en staging `8b0452c`) |
+| **16** | **Respaldo, recuperación y despliegue** (`paridad 30/30 migraciones 0 deriva → simulacro pg_dump/restore en BD desechable 117/117 tablas → Docker/Caddy/PG/CompreFace healthy → flags seguros`) | Esquema/migraciones, Docker, Caddy | `8b0452c` | `verify_schema_parity.cjs` (30/30, 117 tablas, 1618 cols, 176 FKs, 0 deriva) + drill `pg_dump`/restore (`117/117` tablas) + `docker ps` + `/api/health` (`200`) | **`aprobado`** | Ninguno (`salon_saas_prod` intacto; `DGII_MODE=disabled`, `WORKER_ENABLED=false`) |
 
 ---
 
@@ -477,3 +477,86 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | **M12-DOM** | Flujo real Chromium en `/egresos`, `/reporte-606`, `/reporte-607`, `/reporte-it1` y `/secuencias-ncf` | Las 5 rutas renderizan limpias: `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:7689c87`) | **PASS** |
 
 - **Gates y Despliegue**: `test:scanner` (0 violaciones), `test:runner-guards` (PASS), `lint`, `build`, `verify:release`, `graphify update .`, `test_blocks_1_to_8_regression.cjs` (PASS), limpieza de `salon_saas_test`, respaldo previo de `salon_saas_staging` y despliegue verificado de `salonpro-app:7689c87` (`Up (healthy)`, `/api/health` → `200`). **Estado: APROBADO**.
+
+---
+
+## Módulo 13 — Membresías (Add-on US$99/bloque 3 sucursales)
+
+- **Versión / Commit**: `8b0452c` (imagen `salonpro-app:8b0452c`).
+- **Hallazgos corregidos**:
+  - `M13-01` ([visits.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/visits.routes.js)): En `POST /api/visits/:id/checkout`, el descuento de lavados Plan Beauty ahora valida atómicamente con `FOR UPDATE` que la clienta tenga contrato activo con cupo disponible (`available >= washesToDeduct`); cuando los lavados disponibles son `0` o no existe contrato activo, hace `ROLLBACK` y rechaza con `409 PLAN_WASH_QUOTA_EXHAUSTED` (nunca permite colar lavado gratis `RD$0` sin cupo).
+  - `M13-02` ([payments.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/payments.routes.js)): Validación estricta de monto finito `> 0` (`400 INVALID_AMOUNT`) en todos los endpoints de pago y verificación de pertenencia de `clientId` al tenant autenticado (`404 CLIENT_NOT_FOUND`) en `/verify-token` y `/charge-saved-card`.
+  - `M13-03` ([contracts.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/contracts.routes.js)): Validación de valores numéricos `>= 0` para `wash_Quota`, `washes_used` y `precio_mensual` (`400 INVALID_CONTRACT_VALUES`) en `POST` y `PUT`.
+  - `M13-04` ([plans.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/plans.routes.js)): Validación de nombre no vacío y precio finito `>= 0` (`400 INVALID_PLAN_PAYLOAD`) en `POST /api/plans`.
+
+| Caso | Esperado | Observado | Evidencia | Resultado |
+|---|---|---|---|---|
+| **M13-C1** | Add-on no contratado bloquea `/plans`, `/contracts`, `/payments` (`403 FEATURE_NOT_INCLUDED`) incluso si RBAC concede `memberships.*` | `403 FEATURE_NOT_INCLUDED` en las 3 rutas | `test_module13_memberships_acceptance.cjs` | **PASS** |
+| **M13-C2** | Activación de 1 bloque (`acquiredBlocks=1`, capacidad `3`) en `branchA1` permite `branchA1`, bloquea `branchA2` y `tenantB` | `200` en `branchA1`, `403` en `branchA2` y `tenantB`; sincronización PG completa | `test_module13_memberships_acceptance.cjs` + `test_memberships_addon_sync_pg.cjs` | **PASS** |
+| **M13-C3** | Validaciones de payloads inválidos (precio negativo, cuota negativa, monto `0`) rechazadas con `400` | Todos los `400` exactos | `test_module13_memberships_acceptance.cjs` | **PASS** |
+| **M13-C4** | Aislamiento cross-tenant: `clientB` rechazado (`404`) en contratos y pagos (`/verify-token`, `/charge-saved-card`) | `404` exacto en todos los casos cruzados | `test_module13_memberships_acceptance.cjs` | **PASS** |
+| **M13-C5** | Cupo Plan Beauty (4 lavados/ciclo): 4to lavado descuenta (`3→4`), 5to lavado con `0` disponibles rechazado con `409 PLAN_WASH_QUOTA_EXHAUSTED`, renovación manual resetea `washes_used=0` | `200` (4to), `409` (5to), `washes_used=0` tras renovación | `test_module13_memberships_acceptance.cjs` | **PASS** |
+| **M13-DOM** | Flujo real Chromium en `/planes` y `/pagos` con badge `PLAN PRINCIPAL + MEMBRESÍAS` | `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:8b0452c`) | **PASS** |
+
+- **Estado: APROBADO**.
+
+---
+
+## Módulo 14 — Suscripción SaaS y Pagos
+
+- **Versión / Commit**: `8b0452c` (`f32054b` tests, imagen `salonpro-app:8b0452c`).
+- **Reglas verificadas**: Guard exclusivo de Owner (`OWNER_ONLY_SAAS_BILLING`), prorrateo y conversión FX entera, contratación de sucursales/asientos/bloques sin cargos CardNet reales, `SAAS_RENEWAL_WORKER_ENABLED` deshabilitado (`workerEnabled=false`), y consentimiento explícito requerido para renovación automática.
+
+| Caso | Esperado | Observado | Evidencia | Resultado |
+|---|---|---|---|---|
+| **M14-C1** | Roles no-owner (`recepcion`, `gerente`, `admin`, `cajero`) bloqueados en `/api/saas/billing/*` con `403 OWNER_ONLY_SAAS_BILLING` | `403 OWNER_ONLY_SAAS_BILLING` para los 4 roles | `test_module14_saas_billing_acceptance.cjs` | **PASS** |
+| **M14-C2** | Owner consulta `/subscription` con plan `PRINCIPAL` activo, pricing vigente y lista de sucursales | `200` con `plan_code='PRINCIPAL'` y sucursal activa | `test_module14_saas_billing_acceptance.cjs` | **PASS** |
+| **M14-C3** | `/renewal/quote` retorna cotización consolidada DOP con `workerEnabled=false` y estado `missing_consent` | `200`, `workerEnabled=false`, `effectiveStatus='missing_consent'` | `test_module14_saas_billing_acceptance.cjs` | **PASS** |
+| **M14-C4** | `POST /renewal/authorize` sin consentimiento expreso rechazado con `400 RECURRING_CONSENT_REQUIRED` | `400 RECURRING_CONSENT_REQUIRED` | `test_module14_saas_billing_acceptance.cjs` | **PASS** |
+| **M14-C5** | Contratación de sucursales, prorrateo, método guardado, declinado, doble-clic idempotente y entitlements 28/28 | 9/9 branch contracting + 28/28 entitlements PASS | `test_saas_branch_contracting.cjs` + `test_phase2a_entitlements_unit.cjs` | **PASS** |
+| **M14-DOM** | Flujo real Chromium en `/suscripcion` como Owner | `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary | Chromium DOM (`salonpro-app:8b0452c`) | **PASS** |
+
+- **Estado: APROBADO**.
+
+---
+
+## Módulo 15 — SuperAdmin (Control Plane)
+
+- **Versión / Commit**: `8b0452c` (`c6899a5` tests, imagen `salonpro-app:8b0452c`).
+- **Hallazgo corregido**:
+  - `M15-01` ([saas.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/saas.routes.js)): En `GET /api/saas/metrics`, el cálculo de MRR del add-on Membresías multiplicaba `US$99 × sucursales habilitadas` en lugar de `US$99 × bloques adquiridos (hasta 3 sucursales/bloque)`. Corregido para usar `acquiredBlocks = Math.ceil(enabledBranchCount / 3)`.
+
+| Caso | Esperado | Observado | Evidencia | Resultado |
+|---|---|---|---|---|
+| **M15-C1** | Usuario tenant (`propietario`) bloqueado (`403`) en `/api/saas/metrics` y `/api/saas/tenants` | `403` en ambos endpoints | `test_module15_superadmin_acceptance.cjs` | **PASS** |
+| **M15-C2** | Rol `superadmin` bloqueado (`403`) en rutas operativas de tenant vía `rejectControlPlaneRoleOnTenantRoutes` | `403` exacto | `test_module15_superadmin_acceptance.cjs` | **PASS** |
+| **M15-C3** | `/api/saas/metrics` suma exactamente `+US$99` al MRR al habilitar 2 sucursales en 1 bloque de Membresías, y `/api/saas/tenants` refleja el estado enriquecido | Delta MRR exacto `+$99.00 USD`, `has_memberships=true`, `enabledBranchCount=2` | `test_module15_superadmin_acceptance.cjs` | **PASS** |
+| **M15-DOM** | Flujo real Chromium en `/saas` (`ETEREAS CONTROL PLANE`) con login real SuperAdmin | `pageErrors=0`, `serverErrors=0`, `0` ErrorBoundary (`len=3881`) | Chromium DOM (`salonpro-app:8b0452c`) | **PASS** |
+
+- **Estado: APROBADO**.
+
+---
+
+## Módulo 16 — Respaldo, Recuperación y Despliegue
+
+- **Versión / Commit**: `8b0452c` (imagen `salonpro-app:8b0452c` desplegada en staging).
+- **Alcance verificado**: Integridad y paridad de esquema (fresh vs upgrade vs public), simulacro real de respaldo y restauración (`pg_dump` + `psql -v ON_ERROR_STOP=1` en BD desechable `salon_saas_restore_check`), salud de contenedores y banderas de seguridad, sin tocar `salon_saas_prod`.
+
+| Caso | Esperado | Observado | Evidencia | Resultado |
+|---|---|---|---|---|
+| **M16-C1** | Gate de paridad de esquema: 30/30 migraciones SHA-256 válidas, rechazo fail-closed de alteración histórica, backfills seguros y 0 deriva entre `fresh`, `upgrade` y `public` | `30/30` migraciones válidas, `117` tablas, `1618` columnas, `176` FKs, **0 deriva** | `backend/scripts/verify_schema_parity.cjs` | **PASS** |
+| **M16-C2** | Simulacro real de respaldo y restauración en BD temporal desechable (`salon_saas_restore_check`) con `ON_ERROR_STOP=1` | Dump `1,024,852 bytes`, restauración limpia sin errores (`src=117` tablas → `dst=117` tablas), BD temporal eliminada | `pg_dump` / `psql` en `salonpro_db` | **PASS** |
+| **M16-C3** | Salud de infraestructura y banderas de seguridad en staging | `salonpro_app` (`8b0452c`), `salonpro_caddy` (`2.11.9`), `salonpro_db` (`17.11`), `compreface_*` todos `Up (healthy)`; `DGII_MODE=disabled`, `WORKER_ENABLED=false`; `salon_saas_prod` intacto | `docker ps`, `/opt/salonpro/secrets/staging.env`, `/api/health` (`200`) | **PASS** |
+| **M16-C4** | Respaldo previo de `salon_saas_staging` y despliegue verificado del release final `salonpro-app:8b0452c` | Backup `/opt/salonpro/backups/salon_saas_staging_pre_8b0452c_20261123_001301.sql.gz` (`87,791 bytes`), `salonpro_app` en `salonpro-app:8b0452c` (`Up (healthy)`, `HEALTH 200`) | `staging-salon` deploy log | **PASS** |
+
+- **Estado: APROBADO**.
+
+---
+
+## Cierre General (16/16 Módulos Aprobados)
+
+- **Estado global**: **16 de 16 módulos APROBADOS** sobre release `8b0452c` (`salonpro-app:8b0452c` activo y saludable en staging).
+- **Únicos puntos pendientes de decisión/acción del operador (no bloqueantes de código)**:
+  1. **`M3-C7`**: Prueba física guiada de cámara en hardware real (tablet/PC) por el operador.
+  2. **`M4`**: Decisión comercial definitiva sobre política de comisión para servicios sin regla (actualmente conserva fallback temporal visible `15%` sin alterar históricos).
+  3. **`M14` / Producción**: Activación deliberada de credenciales CardNet live, `SAAS_RENEWAL_WORKER_ENABLED` y/o `DGII_MODE` únicamente cuando el operador autorice el pase a producción.
