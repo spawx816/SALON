@@ -10,7 +10,7 @@ const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 
 const { createSaasRouter } = require('../routes/saas.routes');
-const { createAuthMiddleware } = require('../middleware/auth.middleware');
+const { createAuthMiddleware, signAuthToken } = require('../middleware/auth.middleware');
 const { EntitlementsRepository } = require('../repositories/entitlements.repository');
 const { TenantSubscriptionRepository } = require('../repositories/tenant_subscription.repository');
 const { SaasBillingRepository } = require('../repositories/saas_billing.repository');
@@ -137,8 +137,8 @@ function request(server, method, path, headers = {}, body = null) {
       [saUserId, `m15-sa-${ts}@etereas.local`, ownerUserId, tenantProdLike, `m15-owner-${ts}@salonrealish.do`]
     );
 
-    const saToken = jwt.sign({ sub: saUserId, id: saUserId, role: 'superadmin', isSuperAdmin: true }, secret, { expiresIn: '1h' });
-    const ownerToken = jwt.sign({ sub: ownerUserId, id: ownerUserId, role: 'propietario', tenant_id: tenantProdLike }, secret, { expiresIn: '1h' });
+    const saToken = signAuthToken({ id: saUserId, role: 'superadmin', isSuperAdmin: true, email: `m15-sa-${ts}@etereas.local` });
+    const ownerToken = signAuthToken({ id: ownerUserId, role: 'propietario', tenant_id: tenantProdLike, email: `m15-owner-${ts}@salonrealish.do` });
 
     // 1. Non-superadmin blocked on /api/saas/metrics and /api/saas/tenants
     await runCase('M15-1: Tenant owner blocked from /api/saas/metrics & /api/saas/tenants (403)', async () => {
