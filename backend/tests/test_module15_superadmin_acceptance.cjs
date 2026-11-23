@@ -10,7 +10,7 @@ const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 
 const { createSaasRouter } = require('../routes/saas.routes');
-const { rejectControlPlaneRoleOnTenantRoutes } = require('../middleware/rbac.middleware');
+const { createAuthMiddleware } = require('../middleware/auth.middleware');
 const { EntitlementsRepository } = require('../repositories/entitlements.repository');
 const { TenantSubscriptionRepository } = require('../repositories/tenant_subscription.repository');
 const { SaasBillingRepository } = require('../repositories/saas_billing.repository');
@@ -83,6 +83,7 @@ function request(server, method, path, headers = {}, body = null) {
     auditRepo: new SaasBillingRepository(pool),
   });
 
+  const { rejectControlPlaneRoleOnTenantRoutes } = createAuthMiddleware(pool);
   const app = express();
   app.use(express.json());
   app.use('/api/saas', createSaasRouter(pool, { entitlementsService }));
