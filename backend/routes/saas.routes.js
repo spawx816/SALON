@@ -713,7 +713,16 @@ function createSaasRouter(pool, options = {}) {
       if (pool) {
         const query = publicOnly
           ? "SELECT * FROM saas_plans WHERE is_public = true AND COALESCE(is_active, true) = true ORDER BY (UPPER(code) = 'PRINCIPAL') DESC, id ASC"
-          : "SELECT * FROM saas_plans ORDER BY (UPPER(code) = 'PRINCIPAL') DESC, id ASC";
+          : `SELECT sp.*,
+               (
+                 SELECT COUNT(DISTINCT t.id)::int
+                 FROM tenants t
+                 LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = t.id
+                 WHERE COALESCE(t.status, 'active') <> 'deleted'
+                   AND (t.plan_id = sp.id OR ts.saas_plan_id = sp.id)
+               ) AS active_subscribers_count
+             FROM saas_plans sp
+             ORDER BY (UPPER(sp.code) = 'PRINCIPAL') DESC, sp.id ASC`;
         const [plans] = await pool.query(query);
         if (plans && plans.length > 0) {
           let planFeaturesRows = [];
@@ -768,7 +777,8 @@ function createSaasRouter(pool, options = {}) {
 
             return {
               ...p,
-              code: normCode || String(p.code || '').toUpperCase(),
+              code: publicOnly ? (normCode || String(p.code || '').toUpperCase()) : String(p.code || '').toUpperCase(),
+              active_subscribers_count: Number(p.active_subscribers_count || 0),
               currency: p.currency || 'USD',
               price: canonicalPerBranch,
               price_per_branch: canonicalPerBranch,
