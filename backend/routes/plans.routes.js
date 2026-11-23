@@ -57,8 +57,11 @@ function createPlansRouter(pool) {
   });
 
   // POST /api/plans - Reemplaza planes ÚNICAMENTE del tenant autenticado (NUNCA global)
+  // Acepta arreglo directo [...] o contrato UI { plans: [...], applyToExisting?: boolean }
   router.post('/', async (req, res) => {
-    const plans = req.body;
+    const rawBody = req.body;
+    const plans = Array.isArray(rawBody) ? rawBody : (Array.isArray(rawBody?.plans) ? rawBody.plans : null);
+    const applyToExisting = Array.isArray(rawBody) ? true : Boolean(rawBody?.applyToExisting);
     const tenantId = req.tenantId;
     if (!tenantId) {
       return res.status(403).json({ error: 'Contexto de empresa requerido.' });
@@ -82,18 +85,21 @@ function createPlansRouter(pool) {
       await connection.beginTransaction();
       await connection.query('DELETE FROM plans WHERE tenant_id = ?', [tenantId]);
       for (const p of plans) {
-        const planId = String(p.id || p.name || `plan_${Date.now()}`).toLowerCase().replace(/[^a-z0-9_-]/g, '_');
-        const planTitle = p.title || p.name || 'Plan';
-        const planName = p.name || p.title || 'Plan';
+        const planId = String(p.id || p.name || p.title || `plan_${Date.now()}`).toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+        const planTitle = String(p.title || p.name || 'Plan').trim();
+        const planName = String(p.name || p.title || 'Plan').trim();
+        const planPrice = Number(p.price);
         await connection.query(
-          'INSERT INTO plans (tenant_id, id, name, title, price, description, features) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [tenantId, planId, planName, planTitle, p.price, p.description || '', JSON.stringify(p.features || [])]
+          'INSERT INTO plans (tenant_id, id, name, title, price, description, features) VALUES (?, ?, ?, ?, ?, ?, ?::jsonb)',
+          [tenantId, planId, planName, planTitle, planPrice, p.description || '', JSON.stringify(p.features || p.services || [])]
         );
-        // Sincronizar automáticamente los contratos de esta empresa vinculados a este plan
-        await connection.query(
-          'UPDATE contracts SET plan_name = ?, precio_mensual = ? WHERE plan_id = ? AND tenant_id = ?',
-          [p.name, p.price, planId, tenantId]
-        );
+        // Sincronizar contratos vinculados a este plan cuando applyToExisting está activo
+        if (applyToExisting) {
+          await connection.query(
+            'UPDATE contracts SET plan_name = ?, precio_mensual = ? WHERE plan_id = ? AND tenant_id = ?',
+            [planName, planPrice, planId, tenantId]
+          );
+        }
       }
       await connection.commit();
       res.json({ success: true });

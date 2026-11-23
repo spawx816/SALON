@@ -208,12 +208,21 @@ function request(server, method, path, headers = {}, body = null) {
       assert.strictEqual(blockedB.status, 403);
     });
 
-    // 3. Plans & Contract & Payment validations
-    await runCase('M13-3: Invalid plan price, negative contract values & invalid payment amounts rejected (400)', async () => {
+    // 3. Plans & Contract & Payment validations + UI object payload { plans, applyToExisting }
+    await runCase('M13-3: Invalid plan price, negative contract values & invalid payment amounts rejected (400); UI {plans} payload accepted (200)', async () => {
       const badPlan = await request(server, 'POST', '/api/plans', { 'x-test-tenant-id': tenantA, 'x-test-branch-id': branchA1 }, [
         { id: 'bad', name: 'Bad', price: -50 },
       ]);
       assert.strictEqual(badPlan.status, 400);
+
+      const uiPlansOk = await request(server, 'POST', '/api/plans', { 'x-test-tenant-id': tenantA, 'x-test-branch-id': branchA1 }, {
+        plans: [
+          { id: 'silver', title: 'Plan Silver UI', price: 1550, services: ['4 Lavados'] },
+          { id: 'gold', title: 'Plan Beauty Pro', price: 1950, services: ['4 Lavados', '15% desc.'] },
+        ],
+        applyToExisting: false,
+      });
+      assert.strictEqual(uiPlansOk.status, 200, `UI {plans} payload should return 200, got ${uiPlansOk.status}: ${uiPlansOk.raw}`);
 
       const badContract = await request(server, 'POST', '/api/contracts', { 'x-test-tenant-id': tenantA, 'x-test-branch-id': branchA1 }, {
         client_id: clientA,
