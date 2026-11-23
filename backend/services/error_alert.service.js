@@ -77,6 +77,31 @@ function createErrorAlertService(pool, options = {}) {
     tableEnsured = true;
   }
 
+  async function sendTelegramAlert(text) {
+    const botToken = String(options.telegramBotToken || process.env.TELEGRAM_OPS_BOT_TOKEN || '').trim();
+    const chatId = String(options.telegramChatId || process.env.TELEGRAM_OPS_CHAT_ID || '').trim();
+    if (!botToken || !chatId || typeof fetch !== 'function') return false;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: String(text || '').slice(0, 3900),
+          disable_web_page_preview: true,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      return res.ok;
+    } catch (tgErr) {
+      console.error('[OPS_TELEGRAM_ALERT_FAILED]:', tgErr?.message || tgErr);
+      return false;
+    }
+  }
+
   async function persistAlertRecord(record) {
     if (!pool || typeof pool.query !== 'function') return;
     try {
@@ -256,6 +281,22 @@ function createErrorAlertService(pool, options = {}) {
         priorSuppressed,
       });
 
+      const tgText = [
+        `🚨 ALERTA ETEREAS (${envName}) · ${source}`,
+        `ID: ${errorId}`,
+        `Tipo: ${type}`,
+        `Ruta: ${method ? `${method} ` : ''}${urlOrPath}${statusCode ? ` [HTTP ${statusCode}]` : ''}`,
+        `Usuario: ${userEmail} (${userRole})`,
+        `Empresa: ${tenantId}`,
+        priorSuppressed > 0 ? `Repeticiones agrupadas: +${priorSuppressed}` : null,
+        ``,
+        `Mensaje:`,
+        message.slice(0, 600),
+        ``,
+        `⏳ El asistente analizará la causa raíz y te enviará la propuesta de solución en breve.`,
+      ].filter((l) => l !== null).join('\n');
+      await sendTelegramAlert(tgText);
+
       sentInCurrentHour += 1;
       return { sent: true, errorId, recipients, priorSuppressed };
     } catch (err) {
@@ -391,6 +432,21 @@ function createErrorAlertService(pool, options = {}) {
         componentStack: '',
         priorSuppressed: 0,
       });
+
+      const tgReportText = [
+        `📝 REPORTE DE USUARIO (${envName})`,
+        `ID: ${reportId}`,
+        `Categoría: ${cleanCat}`,
+        `Empresa: ${cleanTenant}`,
+        `Usuario: ${cleanUser} (${cleanRole})`,
+        `Pantalla: ${cleanUrl}`,
+        ``,
+        `Descripción:`,
+        cleanDesc.slice(0, 800),
+        ``,
+        `⏳ El asistente analizará este reporte y te consultará antes de aplicar cambios.`,
+      ].join('\n');
+      await sendTelegramAlert(tgReportText);
 
       return { sent: true, reportId };
     } catch (err) {
