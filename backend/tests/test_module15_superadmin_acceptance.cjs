@@ -131,9 +131,9 @@ function request(server, method, path, headers = {}, body = null) {
       [branch1, tenantProdLike, branch2, tenantProdLike]
     );
     await pool.query(
-      `INSERT INTO users (id, tenant_id, nombre, email, password, password_hash, role, is_active)
-       VALUES (?, NULL, 'M15 SA', ?, 'x', 'x', 'superadmin', TRUE),
-              (?, ?, 'M15 Owner', ?, 'x', 'x', 'propietario', TRUE)`,
+      `INSERT INTO users (id, tenant_id, name, nombre, email, password, password_hash, role, is_active)
+       VALUES (?, NULL, 'M15 SA', 'M15 SA', ?, 'x', 'x', 'superadmin', TRUE),
+              (?, ?, 'M15 Owner', 'M15 Owner', ?, 'x', 'x', 'propietario', TRUE)`,
       [saUserId, `m15-sa-${ts}@etereas.local`, ownerUserId, tenantProdLike, `m15-owner-${ts}@salonrealish.do`]
     );
 
