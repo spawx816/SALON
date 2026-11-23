@@ -45,6 +45,69 @@ function createErrorAlertService(pool, options = {}) {
   const fingerprintMap = new Map(); // fp -> { lastSentAt, suppressedCount }
   let hourWindowStart = Date.now();
   let sentInCurrentHour = 0;
+  let tableEnsured = false;
+
+  async function ensureAlertsTable() {
+    if (tableEnsured || !pool || typeof pool.query !== 'function') return;
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ops_error_alerts (
+        id SERIAL PRIMARY KEY,
+        error_id VARCHAR(64) NOT NULL UNIQUE,
+        env VARCHAR(32) NOT NULL DEFAULT 'PRODUCTION',
+        source VARCHAR(40) NOT NULL,
+        type VARCHAR(80) NOT NULL,
+        method VARCHAR(16),
+        path TEXT,
+        status_code INT,
+        tenant_id VARCHAR(64),
+        user_email VARCHAR(160),
+        user_role VARCHAR(40),
+        user_agent VARCHAR(240),
+        message TEXT NOT NULL,
+        stack TEXT,
+        component_stack TEXT,
+        occurrences INT NOT NULL DEFAULT 1,
+        status VARCHAR(24) NOT NULL DEFAULT 'open',
+        triage_summary TEXT,
+        telegram_message_id BIGINT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    tableEnsured = true;
+  }
+
+  async function persistAlertRecord(record) {
+    if (!pool || typeof pool.query !== 'function') return;
+    try {
+      await ensureAlertsTable();
+      await pool.query(
+        `INSERT INTO ops_error_alerts
+          (error_id, env, source, type, method, path, status_code, tenant_id, user_email, user_role, user_agent, message, stack, component_stack, occurrences, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+         ON CONFLICT (error_id) DO NOTHING`,
+        [
+          record.errorId,
+          record.envName,
+          record.source,
+          record.type,
+          record.method || null,
+          record.urlOrPath || null,
+          record.statusCode || null,
+          record.tenantId || null,
+          record.userEmail || null,
+          record.userRole || null,
+          record.userAgent || null,
+          record.message,
+          record.stack || null,
+          record.componentStack || null,
+          1 + Number(record.priorSuppressed || 0),
+        ]
+      );
+    } catch (persistErr) {
+      console.error('[OPS_ALERT_PERSIST_FAILED]:', persistErr?.message || persistErr);
+    }
+  }
 
   function buildFingerprint(payload) {
     const src = String(payload.source || 'unknown').toLowerCase();
@@ -175,6 +238,24 @@ function createErrorAlertService(pool, options = {}) {
         html: htmlBody,
       });
 
+      await persistAlertRecord({
+        errorId,
+        envName,
+        source,
+        type,
+        method,
+        urlOrPath,
+        statusCode,
+        tenantId,
+        userEmail,
+        userRole,
+        userAgent,
+        message,
+        stack,
+        componentStack,
+        priorSuppressed,
+      });
+
       sentInCurrentHour += 1;
       return { sent: true, errorId, recipients, priorSuppressed };
     } catch (err) {
@@ -291,6 +372,24 @@ function createErrorAlertService(pool, options = {}) {
         subject,
         text: textBody,
         html: htmlBody,
+      });
+
+      await persistAlertRecord({
+        errorId: reportId,
+        envName,
+        source: 'USER_REPORT',
+        type: cleanCat,
+        method: 'REPORT',
+        urlOrPath: cleanUrl,
+        statusCode: null,
+        tenantId: tenantId || cleanTenant,
+        userEmail: cleanUser,
+        userRole: cleanRole,
+        userAgent: cleanUa,
+        message: cleanDesc,
+        stack: cleanRecent.length ? cleanRecent.join('\n') : '',
+        componentStack: '',
+        priorSuppressed: 0,
       });
 
       return { sent: true, reportId };
