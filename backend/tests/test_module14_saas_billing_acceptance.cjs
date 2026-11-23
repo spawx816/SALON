@@ -13,7 +13,7 @@ const { TenantSubscriptionRepository } = require('../repositories/tenant_subscri
 const { EntitlementsRepository } = require('../repositories/entitlements.repository');
 const { SaasBillingRepository } = require('../repositories/saas_billing.repository');
 const { EntitlementsService } = require('../services/entitlements.service');
-const { SaasSubscriptionLifecycleService } = require('../services/saas_subscription_lifecycle.service');
+const { SubscriptionLifecycleService } = require('../services/subscription_lifecycle.service');
 const { SaasFxRateService } = require('../services/saas_fx_rate.service');
 
 const pgPool = new Pool({
@@ -86,7 +86,7 @@ function request(server, method, path, headers = {}, body = null) {
     entitlementsRepo,
     auditRepo: billingRepo,
   });
-  const lifecycleService = new SaasSubscriptionLifecycleService({
+  const lifecycleService = new SubscriptionLifecycleService({
     subscriptionRepo,
     entitlementsRepo,
     billingRepo,
