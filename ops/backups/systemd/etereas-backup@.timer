@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily 03:00 America/Santo_Domingo Off-Site Backup Timer for Etereas (%i)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 America/Santo_Domingo
+Persistent=true
+RandomizedDelaySec=180
+Unit=etereas-backup@%i.service
+
+[Install]
+WantedBy=timers.target

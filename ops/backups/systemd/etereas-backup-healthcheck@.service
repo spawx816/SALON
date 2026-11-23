@@ -1,0 +1,12 @@
+[Unit]
+Description=Etereas Off-Site Backup Freshness & Quota Healthcheck (%i)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/salonpro/ops/backups/etereas_backup_healthcheck.sh %i 26
+TimeoutStartSec=5min
+StandardOutput=append:/opt/salonpro/logs/backups/healthcheck_%i.log
+StandardError=append:/opt/salonpro/logs/backups/healthcheck_%i.log

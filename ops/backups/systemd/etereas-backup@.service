@@ -1,0 +1,21 @@
+[Unit]
+Description=Etereas Encrypted Off-Site Backup to Google Drive (%i)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/salonpro/ops/backups/etereas_backup.sh --env %i
+TimeoutStartSec=45min
+Restart=on-failure
+RestartSec=5min
+StartLimitBurst=3
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+MemoryMax=1G
+CPUQuota=60%
+StandardOutput=append:/opt/salonpro/logs/backups/backup_%i.log
+StandardError=append:/opt/salonpro/logs/backups/backup_%i.log

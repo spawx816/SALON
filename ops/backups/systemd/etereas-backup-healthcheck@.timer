@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily 09:00 America/Santo_Domingo Backup Healthcheck Timer (%i)
+
+[Timer]
+OnCalendar=*-*-* 09:00:00 America/Santo_Domingo
+Persistent=true
+Unit=etereas-backup-healthcheck@%i.service
+
+[Install]
+WantedBy=timers.target
