@@ -38,15 +38,15 @@ function createMarketingRouter(pool) {
       case 'pending_payment':
         return ` AND c.id IN (SELECT DISTINCT client_id FROM contracts WHERE tenant_id = '${tenantId}' AND client_id IS NOT NULL AND (status IN ('Past Due', 'Overdue', 'Pending_Retry') OR auto_billing_enabled = 0))`;
       case 'tenure_3m':
-        return ` AND c.id IN (SELECT client_id FROM contracts WHERE tenant_id = '${tenantId}' AND client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH))`;
+        return ` AND c.id IN (SELECT client_id FROM contracts WHERE tenant_id = '${tenantId}' AND client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= (CURRENT_DATE - INTERVAL '3 months'))`;
       case 'tenure_6m':
-        return ` AND c.id IN (SELECT client_id FROM contracts WHERE tenant_id = '${tenantId}' AND client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH))`;
+        return ` AND c.id IN (SELECT client_id FROM contracts WHERE tenant_id = '${tenantId}' AND client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= (CURRENT_DATE - INTERVAL '6 months'))`;
       case 'tenure_9m':
-        return ` AND c.id IN (SELECT client_id FROM contracts WHERE tenant_id = '${tenantId}' AND client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= DATE_SUB(CURRENT_DATE(), INTERVAL 9 MONTH))`;
+        return ` AND c.id IN (SELECT client_id FROM contracts WHERE tenant_id = '${tenantId}' AND client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= (CURRENT_DATE - INTERVAL '9 months'))`;
       case 'tenure_12m':
-        return ` AND c.id IN (SELECT client_id FROM contracts WHERE tenant_id = '${tenantId}' AND client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= DATE_SUB(CURRENT_DATE(), INTERVAL 12 MONTH))`;
+        return ` AND c.id IN (SELECT client_id FROM contracts WHERE tenant_id = '${tenantId}' AND client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= (CURRENT_DATE - INTERVAL '12 months'))`;
       case 'tenure_18m':
-        return ` AND c.id IN (SELECT client_id FROM contracts WHERE tenant_id = '${tenantId}' AND client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= DATE_SUB(CURRENT_DATE(), INTERVAL 18 MONTH))`;
+        return ` AND c.id IN (SELECT client_id FROM contracts WHERE tenant_id = '${tenantId}' AND client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= (CURRENT_DATE - INTERVAL '18 months'))`;
       case 'all':
       default:
         return "";
@@ -173,18 +173,18 @@ function createMarketingRouter(pool) {
       }
 
       const [sentRows] = await pool.query(`
-        SELECT COUNT(*) as total 
+        SELECT COUNT(*)::int as total 
         FROM email_logs 
-        WHERE tenant_id = ? AND MONTH(sent_at) = MONTH(NOW()) AND YEAR(sent_at) = YEAR(NOW())
+        WHERE tenant_id = ? AND DATE_TRUNC('month', sent_at) = DATE_TRUNC('month', NOW())
       `, [tenantId]);
-      const totalSent = sentRows[0]?.total || 0;
+      const totalSent = Number(sentRows[0]?.total || 0);
 
       const [openedRows] = await pool.query(`
-        SELECT COUNT(*) as total 
+        SELECT COUNT(*)::int as total 
         FROM email_logs 
-        WHERE tenant_id = ? AND opened = 1 AND MONTH(sent_at) = MONTH(NOW()) AND YEAR(sent_at) = YEAR(NOW())
+        WHERE tenant_id = ? AND opened = 1 AND DATE_TRUNC('month', sent_at) = DATE_TRUNC('month', NOW())
       `, [tenantId]);
-      const totalOpened = openedRows[0]?.total || 0;
+      const totalOpened = Number(openedRows[0]?.total || 0);
 
       const openRate = totalSent > 0 ? Math.round((totalOpened / totalSent) * 100) : 0;
 
