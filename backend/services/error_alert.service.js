@@ -104,32 +104,40 @@ function createErrorAlertService(pool, options = {}) {
 
   async function persistAlertRecord(record) {
     if (!pool || typeof pool.query !== 'function') return;
-    try {
-      await ensureAlertsTable();
-      await pool.query(
-        `INSERT INTO ops_error_alerts
+    const insertSql = `INSERT INTO ops_error_alerts
           (error_id, env, source, type, method, path, status_code, tenant_id, user_email, user_role, user_agent, message, stack, component_stack, occurrences, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
-         ON CONFLICT (error_id) DO NOTHING`,
-        [
-          record.errorId,
-          record.envName,
-          record.source,
-          record.type,
-          record.method || null,
-          record.urlOrPath || null,
-          record.statusCode || null,
-          record.tenantId || null,
-          record.userEmail || null,
-          record.userRole || null,
-          record.userAgent || null,
-          record.message,
-          record.stack || null,
-          record.componentStack || null,
-          1 + Number(record.priorSuppressed || 0),
-        ]
-      );
+         ON CONFLICT (error_id) DO NOTHING`;
+    const params = [
+      record.errorId,
+      record.envName,
+      record.source,
+      record.type,
+      record.method || null,
+      record.urlOrPath || null,
+      record.statusCode || null,
+      record.tenantId || null,
+      record.userEmail || null,
+      record.userRole || null,
+      record.userAgent || null,
+      record.message,
+      record.stack || null,
+      record.componentStack || null,
+      1 + Number(record.priorSuppressed || 0),
+    ];
+    try {
+      await pool.query(insertSql, params);
     } catch (persistErr) {
+      if (String(persistErr?.message || '').includes('does not exist')) {
+        try {
+          await ensureAlertsTable();
+          await pool.query(insertSql, params);
+          return;
+        } catch (retryErr) {
+          console.error('[OPS_ALERT_PERSIST_FAILED]:', retryErr?.message || retryErr);
+          return;
+        }
+      }
       console.error('[OPS_ALERT_PERSIST_FAILED]:', persistErr?.message || persistErr);
     }
   }
