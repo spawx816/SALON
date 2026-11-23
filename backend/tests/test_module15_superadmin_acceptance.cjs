@@ -154,31 +154,49 @@ function request(server, method, path, headers = {}, body = null) {
       assert.strictEqual(res.status, 403);
     });
 
-    // 3. SuperAdmin lists tenants and verifies MRR charges 1 block (US$99) for 2 enabled branches, not 2x99
-    await runCase('M15-3: SuperAdmin /metrics calculates memberships add-on MRR by 3-branch block (1 block = US$99 for 2 branches)', async () => {
+    // 3. SuperAdmin lists tenants and verifies MRR bills by contracted blocks (2 acquired blocks with 2 assigned branches = +US$198, unchanged after branch reassignment)
+    await runCase('M15-3: SuperAdmin /metrics bills by contracted blocks (2 blocks w/ 2 branches = +US$198; reassignment preserves 2 blocks)', async () => {
       const before = await request(server, 'GET', '/api/saas/metrics', { Authorization: `Bearer ${saToken}` });
       assert.strictEqual(before.status, 200);
       const mrrBefore = Number(before.body?.mrr || 0);
 
-      await entitlementsService.setAddonStatus(tenantProdLike, 'memberships', {
+      // Acquire 2 blocks (capacity 6) while assigning only 2 branches
+      const act = await entitlementsService.setAddonStatus(tenantProdLike, 'memberships', {
         enabled: true,
         source: 'commercial_addon',
-        reason: 'M15 block pricing check',
+        reason: 'M15 two contracted blocks with two branches',
         branchIds: [branch1, branch2],
-        acquiredBlocks: 1,
+        acquiredBlocks: 2,
       });
+      assert.strictEqual(act.acquiredBlocks, 2);
+      assert.strictEqual(act.acquiredBranchCapacity, 6);
+      assert.strictEqual(act.enabledBranchCount, 2);
 
-      const after = await request(server, 'GET', '/api/saas/metrics', { Authorization: `Bearer ${saToken}` });
-      assert.strictEqual(after.status, 200);
-      const mrrAfter = Number(after.body?.mrr || 0);
-      const delta = Number((mrrAfter - mrrBefore).toFixed(2));
-      assert.strictEqual(delta, 99, `Expected MRR delta of +99 USD for 1 block (2 branches), got +${delta} (planPrice=${planPrice})`);
+      const afterTwo = await request(server, 'GET', '/api/saas/metrics', { Authorization: `Bearer ${saToken}` });
+      assert.strictEqual(afterTwo.status, 200);
+      const deltaTwo = Number((Number(afterTwo.body?.mrr || 0) - mrrBefore).toFixed(2));
+      assert.strictEqual(deltaTwo, 198, `Expected MRR delta of +198 USD for 2 contracted blocks (with 2 assigned branches), got +${deltaTwo} (planPrice=${planPrice})`);
+
+      // Change branch assignment (down to 1 branch) without passing acquiredBlocks: contracted blocks MUST stay 2 and MRR MUST stay +198
+      const reassigned = await entitlementsService.setAddonStatus(tenantProdLike, 'memberships', {
+        enabled: true,
+        source: 'commercial_addon',
+        reason: 'M15 branch reassignment without changing contracted blocks',
+        branchIds: [branch1],
+      });
+      assert.strictEqual(reassigned.acquiredBlocks, 2, 'Reassignment must not reduce contracted blocks');
+      assert.strictEqual(reassigned.enabledBranchCount, 1);
+
+      const afterReassign = await request(server, 'GET', '/api/saas/metrics', { Authorization: `Bearer ${saToken}` });
+      assert.strictEqual(afterReassign.status, 200);
+      const deltaReassign = Number((Number(afterReassign.body?.mrr || 0) - mrrBefore).toFixed(2));
+      assert.strictEqual(deltaReassign, 198, `Expected MRR delta to remain +198 USD after reassignment, got +${deltaReassign}`);
 
       const tenantsRes = await request(server, 'GET', '/api/saas/tenants', { Authorization: `Bearer ${saToken}` });
       assert.strictEqual(tenantsRes.status, 200);
       const found = (tenantsRes.body || []).find((t) => t.id === tenantProdLike);
       assert.ok(found && found.has_memberships === true);
-      assert.strictEqual(Number(found.memberships_enabled_branch_count), 2);
+      assert.strictEqual(Number(found.memberships_enabled_branch_count), 1);
     });
 
     console.log(`\nALL MODULE 15 ACCEPTANCE TESTS PASSED (${passed}/3)`);

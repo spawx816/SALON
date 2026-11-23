@@ -91,6 +91,7 @@ function createSaasRouter(pool, options = {}) {
           GREATEST(COALESCE(t.licensed_branches, t.max_branches, 1), 1) as billable_branches,
           GREATEST(COALESCE(t.extra_user_seats, 0), 0) as extra_seats,
           COALESCE(t.has_memberships, false) as has_memberships,
+          COALESCE(ts.addon_blocks_count, 0) as sub_addon_blocks_count,
           COALESCE(sp.price_per_branch, sp.price_monthly, 0) as plan_price_per_branch,
           COALESCE(sp.price_yearly, 0) as plan_price_yearly,
           COALESCE(sp.extra_user_price, 0) as extra_user_price
@@ -119,8 +120,15 @@ function createSaasRouter(pool, options = {}) {
         const ent = await entitlementsService.getTenantEntitlements(row.id);
         const membershipsAddon = ent?.addons?.memberships;
         const isPaidAddon = Boolean(membershipsAddon?.active && membershipsAddon?.source !== 'legacy_pro_transition');
+        // Fuente de facturación: bloques contratados vigentes (nunca inferir únicamente con ceil(sucursales/3))
+        const contractedBlocks = Math.max(
+          Number(membershipsAddon?.acquiredBlocks || 0),
+          Number(row.sub_addon_blocks_count || 0)
+        );
         const addonBlocksCount = isPaidAddon
-          ? Math.max(1, Number(membershipsAddon?.acquiredBlocks || Math.ceil(Math.max(1, Number(membershipsAddon?.enabledBranchCount ?? branches)) / 3)))
+          ? (contractedBlocks > 0
+            ? contractedBlocks
+            : Math.max(1, Math.ceil(Math.max(1, Number(membershipsAddon?.enabledBranchCount ?? branches)) / 3)))
           : 0;
         const addonUnitCents = isPaidAddon ? Math.round(Number(MEMBERSHIPS_ADDON_DEFAULT_USD || 99) * 100) : 0;
 
