@@ -103,6 +103,7 @@ async function processSubscriptionsInternal(pool, helpers = {}, reqIp = "127.0.0
          AND (c.next_retry_date <= NOW() OR (c.next_retry_date IS NULL AND c.next_billing_date <= NOW())) 
          AND (c.retry_count < ${MAX_RETRY_COUNT} OR c.retry_count IS NULL))
       )
+      AND COALESCE(NULLIF(TRIM(c.card_token), ''), NULLIF(TRIM(c.payment_profile_id), ''), NULLIF(TRIM(c.cardnet_profile_id), '')) IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM payments py 
         WHERE py.client_id = c.client_id 
@@ -188,17 +189,28 @@ async function processSubscriptionsInternal(pool, helpers = {}, reqIp = "127.0.0
           results.successful++;
           results.logs.push(`[OK] ${contract.nombre} - ${contract.plan_title}`);
         } else {
-          const declineError = new Error(purchaseResult.ResponseMessage || "Declinada");
-          declineError.isDecline = true;
+          const cardnetErrors = Array.isArray(purchaseResult?.Errors)
+            ? purchaseResult.Errors
+            : (Array.isArray(purchaseRes.data?.Errors) ? purchaseRes.data.Errors : []);
+          const firstApiErr = cardnetErrors[0];
+          const txDesc = purchaseResult?.Transaction?.Description || purchaseResult?.ResponseMessage || firstApiErr?.Message || "Declinada";
+          const isTokenOrValidationError = cardnetErrors.length > 0 && !purchaseResult?.Transaction?.TransactionID;
+
+          const declineError = new Error(txDesc);
+          declineError.isDecline = !isTokenOrValidationError;
+          declineError.isTokenError = isTokenOrValidationError;
+          declineError.cardnetErrorCode = firstApiErr?.ErrorCode || purchaseResult?.ResponseCode || null;
+          declineError.rawResponse = purchaseRes.data;
           throw declineError;
         }
       } catch (err) {
+        const rawPayloadObj = err.rawResponse || err.response?.data || { error: err.message, status: err.response?.status };
         const errorString = (
           err.message + ' ' + 
-          (typeof err.response?.data === 'string' ? err.response.data : JSON.stringify(err.response?.data || ''))
+          (typeof rawPayloadObj === 'string' ? rawPayloadObj : JSON.stringify(rawPayloadObj || ''))
         ).toLowerCase();
 
-        const isSystemError = !err.isDecline && (
+        const isSystemError = !err.isDecline && !err.isTokenError && (
                                !err.response || 
                                [429, 500, 502, 503, 504].includes(err.response?.status) || 
                                err.code === 'ECONNABORTED' || 
@@ -226,7 +238,10 @@ async function processSubscriptionsInternal(pool, helpers = {}, reqIp = "127.0.0
           );
 
           if (isMaxRetriesReached) {
-            await pool.query('UPDATE clients SET status = "Inactive" WHERE id = ?', [contract.client_id]);
+            await pool.query(
+              `UPDATE clients SET status = "Inactive" WHERE id = ? AND NOT EXISTS (SELECT 1 FROM contracts WHERE client_id = ? AND status IN ('Active', 'Activo') AND id != ?)`,
+              [contract.client_id, contract.client_id, contract.id]
+            );
             console.log(`[CRON] Contrato ${contract.id} de ${contract.nombre} SUSPENDIDO por ${MAX_RETRY_COUNT} errores de conexión consecutivos.`);
           }
 
@@ -237,7 +252,33 @@ async function processSubscriptionsInternal(pool, helpers = {}, reqIp = "127.0.0
 
           await pool.query(
             'INSERT INTO payments (id, client_id, plan_id, amount, method, status, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [`PAY-SYS-${Date.now()}-${contract.id.slice(-4)}`, contract.client_id, contract.plan_id, contract.effective_price, 'CardNet_Auto', paymentStatus, paymentDescription, JSON.stringify({ error: err.message, status: err.response?.status, attempt: newRetryCount })]
+            [`PAY-SYS-${Date.now()}-${contract.id.slice(-4)}`, contract.client_id, contract.plan_id, contract.effective_price, 'CardNet_Auto', paymentStatus, paymentDescription, JSON.stringify({ error: err.message, status: err.response?.status, attempt: newRetryCount, raw: rawPayloadObj })]
+          );
+        } else if (err.isTokenError) {
+          console.warn(`[CRON] CardNet Token/API Validation Error (${err.cardnetErrorCode || 'API'}) charging ${contract.nombre} - Intento ${newRetryCount}/${MAX_RETRY_COUNT}: ${err.message}. No llegó al banco.`);
+
+          await pool.query(
+            `UPDATE contracts SET status = ?, retry_count = ?, next_retry_date = ${nextRetrySql} WHERE id = ?`,
+            [newStatus, newRetryCount, contract.id]
+          );
+
+          await pool.query(
+            `UPDATE clients SET status = "Inactive" WHERE id = ? AND NOT EXISTS (SELECT 1 FROM contracts WHERE client_id = ? AND status IN ('Active', 'Activo') AND id != ?)`,
+            [contract.client_id, contract.client_id, contract.id]
+          );
+
+          await pool.query(
+            'INSERT INTO payments (id, client_id, plan_id, amount, method, status, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+              `PAY-TOK-${Date.now()}-${contract.id.slice(-4)}`,
+              contract.client_id,
+              contract.plan_id,
+              contract.effective_price,
+              'CardNet_Auto',
+              `Error_Token - Intento ${newRetryCount}`,
+              `Token inválido/vencido en CardNet (${err.cardnetErrorCode || 'API'}): ${err.message} (No llegó al banco)`,
+              JSON.stringify(rawPayloadObj)
+            ]
           );
         } else {
           console.warn(`[CRON] CardNet Real Decline charging ${contract.nombre} (Plan: ${contract.plan_title}) - Intento ${newRetryCount}/${MAX_RETRY_COUNT}: ${err.message}.`);
@@ -247,11 +288,14 @@ async function processSubscriptionsInternal(pool, helpers = {}, reqIp = "127.0.0
             [newStatus, newRetryCount, contract.id]
           );
 
-          await pool.query('UPDATE clients SET status = "Inactive" WHERE id = ?', [contract.client_id]);
+          await pool.query(
+            `UPDATE clients SET status = "Inactive" WHERE id = ? AND NOT EXISTS (SELECT 1 FROM contracts WHERE client_id = ? AND status IN ('Active', 'Activo') AND id != ?)`,
+            [contract.client_id, contract.client_id, contract.id]
+          );
 
           await pool.query(
             'INSERT INTO payments (id, client_id, plan_id, amount, method, status, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [`PAY-FAIL-${Date.now()}-${contract.id.slice(-4)}`, contract.client_id, contract.plan_id, contract.effective_price, 'CardNet_Auto', `Fallido - Intento ${newRetryCount}`, isMaxRetriesReached ? `Contrato Suspendido tras ${MAX_RETRY_COUNT} intentos fallidos (Declinado)` : `Intento Recurrente Fallido: ${contract.plan_title} (Declinado)`, JSON.stringify(err.response?.data || { error: err.message })]
+            [`PAY-FAIL-${Date.now()}-${contract.id.slice(-4)}`, contract.client_id, contract.plan_id, contract.effective_price, 'CardNet_Auto', `Fallido - Intento ${newRetryCount}`, isMaxRetriesReached ? `Contrato Suspendido tras ${MAX_RETRY_COUNT} intentos fallidos (${err.message})` : `Intento Recurrente Fallido: ${contract.plan_title} (${err.message})`, JSON.stringify(rawPayloadObj)]
           );
 
           if (contract.email && newRetryCount === 1 && sendPaymentFailedEmail) {
