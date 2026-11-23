@@ -94,6 +94,7 @@ const { ZeroTaxPolicy } = require('./services/tax_policy');
 const { createAuthMiddleware } = require('./middleware/auth.middleware');
 const { TenantBrandingRepository, InMemoryTenantBrandingRepository } = require('./repositories/tenant_branding.repository');
 const { TenantBrandingService } = require('./services/tenant_branding.service');
+const { createErrorAlertService } = require('./services/error_alert.service');
 const { logger } = require('./utils/logger');
 
 /**
@@ -384,6 +385,34 @@ function createApp(dependencies = {}) {
   const sendPaymentReceiptEmail = dependencies.sendPaymentReceiptEmail || (async () => { });
   const sendPaymentFailedEmail = dependencies.sendPaymentFailedEmail || (async () => { });
   const sendSurveyEmail = dependencies.sendSurveyEmail || ((p, clientId, name, email, tenantId) => sendSurveyEmailHelper(p || pool, clientId, name, email, tenantId));
+  const errorAlertService = dependencies.errorAlertService || createErrorAlertService(pool);
+
+  // Automatic 5xx backend error alerting (catches direct res.status(500).json(...) without next(err))
+  app.use('/api', (req, res, next) => {
+    if (req.path === '/client-errors') return next();
+    const originalJson = res.json.bind(res);
+    res.json = (body) => {
+      if (res.statusCode >= 500 && !req._errorAlertDispatched) {
+        req._errorAlertDispatched = true;
+        const msg = (body && typeof body === 'object') ? (body.error || body.message || `HTTP ${res.statusCode}`) : String(body || `HTTP ${res.statusCode}`);
+        errorAlertService.reportError({
+          source: 'backend',
+          type: `http_${res.statusCode}`,
+          errorId: body?.error_id,
+          message: msg,
+          method: req.method,
+          path: req.originalUrl || req.url,
+          statusCode: res.statusCode,
+          tenantId: req.tenantId || req.auth?.tenantId || null,
+          userEmail: req.user?.email || req.auth?.email || null,
+          userRole: req.auth?.role || req.user?.role || null,
+          userAgent: req.headers['user-agent'] || '',
+        }).catch(() => {});
+      }
+      return originalJson(body);
+    };
+    next();
+  });
 
   // Authentication & Multi-Tenant Isolation Shield
   const {
@@ -399,8 +428,9 @@ function createApp(dependencies = {}) {
     const pathUrl = (req.originalUrl || req.url || '').split('?')[0].replace(/\/+$/, '') || '/';
     const method = req.method.toUpperCase();
 
-    // 1. Health & status checks
+    // 1. Health, status & client error telemetry
     if (pathUrl === '/api/health' || pathUrl === '/api/health/db-check' || pathUrl === '/api/ping' || pathUrl === '/api/status') return true;
+    if (pathUrl === '/api/client-errors' && method === 'POST') return true;
 
     // 2. Authentication & Account Recovery routes
     if (
@@ -798,6 +828,37 @@ function createApp(dependencies = {}) {
     app.use('/api/test', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }));
   }
 
+  const clientErrorsLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 15,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: 'Too many error reports' }
+  });
+
+  app.post('/api/client-errors', clientErrorsLimiter, (req, res) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    if (!body.message && !body.type) {
+      return res.status(400).json({ success: false, error: 'Payload inválido' });
+    }
+    errorAlertService.reportError({
+      source: 'frontend',
+      type: body.type || 'frontend_error',
+      errorId: body.errorId,
+      message: body.message || 'Error en interfaz',
+      stack: body.stack || '',
+      componentStack: body.componentStack || '',
+      url: body.url || req.headers.referer || '',
+      method: body.method || '',
+      statusCode: body.statusCode || null,
+      tenantId: req.tenantId || body.tenantId || null,
+      userEmail: req.user?.email || body.userEmail || null,
+      userRole: req.auth?.role || req.user?.role || body.userRole || null,
+      userAgent: body.userAgent || req.headers['user-agent'] || '',
+    }).catch(() => {});
+    return res.status(202).json({ accepted: true });
+  });
+
   app.use('/api', (req, res) => {
     return res.status(404).json({
       success: false,
@@ -826,6 +887,23 @@ function createApp(dependencies = {}) {
         : 500;
 
     const isClientError = statusCode < 500;
+    if (!isClientError && !req._errorAlertDispatched) {
+      req._errorAlertDispatched = true;
+      errorAlertService.reportError({
+        source: 'backend',
+        type: err.code || `http_${statusCode}`,
+        errorId,
+        message: err.message || 'Unhandled server error',
+        stack: err.stack || '',
+        method: req.method,
+        path: req.originalUrl || req.url,
+        statusCode,
+        tenantId,
+        userEmail: req.user?.email || req.auth?.email || null,
+        userRole: req.auth?.role || req.user?.role || null,
+        userAgent: req.headers['user-agent'] || '',
+      }).catch(() => {});
+    }
     const sanitizedMessage = isClientError
       ? (err.message || 'Solicitud inválida.')
       : 'Ocurrió un error interno en el servidor.';
@@ -849,7 +927,8 @@ function createApp(dependencies = {}) {
     saasBillingRepo,
     paymentGateway,
     subscriptionRepo,
-    entitlementsRepo
+    entitlementsRepo,
+    errorAlertService
   };
 
   return app;

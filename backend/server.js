@@ -110,10 +110,24 @@ app.get(/.*/, (req, res) => {
 
 process.on('uncaughtException', (err) => {
   console.error('[UNCAUGHT EXCEPTION PREVENTED]:', err.message);
+  app.locals?.errorAlertService?.reportError({
+    source: 'backend',
+    type: 'uncaught_exception',
+    message: err?.message || String(err),
+    stack: err?.stack || '',
+    path: 'process:uncaughtException',
+  }).catch(() => {});
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[UNHANDLED REJECTION PREVENTED]:', reason);
+  app.locals?.errorAlertService?.reportError({
+    source: 'backend',
+    type: 'unhandled_rejection',
+    message: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? (reason.stack || '') : '',
+    path: 'process:unhandledRejection',
+  }).catch(() => {});
 });
 
 const { GracefulShutdownCoordinator } = require('./utils/graceful_shutdown.coordinator.cjs');

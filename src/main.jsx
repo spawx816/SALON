@@ -2,10 +2,13 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
+import { initGlobalErrorReporting, reportClientError } from './utils/errorReporter'
 
-// Global Fetch Interceptor: ensure credentials: 'include' for HttpOnly secure cookie transport
+// Global Fetch Interceptor: ensure credentials: 'include' + silent 5xx error reporting
 if (typeof window !== 'undefined' && window.fetch) {
   const originalFetch = window.fetch;
+  window.__etereasOriginalFetch = originalFetch;
+  initGlobalErrorReporting();
   window.fetch = async (resource, config = {}) => {
     let url = '';
     if (typeof resource === 'string') {
@@ -19,7 +22,30 @@ if (typeof window !== 'undefined' && window.fetch) {
       config.credentials = config.credentials || 'include';
     }
 
-    return originalFetch(resource, config);
+    try {
+      const response = await originalFetch(resource, config);
+      if (url.includes('/api/') && !url.includes('/api/client-errors') && response.status >= 500) {
+        reportClientError({
+          type: `api_http_${response.status}`,
+          message: `Error ${response.status} en ${config?.method || 'GET'} ${url}`,
+          method: config?.method || 'GET',
+          statusCode: response.status,
+          url,
+        });
+      }
+      return response;
+    } catch (networkErr) {
+      if (url.includes('/api/') && !url.includes('/api/client-errors') && networkErr?.name !== 'AbortError') {
+        reportClientError({
+          type: 'api_network_error',
+          message: networkErr?.message || `Fallo de red en ${url}`,
+          stack: networkErr?.stack || '',
+          method: config?.method || 'GET',
+          url,
+        });
+      }
+      throw networkErr;
+    }
   };
 }
 

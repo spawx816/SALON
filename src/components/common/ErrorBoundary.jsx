@@ -1,5 +1,6 @@
 import React from 'react';
 import { isChunkLoadError, getAppEntryVersion } from '../../utils/lazyWithRetry';
+import { reportClientError } from '../../utils/errorReporter';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -29,6 +30,13 @@ class ErrorBoundary extends React.Component {
         message: sanitizedMessage
       }));
     }
+    reportClientError({
+      type: 'react_error_boundary',
+      errorId: this.state.errorId,
+      message: error?.message || String(error || 'Unknown UI error'),
+      stack: error?.stack || '',
+      componentStack: errorInfo?.componentStack || '',
+    });
     this.setState({ errorInfo });
   }
 
