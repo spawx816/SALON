@@ -2672,6 +2672,8 @@ export const dataService = {
       await fetch(`${API_URL}/auth/logout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        keepalive: true,
         body: JSON.stringify({ sessionId, userId, userName })
       });
     } catch (e) {

@@ -35,7 +35,11 @@ if (typeof window !== 'undefined' && window.fetch) {
       }
       return response;
     } catch (networkErr) {
-      if (url.includes('/api/') && !url.includes('/api/client-errors') && networkErr?.name !== 'AbortError') {
+      const isBenignNavAbort =
+        networkErr?.name === 'AbortError' ||
+        url.includes('/api/auth/logout') ||
+        (typeof document !== 'undefined' && document.visibilityState === 'hidden');
+      if (url.includes('/api/') && !url.includes('/api/client-errors') && !isBenignNavAbort) {
         reportClientError({
           type: 'api_network_error',
           message: networkErr?.message || `Fallo de red en ${url}`,
