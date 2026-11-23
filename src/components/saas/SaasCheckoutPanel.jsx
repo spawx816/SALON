@@ -430,22 +430,28 @@ export default function SaasCheckoutPanel({
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  {isPayable && (
-                    <button
-                      type="button"
-                      className="sb-btn-primary"
-                      disabled={isBusy}
-                      onClick={() => handlePayWithCardnet(order)}
-                    >
-                      <CreditCard size={15} />
-                      {isBusy
-                        ? 'Conectando...'
-                        : order.status === 'processing'
-                          ? 'Retomar pago CardNet'
-                          : 'Pagar con CardNet'}
-                      <ExternalLink size={13} />
-                    </button>
-                  )}
+                  {isPayable && (() => {
+                    const gatewayNotConfigured = Boolean(gatewayStatus && gatewayStatus.configured === false);
+                    return (
+                      <button
+                        type="button"
+                        className="sb-btn-primary"
+                        disabled={isBusy || gatewayNotConfigured}
+                        title={gatewayNotConfigured ? 'Los pagos con tarjeta están en proceso de habilitación. Contacta a soporte para activar tu orden.' : undefined}
+                        onClick={() => handlePayWithCardnet(order)}
+                      >
+                        <CreditCard size={15} />
+                        {gatewayNotConfigured
+                          ? 'Pasarela en habilitación'
+                          : isBusy
+                            ? 'Conectando...'
+                            : order.status === 'processing'
+                              ? 'Retomar pago CardNet'
+                              : 'Pagar con CardNet'}
+                        {!gatewayNotConfigured && <ExternalLink size={13} />}
+                      </button>
+                    );
+                  })()}
                   {order.status === 'approved' && order.activated_at && onViewInvoice && (() => {
                     const matchedInv = invoices.find((inv) => inv.id === order.invoice_id || inv.order_number === order.order_number);
                     if (!matchedInv) return null;
