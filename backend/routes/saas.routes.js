@@ -357,22 +357,24 @@ function createSaasRouter(pool, options = {}) {
     }
   });
 
-  // PUT /api/saas/tenants/:id/licensing - Actualizar límites de sucursales/asientos preservando plan y módulos
+  // PUT /api/saas/tenants/:id/licensing - Actualizar límites de sucursales/asientos y/o plan SaaS asignado
   router.put('/tenants/:id/licensing', authenticate, requireSuperAdmin, async (req, res) => {
     const { id } = req.params;
-    const { licensed_branches, extra_user_seats, max_branches, max_users } = req.body || {};
+    const { licensed_branches, extra_user_seats, max_branches, max_users, plan_id } = req.body || {};
 
     const hasBranches = licensed_branches !== undefined || max_branches !== undefined;
     const hasSeats = extra_user_seats !== undefined;
     const hasMaxUsers = max_users !== undefined;
+    const hasPlanId = plan_id !== undefined && plan_id !== null && plan_id !== '';
 
-    if (!hasBranches && !hasSeats && !hasMaxUsers) {
-      return res.status(400).json({ error: 'Debe especificar licensed_branches o extra_user_seats' });
+    if (!hasBranches && !hasSeats && !hasMaxUsers && !hasPlanId) {
+      return res.status(400).json({ error: 'Debe especificar plan_id, licensed_branches o extra_user_seats' });
     }
 
     const parsedBranches = hasBranches ? Number(licensed_branches ?? max_branches) : null;
     const parsedExtraSeats = hasSeats ? Number(extra_user_seats) : null;
     const parsedMaxUsersExplicit = hasMaxUsers ? Number(max_users) : null;
+    const parsedPlanId = hasPlanId ? Number(plan_id) : null;
 
     if (parsedBranches !== null && (!Number.isInteger(parsedBranches) || parsedBranches < 1 || parsedBranches > 500)) {
       return res.status(400).json({ error: 'licensed_branches debe ser un entero entre 1 y 500' });
@@ -382,6 +384,9 @@ function createSaasRouter(pool, options = {}) {
     }
     if (parsedMaxUsersExplicit !== null && (!Number.isInteger(parsedMaxUsersExplicit) || parsedMaxUsersExplicit < 1 || parsedMaxUsersExplicit > 5000)) {
       return res.status(400).json({ error: 'max_users debe ser un entero entre 1 y 5000' });
+    }
+    if (parsedPlanId !== null && (!Number.isInteger(parsedPlanId) || parsedPlanId < 1)) {
+      return res.status(400).json({ error: 'plan_id debe ser un entero válido mayor o igual a 1' });
     }
 
     const conn = await pool.getConnection();
@@ -393,8 +398,8 @@ function createSaasRouter(pool, options = {}) {
          FROM tenants t
          LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = t.id
          LEFT JOIN saas_plans sp ON (
-           (ts.plan_code IS NOT NULL AND UPPER(sp.code) = UPPER(ts.plan_code))
-           OR (ts.plan_code IS NULL AND sp.id = t.plan_id)
+           (ts.saas_plan_id IS NOT NULL AND sp.id = ts.saas_plan_id)
+           OR (ts.saas_plan_id IS NULL AND sp.id = t.plan_id)
          )
          WHERE t.id = ? FOR UPDATE OF t`,
         [id]
@@ -405,24 +410,48 @@ function createSaasRouter(pool, options = {}) {
       }
 
       const current = rows[0];
+      let targetPlan = null;
+      if (parsedPlanId !== null) {
+        const [planRows] = await conn.query(
+          'SELECT id, code, name, users_per_branch FROM saas_plans WHERE id = ? LIMIT 1',
+          [parsedPlanId]
+        );
+        if (!planRows || planRows.length === 0) {
+          await conn.rollback();
+          return res.status(404).json({ error: 'Plan SaaS no encontrado' });
+        }
+        targetPlan = planRows[0];
+      }
+
+      const nextPlanId = targetPlan ? targetPlan.id : current.plan_id;
       const nextBranches = parsedBranches !== null ? parsedBranches : (Number(current.licensed_branches || current.max_branches) || 1);
       const nextExtraSeats = parsedExtraSeats !== null ? parsedExtraSeats : (Number(current.extra_user_seats) || 0);
-      const usersPerBranch = Number(current.users_per_branch) || 3;
+      const usersPerBranch = Number(targetPlan?.users_per_branch || current.users_per_branch) || 3;
       const nextMaxUsers = parsedMaxUsersExplicit !== null
         ? parsedMaxUsersExplicit
         : (nextBranches * usersPerBranch) + nextExtraSeats;
 
       await conn.query(
         `UPDATE tenants
-         SET licensed_branches = ?, max_branches = ?, extra_user_seats = ?, max_users = ?, updated_at = NOW()
+         SET plan_id = ?, licensed_branches = ?, max_branches = ?, extra_user_seats = ?, max_users = ?, updated_at = NOW()
          WHERE id = ?`,
-        [nextBranches, nextBranches, nextExtraSeats, nextMaxUsers, id]
+        [nextPlanId, nextBranches, nextBranches, nextExtraSeats, nextMaxUsers, id]
       );
+
+      if (targetPlan) {
+        const canonicalPlanCode = normalizePlanCode(targetPlan.code) || String(targetPlan.code || 'PRINCIPAL').toUpperCase();
+        await conn.query(
+          `UPDATE tenant_subscriptions
+           SET saas_plan_id = ?, plan_code = ?, updated_at = NOW()
+           WHERE tenant_id = ?`,
+          [targetPlan.id, canonicalPlanCode, id]
+        );
+      }
 
       await logControlPlaneSecurityAccess(
         req,
         'CONTROL_PLANE_UPDATE_TENANT_LICENSING',
-        `Tenant ${id}: branches=${nextBranches}, extra_seats=${nextExtraSeats}, max_users=${nextMaxUsers}`
+        `Tenant ${id}: plan_id=${nextPlanId}, branches=${nextBranches}, extra_seats=${nextExtraSeats}, max_users=${nextMaxUsers}`
       );
       await conn.commit();
 
@@ -435,7 +464,8 @@ function createSaasRouter(pool, options = {}) {
         max_branches: nextBranches,
         extra_user_seats: nextExtraSeats,
         max_users: nextMaxUsers,
-        plan_id: current.plan_id,
+        plan_id: nextPlanId,
+        plan_name: targetPlan?.name || undefined,
         modules_config: current.modules_config,
         has_memberships: current.has_memberships
       });
