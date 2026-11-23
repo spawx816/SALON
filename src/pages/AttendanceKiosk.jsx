@@ -44,7 +44,7 @@ const AttendanceKiosk = () => {
   const [commissionPinSending, setCommissionPinSending] = useState(false);
   const [commissionPinVerifying, setCommissionPinVerifying] = useState(false);
   const [commissionPinError, setCommissionPinError] = useState('');
-  const [customCommissionEmail, setCustomCommissionEmail] = useState('');
+  const [commissionMaskedEmail, setCommissionMaskedEmail] = useState('');
   const [directPinMode, setDirectPinMode] = useState(false);
   const [employeeCommissions, setEmployeeCommissions] = useState([]);
   const [commissionLoading, setCommissionLoading] = useState(false);
@@ -494,7 +494,7 @@ const AttendanceKiosk = () => {
     setCommissionPinSending(false);
     setCommissionPinVerifying(false);
     setCommissionPinError('');
-    setCustomCommissionEmail('');
+    setCommissionMaskedEmail('');
     setDirectPinMode(false);
     setEmployeeCommissions([]);
     setEmployeeSlip(null);
@@ -513,7 +513,7 @@ const AttendanceKiosk = () => {
     setCommissionPinSending(false);
     setCommissionPinVerifying(false);
     setCommissionPinError('');
-    setCustomCommissionEmail('');
+    setCommissionMaskedEmail(emp?.masked_email || '');
     setDirectPinMode(false);
     setEmployeeCommissions([]);
     setEmployeeSlip(null);
@@ -535,6 +535,7 @@ const AttendanceKiosk = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
+        if (data.masked_email) setCommissionMaskedEmail(data.masked_email);
         setCommissionPinSent(true);
       } else {
         setCommissionPinError(data.error || 'Error enviando código al correo.');
@@ -1688,7 +1689,7 @@ const AttendanceKiosk = () => {
             <div>
               {commissionPinSent ? (
                 <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', padding: '0.75rem 1rem', borderRadius: '10px', marginBottom: '1.25rem', fontSize: '0.78rem', color: '#6ee7b7', textAlign: 'center' }}>
-                  ✅ PIN enviado a tu correo. Revisa tu bandeja de entrada.
+                  ✅ PIN enviado a tu correo{commissionMaskedEmail ? ` (${commissionMaskedEmail})` : ''}. Revisa tu bandeja de entrada.
                 </div>
               ) : (
                 <div style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)', padding: '0.75rem 1rem', borderRadius: '10px', marginBottom: '1.25rem', fontSize: '0.78rem', color: '#c4b5fd', textAlign: 'center' }}>
@@ -1755,7 +1756,7 @@ const AttendanceKiosk = () => {
             </div>
           ) : (
             <div>
-              {selectedEmployee.email && selectedEmployee.email.includes('@') ? (
+              {(selectedEmployee.has_email || selectedEmployee.masked_email || (selectedEmployee.email && selectedEmployee.email.includes('@'))) ? (
                 /* Employee has an email registered */
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)', padding: '1.25rem', borderRadius: '14px', marginBottom: '1.25rem' }}>
@@ -1764,7 +1765,7 @@ const AttendanceKiosk = () => {
                       Se enviará un PIN de 6 dígitos a tu correo registrado:
                     </p>
                     <p style={{ fontSize: '0.9rem', color: '#ffffff', fontWeight: 800, margin: '0.5rem 0 0' }}>
-                      {selectedEmployee.email.replace(/(.{2})(.*)(@.*)/, '$1***$3')}
+                      {selectedEmployee.masked_email || String(selectedEmployee.email || '').replace(/^(.{1,2}).*(@.+)$/, '$1***$2')}
                     </p>
                   </div>
 
@@ -1779,34 +1780,18 @@ const AttendanceKiosk = () => {
                   </button>
                 </div>
               ) : (
-                /* Employee DOES NOT have an email registered */
+                /* Employee DOES NOT have an email registered — do not allow manual email entry */
                 <div>
-                  <div style={{ background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)', padding: '1rem', borderRadius: '14px', marginBottom: '1.25rem', textAlign: 'center' }}>
-                    <p style={{ fontSize: '0.82rem', color: '#fde047', fontWeight: 700, margin: 0 }}>
-                      ⚠️ No tienes un correo registrado en el sistema.
+                  <div style={{ background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)', padding: '1.15rem', borderRadius: '14px', marginBottom: '1rem', textAlign: 'center' }}>
+                    <p style={{ fontSize: '0.84rem', color: '#fde047', fontWeight: 700, margin: 0 }}>
+                      ⚠️ No tienes un correo registrado en tu ficha.
                     </p>
-                    <p style={{ fontSize: '0.75rem', color: '#a1a1aa', margin: '0.35rem 0 0' }}>
-                      Ingresa tu correo para recibir el PIN de seguridad y guardarlo en tu ficha:
+                    <p style={{ fontSize: '0.76rem', color: '#a1a1aa', margin: '0.45rem 0 0', lineHeight: 1.45 }}>
+                      Solicita a Administración que registre tu correo en Recursos Humanos para recibir el PIN, o ingresa con tu PIN de acceso abajo.
                     </p>
                   </div>
 
-                  <input
-                    type="email"
-                    placeholder="tu-correo@ejemplo.com"
-                    value={customCommissionEmail}
-                    onChange={e => setCustomCommissionEmail(e.target.value)}
-                    style={{ width: '100%', height: '48px', background: '#09090b', border: '1px solid #3f3f46', borderRadius: '12px', padding: '0 1rem', color: 'white', fontSize: '0.9rem', outline: 'none', marginBottom: '0.75rem', boxSizing: 'border-box' }}
-                  />
-
                   {commissionPinError && <p style={{ color: '#ef4444', fontSize: '0.78rem', marginBottom: '0.75rem' }}>⚠️ {commissionPinError}</p>}
-
-                  <button
-                    onClick={() => handleSendCommissionPin(selectedEmployee, customCommissionEmail)}
-                    disabled={commissionPinSending || !customCommissionEmail.includes('@')}
-                    style={{ width: '100%', height: '50px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '14px', fontWeight: 900, fontSize: '0.9rem', cursor: !customCommissionEmail.includes('@') ? 'not-allowed' : 'pointer', opacity: !customCommissionEmail.includes('@') ? 0.5 : 1 }}
-                  >
-                    {commissionPinSending ? '⏳ Enviando...' : '📧 Enviar PIN y Guardar Correo'}
-                  </button>
                 </div>
               )}
 

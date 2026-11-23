@@ -410,10 +410,17 @@ function createKioskRouter(pool, { authenticate }) {
         const authCheck = await isEmployeeAuthorizedForBranch(pool, device.tenant_id, s.id, device.branch_id);
         if (authCheck.authorized) {
           const hasPhoto = Boolean(s.profile_photo_file_id || s.profile_photo);
+          const empEmail = String(s.email || '').trim();
+          const hasEmail = Boolean(empEmail && empEmail.includes('@'));
+          const maskedEmail = hasEmail
+            ? empEmail.replace(/^(.{1,2}).*(@.+)$/, '$1***$2')
+            : null;
           authorizedEmployees.push({
             id: s.id,
             nombre: s.nombre,
             rol: 'Colaborador',
+            has_email: hasEmail,
+            masked_email: maskedEmail,
             has_profile_photo: hasPhoto,
             profile_photo: hasPhoto
               ? `/api/kiosk/employees/${encodeURIComponent(s.id)}/photo?v=${encodeURIComponent(s.profile_photo_file_id || 'legacy')}`

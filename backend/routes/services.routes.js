@@ -563,20 +563,16 @@ function createServicesRouter(pool) {
         : currentType;
       const nextType = rawNextType === 'PRODUCTO' || rawNextType === 'PRODUCT' ? 'PRODUCTO' : 'SERVICIO';
 
-      // Impedir conversión de PRODUCTO a SERVICIO si tiene stock o movimientos históricos
+      // Impedir conversión de PRODUCTO a SERVICIO solo si tiene existencias actuales en inventario
       if (currentType === 'PRODUCTO' && nextType === 'SERVICIO') {
         const [stockHits] = await pool.query(
           'SELECT 1 FROM inventory_stock WHERE product_id = ? AND tenant_id = ? AND quantity <> 0 LIMIT 1',
           [id, tenantId]
         );
-        const [movHits] = await pool.query(
-          'SELECT 1 FROM inventory_movements WHERE product_id = ? AND tenant_id = ? LIMIT 1',
-          [id, tenantId]
-        );
-        if ((stockHits && stockHits.length > 0) || (movHits && movHits.length > 0)) {
+        if (stockHits && stockHits.length > 0) {
           return res.status(409).json({
-            error: 'No puedes cambiar un producto a servicio porque tiene existencias o movimientos históricos en inventario.',
-            code: 'CANNOT_CONVERT_PRODUCT_WITH_HISTORY'
+            error: 'No puedes cambiar un producto a servicio mientras tenga existencias en inventario. Ajusta el stock a 0 primero.',
+            code: 'CANNOT_CONVERT_PRODUCT_WITH_STOCK'
           });
         }
       }
@@ -672,7 +668,7 @@ function createServicesRouter(pool) {
           resolvedAplicaItbis,
           resolvedTaxRate,
           resolvedTaxMode,
-          min_stock !== undefined ? parseFloat(min_stock) || 0 : (existing.min_stock ?? 0),
+          nextType === 'PRODUCTO' ? (min_stock !== undefined ? parseFloat(min_stock) || 0 : (existing.min_stock ?? 0)) : 0,
           nextType === 'PRODUCTO' ? (track_stock !== undefined ? Boolean(track_stock) : (existing.track_stock ?? true)) : false,
           id,
           tenantId

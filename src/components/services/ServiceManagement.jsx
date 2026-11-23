@@ -959,6 +959,14 @@ Depilación Facial Completa,Estética,600,20,0`;
               </div>
 
               {/* TIPO DE ÍTEM (RADIO CARDS) */}
+              {(() => {
+                const isEditingProduct = Boolean(
+                  editingService &&
+                  (editingService.item_type === 'PRODUCTO' || editingService.tipo_item === 'Producto')
+                );
+                const currentStockQty = Number(editingService?.current_stock || 0);
+                const blockConvertToService = isEditingProduct && currentStockQty !== 0;
+                return (
               <div style={{ marginBottom: '1.25rem' }}>
                 <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#1e293b', marginBottom: '0.5rem' }}>
                   Tipo de Ítem <span style={{ color: '#ec4899' }}>*</span>
@@ -968,12 +976,18 @@ Depilación Facial Completa,Estética,600,20,0`;
                   
                   {/* CARD 1: SERVICIO */}
                   <div
-                    onClick={() => setFormData({ ...formData, tipo_item: 'Servicio' })}
+                    onClick={() => {
+                      if (blockConvertToService) return;
+                      setFormData({ ...formData, tipo_item: 'Servicio' });
+                    }}
+                    title={blockConvertToService ? `Este producto tiene ${currentStockQty} en inventario. Ajusta el stock a 0 para cambiarlo a servicio.` : undefined}
                     style={{
                       border: formData.tipo_item === 'Servicio' ? '2px solid #d946ef' : '1px solid #e4e4e7',
-                      background: formData.tipo_item === 'Servicio' ? '#fdf4ff' : '#ffffff',
+                      background: formData.tipo_item === 'Servicio' ? '#fdf4ff' : (blockConvertToService ? '#f8fafc' : '#ffffff'),
                       borderRadius: '16px', padding: '1rem 0.85rem', textAlign: 'center',
-                      cursor: 'pointer', transition: 'all 0.2s', position: 'relative'
+                      cursor: blockConvertToService ? 'not-allowed' : 'pointer',
+                      opacity: blockConvertToService ? 0.55 : 1,
+                      transition: 'all 0.2s', position: 'relative'
                     }}
                   >
                     <div style={{
@@ -1031,7 +1045,19 @@ Depilación Facial Completa,Estética,600,20,0`;
                   </div>
 
                 </div>
+                {blockConvertToService && (
+                  <div style={{
+                    marginTop: '0.55rem', padding: '0.5rem 0.75rem', borderRadius: '10px',
+                    background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e',
+                    fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem'
+                  }}>
+                    <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                    <span>Este producto tiene <strong>{currentStockQty}</strong> en inventario. Ajusta su stock a 0 para poder cambiarlo a servicio.</span>
+                  </div>
+                )}
               </div>
+                );
+              })()}
 
               {/* CAMPOS COMERCIALES Y DE INVENTARIO (SOLO PRODUCTO) */}
               {formData.tipo_item === 'Producto' && (
