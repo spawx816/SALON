@@ -20,12 +20,14 @@ const { execFileSync } = require('child_process');
 const CONFIG_PATH = path.join(os.homedir(), '.etereas_ops', 'telegram.json');
 const SSH_HOST = process.env.ETEREAS_OPS_SSH_HOST || 'staging-salon';
 const PROD_DB = process.env.ETEREAS_OPS_PROD_DB || 'salon_saas_prod';
+const PROD_DB_USER = process.env.ETEREAS_OPS_PROD_DB_USER || 'postgres';
 
 function loadConfig() {
   if (!fs.existsSync(CONFIG_PATH)) {
     throw new Error(`Missing Telegram config at ${CONFIG_PATH}`);
   }
-  return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  const raw = fs.readFileSync(CONFIG_PATH, 'utf8').replace(/^\uFEFF/, '');
+  return JSON.parse(raw);
 }
 
 function saveConfig(cfg) {
@@ -50,7 +52,7 @@ async function tgApi(token, method, body = null) {
 function queryProdSql(sql) {
   const out = execFileSync(
     'ssh',
-    [SSH_HOST, `docker exec -i salonpro_db psql -U salonpro -d ${PROD_DB} -t -A`],
+    [SSH_HOST, `docker exec -i salonpro_db psql -U ${PROD_DB_USER} -d ${PROD_DB} -t -A`],
     { input: sql, encoding: 'utf8', timeout: 20000 }
   );
   return out.trim();
