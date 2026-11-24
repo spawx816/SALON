@@ -174,10 +174,16 @@ const SalonsModule = () => {
           orderId: res.order.id,
           order: res.order,
           checkout: res.checkout,
+          onCheckoutOpening: () => {
+            // Desmontar el modal de sucursal antes de abrir el iframe de CardNet para evitar superposición
+            setShowModal(false);
+          },
           onVerifying: (msg) => setCheckoutVerifyingMsg(msg),
           onActivated: async () => {
             showNotification('¡Pago CardNet verificado y sucursal activada!', 'success');
             setShowModal(false);
+            setSubmittingPayment(false);
+            setCheckoutVerifyingMsg(null);
             setFormData({ name: '', address: '', phone: '', maps_url: '' });
             await loadSalons();
           },
@@ -185,6 +191,7 @@ const SalonsModule = () => {
             showNotification('Error en pago CardNet: ' + errMsg, 'error');
             setSubmittingPayment(false);
             setCheckoutVerifyingMsg(null);
+            setShowModal(true);
           },
           onCheckoutClosed: () => {
             setSubmittingPayment(false);

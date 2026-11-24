@@ -259,6 +259,9 @@ export default function SaasBillingModule() {
           orderId: res.order.id,
           order: res.order,
           checkout: res.checkout,
+          onCheckoutOpening: () => {
+            setShowAddonModal(false);
+          },
           onVerifying: () => {},
           onActivated: async () => {
             setSuccessMsg('¡Pago verificado y Add-on de Membresías B2C activado exitosamente!');
@@ -267,6 +270,7 @@ export default function SaasBillingModule() {
           },
           onError: (errMsg) => {
             setAddonQuoteError('Error en pago CardNet: ' + errMsg);
+            setError('Error en pago CardNet: ' + errMsg);
           },
           onCheckoutClosed: async () => {
             await Promise.all([loadBillingData(), refetchEntitlements()]);
@@ -329,6 +333,9 @@ export default function SaasBillingModule() {
           orderId: res.order.id,
           order: res.order,
           checkout: res.checkout,
+          onCheckoutOpening: () => {
+            setShowExtraUsersModal(false);
+          },
           onVerifying: () => {},
           onActivated: async () => {
             setSuccessMsg('¡Pago verificado y usuarios adicionales activados!');
@@ -337,6 +344,7 @@ export default function SaasBillingModule() {
           },
           onError: (errMsg) => {
             setSeatsQuoteError('Error en pago CardNet: ' + errMsg);
+            setError('Error en pago CardNet: ' + errMsg);
           },
           onCheckoutClosed: async () => {
             await Promise.all([loadBillingData(), refetchEntitlements()]);
