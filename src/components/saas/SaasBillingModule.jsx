@@ -571,9 +571,45 @@ export default function SaasBillingModule() {
   const isSubscriptionCancelled = status === 'canceled' || status === 'cancelled' || cancelAtPeriodEnd;
 
   const branchesUsed = entitlements?.usage?.branches ?? 0;
-  const branchesLimit = entitlements?.limits?.branches ?? 1;
+  const branchesLimit = Number(entitlements?.limits?.branches ?? subscription?.branches_count ?? 1) || 1;
   const usersUsed = entitlements?.usage?.users ?? 0;
-  const usersLimit = entitlements?.limits?.users ?? 3;
+  const usersLimit = Number(entitlements?.limits?.users ?? 3) || 3;
+  const usersIncludedPerBranch = 3;
+  const extraUsersCount = Math.max(
+    0,
+    Number(
+      subscription?.extra_users_count !== undefined && subscription?.extra_users_count !== null
+        ? subscription.extra_users_count
+        : Math.max(0, usersLimit - branchesLimit * usersIncludedPerBranch)
+    ) || 0
+  );
+  const addonBlocksCount = Math.max(
+    0,
+    Number(
+      membershipsAddon?.acquiredBlocks ??
+      subscription?.addon_blocks_count ??
+      (membershipsAddon?.enabled ? Math.ceil(Math.max(1, membershipsAddon?.branchIds?.length || 1) / 3) : 0)
+    ) || 0
+  );
+
+  const branchUnitUsd = Number(
+    activePricing?.principal?.usd ??
+    (hasRealSubPrice && currency === 'USD' ? Number(subscription.price_minor) / 100 : 99)
+  );
+  const extraUserUnitUsd = Number(activePricing?.principal?.extraUserUsd ?? 30);
+  const addonBlockUnitUsd = Number(activePricing?.addons?.memberships?.usd ?? 99);
+
+  const branchesMonthlyUsd = Number((branchesLimit * branchUnitUsd).toFixed(2));
+  const extraUsersMonthlyUsd = Number((extraUsersCount * extraUserUnitUsd).toFixed(2));
+  const addonMonthlyUsd = Number((addonBlocksCount * addonBlockUnitUsd).toFixed(2));
+  const totalMonthlyUsd = Number((branchesMonthlyUsd + extraUsersMonthlyUsd + addonMonthlyUsd).toFixed(2));
+
+  const formatUsdClean = (val) => {
+    const num = Number(val || 0);
+    return Number.isInteger(num)
+      ? `US$${num.toLocaleString('en-US')}`
+      : `US$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
 
   const defaultPm = paymentMethods.find((pm) => pm.isDefault) || paymentMethods[0] || null;
 
@@ -795,7 +831,7 @@ export default function SaasBillingModule() {
                   <Layers size={18} />
                 </span>
                 <h2 id="sb-plan-title" className="sb-card-title">
-                  Plan Principal
+                  Resumen de tu suscripción
                 </h2>
                 <span className={`sb-badge ${statusMeta.badgeClass}`}>
                   {statusMeta.label}
@@ -804,25 +840,114 @@ export default function SaasBillingModule() {
             </div>
 
             <div className="sb-price-line">
-              {formattedPrice ? (
-                <>
-                  <span className="sb-price-amount">{formattedPrice}</span>
-                  <span className="sb-price-period">
-                    / {subscription?.billing_cycle === 'annual' ? 'año' : 'mes'}
-                  </span>
-                </>
-              ) : (
-                <span className="sb-price-amount" style={{ fontSize: '22px' }}>
-                  Tarifa según acuerdo comercial
-                </span>
-              )}
+              <span className="sb-price-amount">{formatUsdClean(totalMonthlyUsd)}</span>
+              <span className="sb-price-period">
+                / {subscription?.billing_cycle === 'annual' ? 'año' : 'mes'}
+              </span>
             </div>
 
-            <p className="sb-meta-text">
-              {branchesLimit} {branchesLimit === 1 ? 'sucursal incluida' : 'sucursales incluidas'} · Hasta {usersLimit} usuarios
-            </p>
-            <p className="sb-meta-text" style={{ marginTop: '4px' }}>
-              Incluye POS, cajas, facturación y gestión de comprobantes, Clientes/CRM, inventario avanzado, nómina, comisiones, marketing y reportes. Integración de facturación electrónica DGII: contratación y habilitación por separado.
+            <div
+              style={{
+                marginTop: '12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '10px 14px',
+                  borderBottom: '1px solid #e2e8f0',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
+                    {branchesLimit} {branchesLimit === 1 ? 'sucursal' : 'sucursales'}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                    {formatUsdClean(branchUnitUsd)} por sucursal · {usersIncludedPerBranch} usuarios incluidos por sucursal
+                  </div>
+                </div>
+                <strong style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                  {formatUsdClean(branchesMonthlyUsd)}
+                </strong>
+              </div>
+
+              {extraUsersCount > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '10px 14px',
+                    borderBottom: '1px solid #e2e8f0',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
+                      {extraUsersCount} {extraUsersCount === 1 ? 'usuario adicional' : 'usuarios adicionales'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                      {formatUsdClean(extraUserUnitUsd)} por usuario adicional
+                    </div>
+                  </div>
+                  <strong style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                    {formatUsdClean(extraUsersMonthlyUsd)}
+                  </strong>
+                </div>
+              )}
+
+              {addonBlocksCount > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '10px 14px',
+                    borderBottom: '1px solid #e2e8f0',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
+                      Módulo de membresías
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                      Incluye hasta {addonBlocksCount * 3} sucursales{addonBlocksCount > 1 ? ` (${addonBlocksCount} bloques)` : ''}
+                    </div>
+                  </div>
+                  <strong style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                    {formatUsdClean(addonMonthlyUsd)}
+                  </strong>
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '11px 14px',
+                  background: '#f8fafc',
+                }}
+              >
+                <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
+                  Total mensual
+                </span>
+                <strong style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                  {formatUsdClean(totalMonthlyUsd)}
+                </strong>
+              </div>
+            </div>
+
+            <p className="sb-meta-text" style={{ marginTop: '10px' }}>
+              Plan Principal · Incluye POS, cajas, facturación y gestión de comprobantes, Clientes/CRM, inventario avanzado, nómina, comisiones, marketing y reportes. Integración de facturación electrónica DGII: contratación y habilitación por separado.
             </p>
           </div>
         </section>
