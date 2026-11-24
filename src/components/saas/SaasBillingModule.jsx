@@ -975,12 +975,6 @@ export default function SaasBillingModule() {
               </span>
             </div>
 
-            {dependsOnFxConversion && (
-              <p className="sb-meta-text" style={{ marginTop: '2px', fontSize: '12.5px' }}>
-                El importe en pesos se calcula con la tasa aplicable al emitir el cobro.
-              </p>
-            )}
-
             <div className="sb-kv-list" style={{ marginTop: '12px' }}>
               <div className="sb-kv-row">
                 <span className="sb-kv-label">Periodicidad contratada</span>
@@ -1403,7 +1397,10 @@ export default function SaasBillingModule() {
                         Etereas {inv.plan_code} ({inv.billing_cycle === 'annual' ? 'anual' : 'mensual'})
                       </td>
                       <td style={{ fontWeight: 600, color: '#0f172a' }}>
-                        {formatMinor(inv.total_minor, inv.currency)}
+                        {formatMinor(
+                          inv.fx_snapshot?.usd?.total_minor ?? inv.total_minor,
+                          inv.fx_snapshot?.usd ? 'USD' : inv.currency
+                        )}
                       </td>
                       <td>
                         <span className={`sb-badge ${invMeta.badgeClass}`}>

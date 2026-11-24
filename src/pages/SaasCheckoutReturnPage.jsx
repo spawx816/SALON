@@ -84,7 +84,13 @@ export default function SaasCheckoutReturnPage() {
             </p>
             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, marginTop: 14, fontSize: 13 }}>
               <div><strong>Comprobante / Orden:</strong> #{order.order_number}</div>
-              <div><strong>Importe pagado:</strong> {formatOrderMoney(order.total_minor, order.currency)} ({order.currency})</div>
+              <div>
+                <strong>Importe pagado:</strong>{' '}
+                {formatOrderMoney(
+                  order.metadata?.fx_snapshot?.usd?.total_minor ?? order.total_minor,
+                  order.metadata?.fx_snapshot?.usd ? 'USD' : (order.currency || 'USD')
+                )}
+              </div>
               <div><strong>Autorización CardNet:</strong> {order.cardnet_authorization_code || 'Confirmada'}</div>
               {order.masked_card && <div><strong>Tarjeta:</strong> {order.masked_card}</div>}
             </div>

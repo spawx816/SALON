@@ -7,7 +7,7 @@ export default function SaasUpgradeModal({
   onClose,
   currentPlan = 'BASE',
   onConfirmUpgrade,
-  currency = 'DOP',
+  currency = 'USD',
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -28,8 +28,8 @@ export default function SaasUpgradeModal({
   };
 
   const isProTarget = String(currentPlan).toUpperCase() === 'BASE';
-  const proMonthly = currency === 'USD' ? 'US$99' : 'RD$5,900.00';
-  const baseMonthly = currency === 'USD' ? 'US$49' : 'RD$2,900.00';
+  const proMonthly = 'US$99';
+  const baseMonthly = 'US$49';
 
   return (
     <div
