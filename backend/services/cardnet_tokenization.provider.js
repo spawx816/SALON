@@ -307,25 +307,61 @@ class CardNetTokenizationProvider {
       raw.ResponseCode === '00' ||
       Boolean(approvedStep);
 
-    const responseCode =
-      approvedStep?.ResponseCode ||
-      raw.ResponseCode ||
-      errors[0]?.ErrorCode ||
-      steps[0]?.ResponseCode ||
-      null;
+    const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
+    const isWrapperOkCode = (c) => c === '0' || c === 0;
+    const isWrapperOkMsg = (m) => typeof m === 'string' && m.trim().toUpperCase() === 'OK';
+
+    const responseCode = isApproved
+      ? (approvedStep?.ResponseCode || raw.ResponseCode || '00')
+      : (
+          lastStep?.ResponseCode ||
+          errors[0]?.ErrorCode ||
+          errors[0]?.Code ||
+          (!isWrapperOkCode(raw.ResponseCode) ? raw.ResponseCode : null) ||
+          raw.Transaction?.TransactionStatusId ||
+          raw.ResponseCode ||
+          null
+        );
 
     const errorSummary = errors
-      .map((e) => [e?.ErrorCode, e?.ErrorMessage || e?.Message || e?.Description].filter(Boolean).join(': '))
+      .map((e) => [e?.ErrorCode || e?.Code, e?.ErrorMessage || e?.Message || e?.Description].filter(Boolean).join(': '))
       .filter(Boolean)
       .join(' | ');
-    const responseMessage =
-      raw.ResponseMessage ||
-      errorSummary ||
-      steps[0]?.ResponseMessage ||
-      steps[0]?.Description ||
-      raw.Transaction?.Description ||
-      raw.Transaction?.Status ||
-      (isApproved ? 'Transacción aprobada' : 'Transacción rechazada por CardNet');
+    const stepSummary = lastStep
+      ? [lastStep.ResponseCode, lastStep.ResponseMessage || lastStep.Description || lastStep.Status].filter(Boolean).join(' - ')
+      : '';
+    const responseMessage = isApproved
+      ? (raw.ResponseMessage || 'Transacción aprobada')
+      : (
+          errorSummary ||
+          stepSummary ||
+          (!isWrapperOkMsg(raw.ResponseMessage) ? raw.ResponseMessage : null) ||
+          raw.Transaction?.Description ||
+          raw.Transaction?.Status ||
+          'Transacción rechazada por CardNet'
+        );
+
+    if (!isApproved) {
+      console.warn('[CARDNET_PURCHASE_DECLINED]', JSON.stringify({
+        orderNumber,
+        httpStatus: res.status,
+        wrapperCode: raw.ResponseCode ?? null,
+        wrapperMsg: raw.ResponseMessage ?? null,
+        txStatus: raw.Transaction?.Status ?? null,
+        txStatusId: raw.Transaction?.TransactionStatusId ?? null,
+        txDesc: raw.Transaction?.Description ?? null,
+        steps: steps.map((s) => ({
+          step: s?.Step || s?.Name || null,
+          status: s?.Status || null,
+          code: s?.ResponseCode ?? null,
+          msg: s?.ResponseMessage || s?.Description || null,
+        })),
+        errors: errors.map((e) => ({
+          code: e?.ErrorCode || e?.Code || null,
+          msg: e?.ErrorMessage || e?.Message || e?.Description || null,
+        })),
+      }));
+    }
 
     const authorizationCode =
       approvedStep?.AuthorizationCode ||
