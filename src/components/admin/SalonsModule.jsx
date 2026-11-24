@@ -677,12 +677,6 @@ const SalonsModule = () => {
                                 <span>Importe USD prorrateado (+1 sucursal):</span>
                                 <strong style={{ color: 'white' }}>US$ {(Number(quote.totalUsdMinor) / 100).toFixed(2)}</strong>
                               </div>
-                              {quote.fxRate?.rateFormatted && (
-                                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
-                                  <span>Conversión aplicable (Tasa USD → DOP):</span>
-                                  <strong style={{ color: 'white' }}>1 USD = RD$ {quote.fxRate.rateFormatted}</strong>
-                                </div>
-                              )}
                               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
                                 <span>Impuestos aplicables:</span>
                                 <strong style={{ color: 'white' }}>RD$ {(Number(quote.taxDopMinor || 0) / 100).toFixed(2)} (Exento B2B)</strong>

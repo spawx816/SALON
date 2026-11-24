@@ -1597,9 +1597,9 @@ export default function SaasBillingModule() {
                         <span>Bloques adicionales a contratar hoy (+{addonQuote.additionalBlocksToBuy} {addonQuote.additionalBlocksToBuy === 1 ? 'bloque' : 'bloques'}, prorrateo {addonQuote.remainingDays} días)</span>
                         <strong>{formatMinor(addonQuote.totalUsdMinor, 'USD')}</strong>
                       </div>
-                      {addonQuote.fxRate?.rateFormatted && (
+                      {addonQuote.totalDopMinor !== undefined && addonQuote.totalDopMinor !== null && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', color: '#475569', fontSize: '12px' }}>
-                          <span>Total a cobrar hoy en DOP (Tasa {addonQuote.fxRate.rateFormatted})</span>
+                          <span>Total a cobrar hoy en DOP</span>
                           <strong style={{ color: '#0f172a', fontSize: '14px' }}>{formatMinor(addonQuote.totalDopMinor, 'DOP')} DOP</strong>
                         </div>
                       )}
@@ -1741,7 +1741,7 @@ export default function SaasBillingModule() {
                     <strong>{formatMinor(seatsQuote.totalUsdMinor, 'USD')}</strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px solid #e2e8f0', marginTop: '6px' }}>
-                    <strong>Total a cobrar hoy (Tasa {seatsQuote.fxRate?.rateFormatted})</strong>
+                    <strong>Total a cobrar hoy</strong>
                     <strong>{formatMinor(seatsQuote.totalDopMinor, 'DOP')} DOP</strong>
                   </div>
                 </div>
