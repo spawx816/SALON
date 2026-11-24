@@ -3,7 +3,7 @@
 :root {
   --bg-canvas: #ffffff;
   --bg-surface: #ffffff;
-  --bg-sidebar: var(--tenant-primary, #0f172a);
+  --bg-sidebar: var(--tenant-primary, #09090b);
   --bg-hover: #f4f4f5;
   
   --text-primary: #09090b;
@@ -24,19 +24,19 @@
   --radius-xs: 8px;
 
   /* Tenant Dynamic Branding Design Tokens */
-  --tenant-primary: #0f172a;
-  --tenant-secondary: #d4af37;
-  --tenant-accent: #3b82f6;
+  --tenant-primary: #09090b;
+  --tenant-secondary: #a1a1aa;
+  --tenant-accent: #ffffff;
   --tenant-background: #ffffff;
   --tenant-surface: #ffffff;
-  --tenant-text: #0f172a;
+  --tenant-text: #09090b;
   --tenant-sidebar-text: #ffffff;
   --tenant-sidebar-muted: rgba(255, 255, 255, 0.78);
   --tenant-sidebar-group: rgba(255, 255, 255, 0.62);
   --tenant-sidebar-border: rgba(255, 255, 255, 0.12);
   --tenant-sidebar-card-bg: rgba(255, 255, 255, 0.06);
   --tenant-sidebar-hover: rgba(255, 255, 255, 0.08);
-  --tenant-accent-text: #ffffff;
+  --tenant-accent-text: #09090b;
 
   /* Immutable Semantic Status Colors (Out of tenant control for safety & accessibility) */
   --status-error: #ef4444;
@@ -332,9 +332,9 @@ a {
 }
 
 .nav-link.active {
-  background-color: var(--tenant-accent, #3b82f6);
-  background: var(--tenant-accent, #3b82f6);
-  color: var(--tenant-accent-text, #ffffff);
+  background-color: var(--tenant-accent, #ffffff);
+  background: var(--tenant-accent, #ffffff);
+  color: var(--tenant-accent-text, #09090b);
   font-weight: 700;
 }
 

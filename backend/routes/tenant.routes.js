@@ -324,12 +324,12 @@ function createTenantRouter(pool, options = {}) {
         logo_url: (hasCustomBranding && branding.logo_url) ? branding.logo_url : (row.logo_url || ''),
         logo_dark_url: (hasCustomBranding && branding.logo_dark_url) ? branding.logo_dark_url : '',
         favicon_url: (hasCustomBranding && branding.favicon_url) ? branding.favicon_url : '',
-        primary_color: (hasCustomBranding && branding.primary_color) ? branding.primary_color : (row.primary_color || row.brand_color || '#0f172a'),
-        secondary_color: (hasCustomBranding && branding.secondary_color) ? branding.secondary_color : (row.secondary_color || '#d4af37'),
-        accent_color: (hasCustomBranding && branding.accent_color) ? branding.accent_color : '#3b82f6',
-        background_color: (hasCustomBranding && branding.background_color) ? branding.background_color : '#f8fafc',
+        primary_color: (hasCustomBranding && branding.primary_color) ? branding.primary_color : (row.primary_color || row.brand_color || '#09090b'),
+        secondary_color: (hasCustomBranding && branding.secondary_color) ? branding.secondary_color : (row.secondary_color || '#a1a1aa'),
+        accent_color: (hasCustomBranding && branding.accent_color) ? branding.accent_color : '#ffffff',
+        background_color: (hasCustomBranding && branding.background_color) ? branding.background_color : '#ffffff',
         surface_color: (hasCustomBranding && branding.surface_color) ? branding.surface_color : '#ffffff',
-        text_color: (hasCustomBranding && branding.text_color) ? branding.text_color : '#0f172a',
+        text_color: (hasCustomBranding && branding.text_color) ? branding.text_color : '#09090b',
         receipt_header: (hasCustomBranding && branding.receipt_header) ? branding.receipt_header : (row.business_name || 'SalonPro - Sistema de Gestión'),
         receipt_footer: (hasCustomBranding && branding.receipt_footer) ? branding.receipt_footer : (row.receipt_footer || '¡Gracias por preferirnos! ♡')
       });
