@@ -916,19 +916,8 @@ class SaasCheckoutService {
     const orderId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
 
-    // 1. Guardar la nueva sucursal pendiente (fuera de operación hasta confirmar pago)
-    await this.pool.query(
-      `INSERT INTO branches (id, tenant_id, name, address, phone, is_main, is_active)
-       VALUES (?, ?, ?, ?, ?, false, false)`,
-      [branchId, tenantId, branchData.name.trim(), branchData.address || '', branchData.phone || '']
-    );
-    await this.pool.query(
-      `INSERT INTO salons (id, tenant_id, name, address, phone, status)
-       VALUES (?, ?, ?, ?, ?, 'PendingPayment')`,
-      [branchId, tenantId, branchData.name.trim(), branchData.address || '', branchData.phone || '']
-    );
-
-    // 2. Guardar orden con snapshot exacto
+    // La sucursal NO se inserta en branches/salons hasta que el pago sea aprobado en _activateAfterPayment
+    // 1. Guardar orden con snapshot exacto de la sucursal a crear tras aprobar el cobro
     const metadata = {
       type: 'add_branch',
       branch_id: branchId,
@@ -1881,15 +1870,22 @@ class SaasCheckoutService {
           this.entitlementsService.invalidateTenantCache(order.tenant_id);
         }
       } else if (isAddBranch) {
-        // A1. Activar la sucursal creada o pendiente en branches y salons
+        // A1. Crear o activar la sucursal en branches y salons SOLO tras confirmar pago aprobado
         if (meta.branch_id) {
+          const bName = String(meta.branch_data?.name || 'Nueva Sucursal').trim();
+          const bAddr = String(meta.branch_data?.address || '').trim();
+          const bPhone = String(meta.branch_data?.phone || '').trim();
           await this.pool.query(
-            `UPDATE branches SET is_active = true WHERE id::text = ? AND tenant_id = ?`,
-            [String(meta.branch_id), order.tenant_id]
+            `INSERT INTO branches (id, tenant_id, name, address, phone, is_main, is_active)
+             VALUES (?, ?, ?, ?, ?, false, true)
+             ON CONFLICT (id) DO UPDATE SET is_active = true, name = EXCLUDED.name, address = EXCLUDED.address, phone = EXCLUDED.phone`,
+            [String(meta.branch_id), order.tenant_id, bName, bAddr, bPhone]
           );
           await this.pool.query(
-            `UPDATE salons SET status = 'Active' WHERE id::text = ? AND tenant_id = ?`,
-            [String(meta.branch_id), order.tenant_id]
+            `INSERT INTO salons (id, tenant_id, name, address, phone, status)
+             VALUES (?, ?, ?, ?, ?, 'Active')
+             ON CONFLICT (id) DO UPDATE SET status = 'Active', name = EXCLUDED.name, address = EXCLUDED.address, phone = EXCLUDED.phone`,
+            [String(meta.branch_id), order.tenant_id, bName, bAddr, bPhone]
           );
         }
 
