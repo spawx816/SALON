@@ -275,7 +275,16 @@ export default function SaasCheckoutPanel({
           }
           window.location.href = '/';
         },
-        onError: (msg) => setPanelError(msg),
+        onError: async (msg) => {
+          setPanelError(msg);
+          if (onOrderUpdated) {
+            try {
+              await onOrderUpdated();
+            } catch {
+              // ignore refresh error
+            }
+          }
+        },
       });
     } catch (err) {
       setPanelError(err.message);

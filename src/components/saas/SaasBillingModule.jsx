@@ -499,6 +499,8 @@ export default function SaasBillingModule() {
       }
 
       if (typeof PWCheckout.Iframe?.Open === 'function') {
+        // Desmontar el modal local antes de abrir el iframe oficial de CardNet para evitar superposición
+        setShowAddCardModal(false);
         PWCheckout.Iframe.Open({
           customerId: initData.customerId,
           uniqueId: initData.uniqueId,
