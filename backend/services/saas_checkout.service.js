@@ -1059,6 +1059,9 @@ class SaasCheckoutService {
       clientIp,
     });
 
+    const purchaseMessage = purchase.responseMessage || purchase.message || null;
+    const purchaseReference = purchase.reference || purchase.retrievalReferenceNumber || purchase.transactionId || null;
+
     const isApproved = Boolean(purchase.approved || purchase.outcome === 'approved' || purchase.status === 'approved');
     if (isApproved) {
       const maskedCard = defaultPm.brand && defaultPm.last4
@@ -1076,9 +1079,9 @@ class SaasCheckoutService {
         [
           ORDER_STATUS.APPROVED,
           purchase.authorizationCode,
-          purchase.reference,
+          purchaseReference,
           purchase.responseCode,
-          purchase.message,
+          purchaseMessage,
           maskedCard,
           order.id,
           tenantId,
@@ -1094,11 +1097,12 @@ class SaasCheckoutService {
       await this.pool.query(
         `UPDATE saas_checkout_orders
          SET status = ?, last_error = ?, cardnet_response_code = ?,
-             cardnet_response_message = ?, updated_at = NOW()
+             cardnet_response_message = ?, cardnet_reference = COALESCE(?, cardnet_reference),
+             updated_at = NOW()
          WHERE id = ? AND tenant_id = ?`,
-        [ORDER_STATUS.DECLINED, purchase.message, purchase.responseCode, purchase.message, order.id, tenantId]
+        [ORDER_STATUS.DECLINED, purchaseMessage, purchase.responseCode, purchaseMessage, purchaseReference, order.id, tenantId]
       );
-      const err = new Error(purchase.message || 'Tarjeta declinada por la entidad emisora.');
+      const err = new Error(purchaseMessage || 'Tarjeta declinada por la entidad emisora.');
       err.code = 'PAYMENT_DECLINED';
       err.responseCode = purchase.responseCode;
       err.statusCode = 402;
@@ -1110,9 +1114,9 @@ class SaasCheckoutService {
       `UPDATE saas_checkout_orders
        SET status = ?, last_error = ?, cardnet_response_code = ?, updated_at = NOW()
        WHERE id = ? AND tenant_id = ?`,
-      [ORDER_STATUS.UNKNOWN_TIMEOUT, purchase.message, purchase.responseCode, order.id, tenantId]
+      [ORDER_STATUS.UNKNOWN_TIMEOUT, purchaseMessage, purchase.responseCode, order.id, tenantId]
     );
-    const err = new Error(purchase.message || 'Respuesta incierta de CardNet. Se requiere conciliación.');
+    const err = new Error(purchaseMessage || 'Respuesta incierta de CardNet. Se requiere conciliación.');
     err.code = 'PAYMENT_UNKNOWN_TIMEOUT';
     err.statusCode = 504;
     throw err;

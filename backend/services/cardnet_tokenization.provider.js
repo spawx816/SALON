@@ -314,10 +314,17 @@ class CardNetTokenizationProvider {
       steps[0]?.ResponseCode ||
       null;
 
+    const errorSummary = errors
+      .map((e) => [e?.ErrorCode, e?.ErrorMessage || e?.Message || e?.Description].filter(Boolean).join(': '))
+      .filter(Boolean)
+      .join(' | ');
     const responseMessage =
       raw.ResponseMessage ||
-      errors[0]?.Message ||
+      errorSummary ||
+      steps[0]?.ResponseMessage ||
+      steps[0]?.Description ||
       raw.Transaction?.Description ||
+      raw.Transaction?.Status ||
       (isApproved ? 'Transacción aprobada' : 'Transacción rechazada por CardNet');
 
     const authorizationCode =
