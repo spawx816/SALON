@@ -2151,25 +2151,23 @@ class SaasCheckoutService {
         const addedBlocks = Number(meta.additional_blocks_to_buy || 1);
         const totalBlocks = Number(meta.new_acquired_blocks || addedBlocks);
         const prorationText = meta.proration?.isProrated ? ` (Prorrateo ${meta.proration.remainingDays} días)` : '';
-        itemDesc = `Add-on Suscripciones y Membresías B2C (+${addedBlocks} ${addedBlocks === 1 ? 'bloque' : 'bloques'} · capacidad total hasta ${totalBlocks * 3} sucursales)${prorationText} · Orden #${order.order_number}${fx?.rate_formatted ? ` (Tasa ${fx.rate_formatted})` : ''}`;
+        itemDesc = `Add-on Suscripciones y Membresías B2C (+${addedBlocks} ${addedBlocks === 1 ? 'bloque' : 'bloques'} · capacidad total hasta ${totalBlocks * 3} sucursales)${prorationText} · Orden #${order.order_number}`;
       } else if (meta.type === 'extra_user_seats') {
         const addedSeats = Number(meta.additional_seats || order.extra_users_count || 1);
         const prorationText = meta.proration?.isProrated ? ` (Prorrateo ${meta.proration.remainingDays} días)` : '';
-        itemDesc = `Usuarios adicionales (+${addedSeats} ${addedSeats === 1 ? 'asiento' : 'asientos'})${prorationText} · Orden #${order.order_number}${fx?.rate_formatted ? ` (Tasa ${fx.rate_formatted})` : ''}`;
+        itemDesc = `Usuarios adicionales (+${addedSeats} ${addedSeats === 1 ? 'asiento' : 'asientos'})${prorationText} · Orden #${order.order_number}`;
       } else if (meta.type === 'add_branch') {
         const branchName = meta.branch_data?.name || 'Sucursal adicional';
         const addonText = meta.wants_memberships_addon ? ' + Add-on Membresías B2C' : '';
         const prorationText = meta.proration?.isProrated ? ` (Prorrateo ${meta.proration.remainingDays} días)` : '';
-        itemDesc = `Sucursal adicional "${branchName}" (+3 usuarios)${addonText}${prorationText} · Orden #${order.order_number}${fx?.rate_formatted ? ` (Tasa ${fx.rate_formatted})` : ''}`;
+        itemDesc = `Sucursal adicional "${branchName}" (+3 usuarios)${addonText}${prorationText} · Orden #${order.order_number}`;
       } else {
         const branches = Number(order.branches_count || 1);
         const extraUsers = Number(order.extra_users_count || 0);
         const parts = [`Plan Principal (${branches} ${branches === 1 ? 'sucursal' : 'sucursales'})`];
         if (extraUsers > 0) parts.push(`${extraUsers} usuario${extraUsers === 1 ? '' : 's'} adicional${extraUsers === 1 ? '' : 'es'}`);
         if (order.memberships_addon_enabled) parts.push('Add-on Membresías B2C');
-        itemDesc = fx?.rate_formatted
-          ? `${parts.join(' + ')} · Orden #${order.order_number} (Tasa ${fx.rate_formatted})`
-          : `${parts.join(' + ')} · Orden #${order.order_number}`;
+        itemDesc = `${parts.join(' + ')} · Orden #${order.order_number}`;
       }
 
       invoice = await this.billingRepo.createInvoice(

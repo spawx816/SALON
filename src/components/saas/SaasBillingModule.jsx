@@ -681,15 +681,11 @@ export default function SaasBillingModule() {
     return 'Mensual (ciclo de 30 días)';
   })();
 
-  const estimatedChargeDisplay = renewalQuote?.totalDopMinor !== undefined && renewalQuote?.totalDopMinor !== null
-    ? `${formatMinor(renewalQuote.totalDopMinor, 'DOP')} DOP`
-    : (formattedPrice ? `${formattedPrice} ${currency}` : 'Según acuerdo comercial');
+  const estimatedChargeDisplay = renewalQuote?.totalUsdMinor !== undefined && renewalQuote?.totalUsdMinor !== null
+    ? `${formatMinor(renewalQuote.totalUsdMinor, 'USD')} USD`
+    : `${formatUsdClean(totalMonthlyUsd)} USD`;
 
-  const dependsOnFxConversion = Boolean(
-    renewalQuote?.fxSnapshot ||
-    renewalQuote?.currency === 'DOP' ||
-    currency === 'USD'
-  );
+  const dependsOnFxConversion = false;
 
   const maskedPaymentMethodLabel = defaultPm
     ? `${String(defaultPm.brand || 'Tarjeta').toUpperCase()} •••• ${defaultPm.last4}`
@@ -1056,7 +1052,7 @@ export default function SaasBillingModule() {
                       <div className="sb-kv-row" key={idx}>
                         <span className="sb-kv-label">{it.description}</span>
                         <span className="sb-kv-value">
-                          {formatMinor(it.amount_minor, 'DOP')} DOP
+                          {formatMinor(it.amount_usd_minor ?? it.amount_minor, 'USD')} USD
                         </span>
                       </div>
                     ))}
@@ -1065,7 +1061,7 @@ export default function SaasBillingModule() {
                         Importe estimado
                       </span>
                       <span className="sb-kv-value" style={{ fontWeight: 800 }}>
-                        {formatMinor(renewalQuote.totalDopMinor, 'DOP')} DOP
+                        {estimatedChargeDisplay}
                       </span>
                     </div>
                   </div>
@@ -1599,12 +1595,6 @@ export default function SaasBillingModule() {
                         <span>Bloques adicionales a contratar hoy (+{addonQuote.additionalBlocksToBuy} {addonQuote.additionalBlocksToBuy === 1 ? 'bloque' : 'bloques'}, prorrateo {addonQuote.remainingDays} días)</span>
                         <strong>{formatMinor(addonQuote.totalUsdMinor, 'USD')}</strong>
                       </div>
-                      {addonQuote.totalDopMinor !== undefined && addonQuote.totalDopMinor !== null && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', color: '#475569', fontSize: '12px' }}>
-                          <span>Total a cobrar hoy en DOP</span>
-                          <strong style={{ color: '#0f172a', fontSize: '14px' }}>{formatMinor(addonQuote.totalDopMinor, 'DOP')} DOP</strong>
-                        </div>
-                      )}
 
                       <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
                         <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#475569', marginBottom: '6px', textTransform: 'uppercase' }}>
@@ -1665,7 +1655,7 @@ export default function SaasBillingModule() {
                     : addonQuote?.withinAcquiredCapacity
                       ? 'Guardar sucursales asignadas (Sin cargo)'
                       : addonQuote
-                        ? `Confirmar y contratar (${formatMinor(addonQuote.totalDopMinor, 'DOP')})`
+                        ? `Confirmar y contratar (${formatMinor(addonQuote.totalUsdMinor, 'USD')})`
                         : 'Confirmar contratación'}
                 </button>
               </div>
@@ -1744,7 +1734,7 @@ export default function SaasBillingModule() {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px solid #e2e8f0', marginTop: '6px' }}>
                     <strong>Total a cobrar hoy</strong>
-                    <strong>{formatMinor(seatsQuote.totalDopMinor, 'DOP')} DOP</strong>
+                    <strong>{formatMinor(seatsQuote.totalUsdMinor, 'USD')} USD</strong>
                   </div>
                 </div>
               ) : null}
@@ -2032,7 +2022,7 @@ export default function SaasBillingModule() {
             </div>
 
             <p className="sb-meta-text" style={{ marginBottom: '12px' }}>
-              Esta autorización se registra una sola vez para tu suscripción actual ({contractedPeriodicityLabel}, importe estimado {estimatedChargeDisplay}). El importe en pesos se calcula con la tasa aplicable al emitir el cobro.
+              Esta autorización se registra una sola vez para tu suscripción actual ({contractedPeriodicityLabel}, importe estimado {estimatedChargeDisplay}).
             </p>
 
             <form onSubmit={handleSubmitRecurringAuthorization}>

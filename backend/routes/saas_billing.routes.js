@@ -751,11 +751,16 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+        const stripTasa = (desc) => String(desc || '').replace(/\s*\(Tasa\s+[^)]+\)/gi, '').trim();
+        const displayTotalUsd = receipt.usd_original_formatted || fmtMinor(receipt.total_minor, 'USD');
+        const displayTaxUsd = fmtMinor(fx?.usd?.tax_minor || 0, 'USD');
         const rowsHtml = (receipt.items || [])
           .map(
             (it) =>
-              `<tr><td>${esc(it.description)}</td><td style="text-align:right">${esc(
-                fmtMinor(it.amount_minor, receipt.currency)
+              `<tr><td>${esc(stripTasa(it.description))}</td><td style="text-align:right">${esc(
+                receipt.items.length === 1 && receipt.usd_original_formatted
+                  ? receipt.usd_original_formatted
+                  : fmtMinor(it.amount_usd_minor ?? it.amount_minor, 'USD')
               )}</td></tr>`
           )
           .join('');
@@ -771,13 +776,11 @@ table{width:100%;border-collapse:collapse;margin:16px 0} td,th{padding:10px 8px;
   <span class="badge">${esc(String(receipt.status || '').toUpperCase())}</span>
 </div>
 <table>
-  <thead><tr><th>Concepto</th><th style="text-align:right">Importe</th></tr></thead>
+  <thead><tr><th>Concepto</th><th style="text-align:right">Importe (USD)</th></tr></thead>
   <tbody>${rowsHtml}</tbody>
   <tfoot>
-    ${receipt.usd_original_formatted ? `<tr><td>Precio original (USD)</td><td style="text-align:right">${esc(receipt.usd_original_formatted)}</td></tr>` : ''}
-    ${receipt.fx_rate_formatted ? `<tr><td>Tasa FX aplicada (USD → DOP)</td><td style="text-align:right">${esc(receipt.fx_rate_formatted)}</td></tr>` : ''}
-    <tr><td>Impuestos</td><td style="text-align:right">${esc(fmtMinor(receipt.tax_minor, receipt.currency))}</td></tr>
-    <tr><th>Total cobrado</th><th style="text-align:right">${esc(receipt.total_formatted)}</th></tr>
+    <tr><td>Impuestos</td><td style="text-align:right">${esc(displayTaxUsd)}</td></tr>
+    <tr><th>Total cobrado</th><th style="text-align:right">${esc(displayTotalUsd)}</th></tr>
   </tfoot>
 </table>
 <div class="muted">

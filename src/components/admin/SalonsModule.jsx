@@ -639,7 +639,7 @@ const SalonsModule = () => {
                         {loadingQuote ? (
                           <div style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                             <RefreshCw size={16} className="sb-spin" />
-                            <span>Calculando cotización con tasa vigente...</span>
+                            <span>Calculando cotización...</span>
                           </div>
                         ) : quoteError ? (
                           <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '10px 14px', color: '#b91c1c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -679,12 +679,12 @@ const SalonsModule = () => {
                               </div>
                               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
                                 <span>Impuestos aplicables:</span>
-                                <strong style={{ color: 'white' }}>RD$ {(Number(quote.taxDopMinor || 0) / 100).toFixed(2)} (Exento B2B)</strong>
+                                <strong style={{ color: 'white' }}>US$ 0.00 (Exento B2B)</strong>
                               </div>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #334155', paddingTop: '8px', marginTop: '4px' }}>
                                 <span style={{ fontWeight: 800, fontSize: '13px', color: '#f8fafc' }}>Total exacto a cobrar hoy:</span>
                                 <span style={{ fontSize: '16px', fontWeight: 900, color: '#4ade80' }}>
-                                  RD$ {(Number(quote.totalDopMinor || 0) / 100).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (US$ {(Number(quote.totalUsdMinor) / 100).toFixed(2)})
+                                  US$ {(Number(quote.totalUsdMinor) / 100).toFixed(2)}
                                 </span>
                               </div>
                               <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>

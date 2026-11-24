@@ -1734,7 +1734,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                           onChange={(e) => setAuthorizeRecurring(e.target.checked)}
                         />
                         <span>
-                          Autorizo de forma separada el cobro recurrente automático de mi suscripción según la periodicidad contratada (el importe en pesos se calcula con la tasa aplicable al emitir el cobro). Puedo cancelar en cualquier momento desde Mi suscripción.
+                          Autorizo de forma separada el cobro recurrente automático de mi suscripción según la periodicidad contratada. Puedo cancelar en cualquier momento desde Mi suscripción.
                         </span>
                       </label>
                     </>
