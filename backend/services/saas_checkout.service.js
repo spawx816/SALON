@@ -458,9 +458,9 @@ class SaasCheckoutService {
          id, tenant_id, order_number, status, currency, subtotal_minor, tax_minor, total_minor,
          plan_code, billing_cycle, branches_count, extra_users_count, memberships_addon_enabled,
          addon_branches_count, addon_blocks_count, addon_branch_ids,
-         created_by_user_id, source, expires_at, metadata
+         created_by_user_id, source, idempotency_key, expires_at, metadata
        )
-       VALUES (?, ?, ?, ?, 'DOP', ?, 0, ?, ?, 'monthly', ?, 0, TRUE, ?, ?, ?::jsonb, ?, 'addon_memberships', ?, ?::jsonb)
+       VALUES (?, ?, ?, ?, 'DOP', ?, 0, ?, ?, 'monthly', ?, 0, TRUE, ?, ?, ?::jsonb, ?, 'addon_memberships', ?, ?, ?::jsonb)
        RETURNING *`,
       [
         orderId,
@@ -475,6 +475,7 @@ class SaasCheckoutService {
         quote.newAcquiredBlocks,
         JSON.stringify(quote.selectedBranchIds),
         actorUserId,
+        `addon-mem-${orderId}`,
         expiresAt.toISOString(),
         JSON.stringify(metadata),
       ]
@@ -660,9 +661,9 @@ class SaasCheckoutService {
       `INSERT INTO saas_checkout_orders (
          id, tenant_id, order_number, status, currency, subtotal_minor, tax_minor, total_minor,
          plan_code, billing_cycle, branches_count, extra_users_count, memberships_addon_enabled,
-         created_by_user_id, source, expires_at, metadata
+         created_by_user_id, source, idempotency_key, expires_at, metadata
        )
-       VALUES (?, ?, ?, ?, 'DOP', ?, 0, ?, ?, 'monthly', ?, ?, FALSE, ?, 'extra_seats', ?, ?::jsonb)
+       VALUES (?, ?, ?, ?, 'DOP', ?, 0, ?, ?, 'monthly', ?, ?, FALSE, ?, 'extra_seats', ?, ?, ?::jsonb)
        RETURNING *`,
       [
         orderId,
@@ -675,6 +676,7 @@ class SaasCheckoutService {
         quote.licensedBranches,
         quote.additionalSeats,
         actorUserId,
+        `extra-seats-${orderId}`,
         expiresAt.toISOString(),
         JSON.stringify(metadata),
       ]
@@ -747,7 +749,7 @@ class SaasCheckoutService {
         [tenantId]
       );
       if (branchCountRows[0]) currentBranches = Number(branchCountRows[0].total ?? branchCountRows[0].count ?? 1);
-    } catch (_) {}
+    } catch (_) { }
 
     const availableLicenses = Math.max(0, licensedBranches - currentBranches);
     const canCreateWithoutPayment = availableLicenses > 0;
@@ -955,9 +957,9 @@ class SaasCheckoutService {
       `INSERT INTO saas_checkout_orders (
          id, tenant_id, order_number, status, currency, subtotal_minor, tax_minor, total_minor,
          plan_code, billing_cycle, branches_count, extra_users_count, memberships_addon_enabled,
-         created_by_user_id, source, expires_at, metadata
+         created_by_user_id, source, idempotency_key, expires_at, metadata
        )
-       VALUES (?, ?, ?, ?, 'DOP', ?, 0, ?, ?, 'monthly', 1, 0, ?, ?, 'branch_addon', ?, ?::jsonb)
+       VALUES (?, ?, ?, ?, 'DOP', ?, 0, ?, ?, 'monthly', 1, 0, ?, ?, 'branch_addon', ?, ?, ?::jsonb)
        RETURNING *`,
       [
         orderId,
@@ -969,6 +971,7 @@ class SaasCheckoutService {
         SAAS_PLANS.PRINCIPAL,
         Boolean(wantsMembershipsAddon),
         actorUserId,
+        `branch-addon-${orderId}`,
         expiresAt.toISOString(),
         JSON.stringify(metadata),
       ]
@@ -1869,7 +1872,7 @@ class SaasCheckoutService {
                updated_at = NOW()
            WHERE tenant_id = ?`,
           [addedSeats, order.tenant_id]
-        ).catch(() => {});
+        ).catch(() => { });
         if (this.entitlementsService && typeof this.entitlementsService.invalidateTenantCache === 'function') {
           this.entitlementsService.invalidateTenantCache(order.tenant_id);
         }
@@ -1988,7 +1991,7 @@ class SaasCheckoutService {
         },
         tenantId: order.tenant_id,
         path: '/api/saas/billing/checkout/_activateAfterPayment',
-      }).catch(() => {});
+      }).catch(() => { });
       await this.pool.query(
         `UPDATE saas_checkout_orders
          SET reconcile_attempts = reconcile_attempts + 1, last_error = ?, updated_at = NOW()
@@ -2042,13 +2045,13 @@ class SaasCheckoutService {
       invoice: financial.invoice || null,
       paymentMethod: financial.paymentMethod
         ? {
-            id: financial.paymentMethod.id,
-            brand: financial.paymentMethod.brand,
-            last4: financial.paymentMethod.last4,
-            expMonth: financial.paymentMethod.exp_month,
-            expYear: financial.paymentMethod.exp_year,
-            isDefault: financial.paymentMethod.is_default,
-          }
+          id: financial.paymentMethod.id,
+          brand: financial.paymentMethod.brand,
+          last4: financial.paymentMethod.last4,
+          expMonth: financial.paymentMethod.exp_month,
+          expYear: financial.paymentMethod.exp_year,
+          isDefault: financial.paymentMethod.is_default,
+        }
         : null,
     };
   }
