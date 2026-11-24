@@ -252,8 +252,8 @@ function createSalonsRouter(poolOrOptions, options = {}) {
         needsCheckout: true,
         requiresCheckout: true,
         branchId: orderResult.branchId,
-        order,
-        checkout: checkoutResult,
+        order: checkoutResult.order || order,
+        checkout: checkoutResult.checkout || checkoutResult,
       });
     } catch (err) {
       res.status(err.statusCode || 500).json({

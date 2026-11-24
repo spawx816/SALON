@@ -108,8 +108,12 @@ export async function executeCardnetCheckout({
   onActivated,
   onError,
 }) {
-  if (checkout?.mode === 'pwcheckout_iframe' && checkout?.uniqueId && checkout?.captureUrl && checkout?.publicKey) {
-    const PWCheckout = await loadCardNetScript(checkout.publicKey, checkout.captureUrl);
+  const resolvedCheckout = checkout?.checkout && !checkout?.mode && !checkout?.authorizeUrl
+    ? checkout.checkout
+    : checkout;
+
+  if (resolvedCheckout?.mode === 'pwcheckout_iframe' && resolvedCheckout?.uniqueId && resolvedCheckout?.captureUrl && resolvedCheckout?.publicKey) {
+    const PWCheckout = await loadCardNetScript(resolvedCheckout.publicKey, resolvedCheckout.captureUrl);
     const formId = 'etereas_saas_checkout_form';
     ensureCardnetHiddenForm(formId);
     patchCardnetIframeClose(PWCheckout);
@@ -200,7 +204,7 @@ export async function executeCardnetCheckout({
         lang: 'ESP',
         form_id: 'etereas_saas_checkout_form',
         checkout_card: '1',
-        session_id: checkout.uniqueId,
+        session_id: resolvedCheckout.uniqueId,
         autoSubmit: 'false',
       });
     }
@@ -210,16 +214,16 @@ export async function executeCardnetCheckout({
       onCheckoutOpening();
     }
 
-    const cleanCaptureUrl = checkout.captureUrl.endsWith('/') ? checkout.captureUrl : `${checkout.captureUrl}/`;
+    const cleanCaptureUrl = resolvedCheckout.captureUrl.endsWith('/') ? resolvedCheckout.captureUrl : `${resolvedCheckout.captureUrl}/`;
     PWCheckout.OpenIframeCustom(
-      `${cleanCaptureUrl}?key=${encodeURIComponent(checkout.publicKey)}&session_id=${encodeURIComponent(checkout.uniqueId)}`,
-      checkout.uniqueId
+      `${cleanCaptureUrl}?key=${encodeURIComponent(resolvedCheckout.publicKey)}&session_id=${encodeURIComponent(resolvedCheckout.uniqueId)}`,
+      resolvedCheckout.uniqueId
     );
     return;
   }
 
-  if (checkout?.authorizeUrl && checkout?.sessionId) {
-    submitCardnetHostedPost(checkout);
+  if (resolvedCheckout?.authorizeUrl && resolvedCheckout?.sessionId) {
+    submitCardnetHostedPost(resolvedCheckout);
     return;
   }
 
