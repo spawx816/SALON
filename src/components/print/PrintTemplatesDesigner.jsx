@@ -49,8 +49,9 @@ export default function PrintTemplatesDesigner() {
   const { branding } = useTenantBranding();
   const [availability, setAvailability] = useState(null);
   const [templates, setTemplates] = useState([]);
+  const [activeTicketMode, setActiveTicketMode] = useState('ticket_venta');
   const [branches, setBranches] = useState([]);
-  const [selectedDocType, setSelectedDocType] = useState('ticket_turno');
+  const [selectedDocType, setSelectedDocType] = useState('ticket_venta');
   const [selectedBranchId, setSelectedBranchId] = useState('');
   const [editingTemplateId, setEditingTemplateId] = useState(null);
 
@@ -93,6 +94,9 @@ export default function PrintTemplatesDesigner() {
 
       setAvailability(availJson);
       setTemplates(Array.isArray(tplJson.templates) ? tplJson.templates : []);
+      if (tplJson.active_ticket_mode) {
+        setActiveTicketMode(tplJson.active_ticket_mode);
+      }
       setBranches(
         Array.isArray(salonsJson)
           ? salonsJson
@@ -325,11 +329,11 @@ export default function PrintTemplatesDesigner() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
           <button type="button" disabled={saving} onClick={() => handleSave({ publish: false })} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.55rem 0.9rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', fontWeight: 600, cursor: 'pointer' }}>
             <Save size={15} /> Guardar borrador
           </button>
-          <button type="button" disabled={saving} onClick={() => handleSave({ publish: true, setAsDefault: true })} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.55rem 0.9rem', borderRadius: '8px', border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
+          <button type="button" disabled={saving} onClick={() => handleSave({ publish: true, setAsDefault: true })} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.55rem 0.9rem', borderRadius: '8px', border: 'none', background: '#09090b', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
             <Upload size={15} /> Publicar y predeterminar
           </button>
           <button type="button" disabled={saving} onClick={handleRestoreDefault} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.55rem 0.9rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 600, cursor: 'pointer' }}>
@@ -338,6 +342,9 @@ export default function PrintTemplatesDesigner() {
           <button type="button" onClick={() => { setIssuedTurn(null); setTimeout(() => window.print(), 100); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.55rem 0.9rem', borderRadius: '8px', border: '1px solid #0284c7', background: '#e0f2fe', color: '#0369a1', fontWeight: 700, cursor: 'pointer' }}>
             <Printer size={15} /> Imprimir prueba
           </button>
+          <span style={{ marginLeft: 'auto', fontSize: '0.78rem', fontWeight: 700, padding: '0.35rem 0.75rem', borderRadius: '999px', background: activeTicketMode === 'ticket_turno' ? '#eff6ff' : '#f0fdf4', color: activeTicketMode === 'ticket_turno' ? '#1d4ed8' : '#15803d', border: `1px solid ${activeTicketMode === 'ticket_turno' ? '#bfdbfe' : '#bbf7d0'}` }}>
+            Modo activo en Recepción (+ Generar Nuevo Ticket): {activeTicketMode === 'ticket_turno' ? 'Ticket de Turno' : 'Pre-factura / Pre-Cuenta'}
+          </span>
         </div>
       </div>
 

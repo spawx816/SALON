@@ -581,6 +581,167 @@ function createVisitsRouter(pool, helpers = {}) {
         );
       }
 
+      // Evaluar metas de reglas especiales con operación 'Contar' y otorgar el bono al cumplirse la meta
+      const contarRules = rulesRows.filter(
+        (r) => String(r.rule_type || '').toLowerCase() === 'especial' && String(r.operacion || '').trim() === 'Contar'
+      );
+      if (contarRules.length > 0 && validEmployees.length > 0) {
+        const resolvePeriodWindow = (rawDate, rawPeriodo) => {
+          const d = rawDate ? new Date(rawDate) : new Date();
+          const validDate = isNaN(d.getTime()) ? new Date() : d;
+          const ymdStr = validDate.toLocaleDateString('en-CA', { timeZone: 'America/Santo_Domingo' });
+          const [yy, mm, dd] = ymdStr.split('-').map(Number);
+          const pNorm = String(rawPeriodo || 'Mensual').trim().toLowerCase();
+
+          if (pNorm === 'diario') {
+            return {
+              key: `${yy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`,
+              start: `${ymdStr} 00:00:00-04:00`,
+              end: `${ymdStr} 23:59:59.999-04:00`,
+            };
+          }
+          if (pNorm === 'semanal') {
+            const localNoon = new Date(`${ymdStr}T12:00:00-04:00`);
+            const dow = localNoon.getUTCDay(); // 0=Sun..6=Sat
+            const diffToMon = dow === 0 ? -6 : 1 - dow;
+            const mon = new Date(localNoon.getTime() + diffToMon * 86400000);
+            const sun = new Date(mon.getTime() + 6 * 86400000);
+            const monYmd = mon.toISOString().slice(0, 10);
+            const sunYmd = sun.toISOString().slice(0, 10);
+            return {
+              key: `SEM-${monYmd}`,
+              start: `${monYmd} 00:00:00-04:00`,
+              end: `${sunYmd} 23:59:59.999-04:00`,
+            };
+          }
+          if (pNorm === 'quincenal') {
+            const lastDay = new Date(yy, mm, 0).getDate();
+            const isFirstHalf = dd <= 15;
+            const startDay = isFirstHalf ? '01' : '16';
+            const endDay = isFirstHalf ? '15' : String(lastDay).padStart(2, '0');
+            const ym = `${yy}-${String(mm).padStart(2, '0')}`;
+            return {
+              key: `${ym}-${isFirstHalf ? 'Q1' : 'Q2'}`,
+              start: `${ym}-${startDay} 00:00:00-04:00`,
+              end: `${ym}-${endDay} 23:59:59.999-04:00`,
+            };
+          }
+          // Default: Mensual
+          const lastDay = new Date(yy, mm, 0).getDate();
+          const ym = `${yy}-${String(mm).padStart(2, '0')}`;
+          return {
+            key: ym,
+            start: `${ym}-01 00:00:00-04:00`,
+            end: `${ym}-${String(lastDay).padStart(2, '0')} 23:59:59.999-04:00`,
+          };
+        };
+
+        const refDates = [...new Set(workItems.map((w) => {
+          const dt = w.visitedAt ? new Date(w.visitedAt) : new Date();
+          return isNaN(dt.getTime()) ? new Date().toISOString() : dt.toISOString();
+        }))];
+        if (refDates.length === 0) refDates.push(new Date().toISOString());
+
+        for (const emp of validEmployees) {
+          const empRules = contarRules.filter((r) => Number(r.scheme_id) === Number(emp.commission_scheme_id));
+          if (empRules.length === 0) continue;
+
+          for (const rule of empRules) {
+            const targetGoal = parseInt(rule.cantidad_meta, 10) || 0;
+            const bonusAmount = Number(rule.bono_monto || 0);
+            if (targetGoal <= 0 || bonusAmount <= 0 || !rule.service_name) continue;
+
+            const checkedPeriodKeys = new Set();
+            for (const refIso of refDates) {
+              const win = resolvePeriodWindow(refIso, rule.periodo);
+              if (checkedPeriodKeys.has(win.key)) continue;
+              checkedPeriodKeys.add(win.key);
+
+              const [cntRows] = await db.query(
+                `SELECT COALESCE(SUM(cantidad), 0) AS total_qty, MAX(created_at) AS latest_at
+                 FROM employee_commissions_log
+                 WHERE tenant_id = ?
+                   AND employee_id = ?
+                   AND LOWER(TRIM(service_name)) = LOWER(TRIM(?))
+                   AND visit_id NOT LIKE 'BONO-META-%'
+                   AND COALESCE(status, 'Pendiente') != 'Anulada'
+                   AND created_at >= ? AND created_at <= ?`,
+                [resolvedTenantId, Number(emp.id), String(rule.service_name), win.start, win.end]
+              );
+
+              const totalQty = Number(cntRows?.[0]?.total_qty || 0);
+              const completedGoals = Math.floor(totalQty / targetGoal);
+              const repText = String(rule.repeticion || 'Una vez por período').toLowerCase();
+              const repLimit = Number(rule.repeticion_limite || 0);
+              let maxAllowed = 1;
+              if (repText.includes('sin l') || repText.includes('cada vez')) {
+                maxAllowed = completedGoals;
+              } else if (repText.includes('dos')) {
+                maxAllowed = 2;
+              } else if (repLimit > 1) {
+                maxAllowed = repLimit;
+              }
+              const deservedBonuses = Math.min(completedGoals, maxAllowed);
+              const bonusPrefix = `BONO-META-${rule.id}-${emp.id}-${win.key}-`;
+
+              const [existingBonuses] = await db.query(
+                `SELECT id, visit_id, status, payout_id
+                 FROM employee_commissions_log
+                 WHERE tenant_id = ? AND employee_id = ? AND visit_id LIKE ?`,
+                [resolvedTenantId, Number(emp.id), `${bonusPrefix}%`]
+              );
+              const existingByVisitId = new Map((existingBonuses || []).map((b) => [b.visit_id, b]));
+
+              // Si se anuló una factura y bajó el conteo, retirar bonos pendientes excedentes no liquidados
+              for (const bRow of existingBonuses || []) {
+                const slotNum = parseInt(String(bRow.visit_id).slice(bonusPrefix.length), 10);
+                if (
+                  Number.isFinite(slotNum) &&
+                  slotNum > deservedBonuses &&
+                  !bRow.payout_id &&
+                  !['Pagada', 'Pagado'].includes(String(bRow.status || ''))
+                ) {
+                  await db.query('DELETE FROM employee_commissions_log WHERE id = ? AND tenant_id = ?', [bRow.id, resolvedTenantId]);
+                }
+              }
+
+              const bonusCents = Math.round(bonusAmount * 100);
+              const bonusDate = cntRows?.[0]?.latest_at || refIso;
+              for (let slot = 1; slot <= deservedBonuses; slot++) {
+                const bonusVisitId = `${bonusPrefix}${slot}`;
+                if (existingByVisitId.has(bonusVisitId)) continue;
+
+                await db.query(
+                  `INSERT INTO employee_commissions_log (
+                     tenant_id, visit_id, ticket_number, employee_id, employee_name, service_name,
+                     service_price, precio_servicio, cantidad, descuento_aplicado, monto_base,
+                     tipo_comision, comision_valor, commission_rate, monto_comision, commission_amount,
+                     commission_cents, currency, status, localidad, scheme_id, rule_applied_description, created_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1, 0, ?, 'Bono_Meta', ?, 0, ?, ?, ?, 'DOP', 'Pendiente', ?, ?, ?, ?)`,
+                  [
+                    resolvedTenantId,
+                    bonusVisitId,
+                    `BONO-${slot}`,
+                    Number(emp.id),
+                    emp.nombre,
+                    `Bono Meta: ${rule.service_name}`,
+                    bonusAmount,
+                    bonusAmount,
+                    bonusAmount,
+                    bonusAmount,
+                    bonusCents,
+                    emp.localidad || 'Principal',
+                    Number(rule.scheme_id),
+                    `🏆 Bono Meta Cumplida (${slot * targetGoal} ${rule.service_name} · ${rule.periodo || 'Mensual'})`,
+                    bonusDate,
+                  ]
+                );
+              }
+            }
+          }
+        }
+      }
+
       return { processed: visitIds.length, items: insertRows.length };
     } catch (err) {
       if (dbConn) throw err;
@@ -805,6 +966,9 @@ function createVisitsRouter(pool, helpers = {}) {
         ? { ...draft_data }
         : {};
       safeDraftObj.recepcionista = actorName;
+      if (!safeDraftObj.checkin_time) {
+        safeDraftObj.checkin_time = new Date().toISOString();
+      }
       if (actorId) safeDraftObj.actor_id = String(actorId);
       if (reqIdemKey) safeDraftObj.client_request_id = reqIdemKey;
 
@@ -1582,6 +1746,12 @@ function createVisitsRouter(pool, helpers = {}) {
              salon_id = COALESCE(?, salon_id),
              servicios = ?,
              items_detail = ?,
+             draft_data = jsonb_set(
+               COALESCE(draft_data, '{}'::jsonb),
+               '{checkin_time}',
+               to_jsonb(COALESCE(draft_data->>'checkin_time', visited_at::text)),
+               true
+             ),
              subtotal = ?,
              subtotal_cents = ?,
              descuento = ?,
@@ -1638,12 +1808,12 @@ function createVisitsRouter(pool, helpers = {}) {
         await db.query(
           `INSERT INTO visits (
              id, tenant_id, ticket_number, client_id, client_name, salon_id,
-             servicios, items_detail, subtotal, subtotal_cents, descuento, discount_cents, itbis, itbis_cents, total, total_cents, currency,
+             servicios, items_detail, draft_data, subtotal, subtotal_cents, descuento, discount_cents, itbis, itbis_cents, total, total_cents, currency,
              metodo_pago, applied_payments,
              ncf, ncf_type, ncf_name, rnc_cliente, rzn_soc_cliente,
              empleado_peluquera, empleado_lava_pelo, empleado_manicurista,
              cash_register_id, status, visited_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DOP', ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, jsonb_build_object('checkin_time', NOW()), ?, ?, ?, ?, ?, ?, ?, ?, 'DOP', ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())`,
           [
             id,
             tenantId,

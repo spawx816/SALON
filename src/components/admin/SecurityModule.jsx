@@ -1834,11 +1834,32 @@ export default function SecurityModule() {
                     </option>
                     {(salons || [])
                       .filter(s => s && (s.name || s.nombre) && String(s.name || s.nombre).trim() !== '')
-                      .map(s => (
-                        <option key={s.id} value={String(s.id)} style={{ color: '#0f172a', background: '#ffffff', fontWeight: 600 }}>
-                          📍 {s.name || s.nombre}
-                        </option>
-                      ))}
+                      .map(s => {
+                        const isKioskSelection = userForm.role_id === '__KIOSK_RESERVED__';
+                        const existingBranchKiosk = isKioskSelection
+                          ? (users || []).find((u) => {
+                              const uRole = String(u.role || u.rol || '').trim().toLowerCase();
+                              const uActive = u.is_active !== false && String(u.estado || 'Activo').toLowerCase() !== 'inactivo';
+                              const uBranch = String(u.branch_id || u.salon_id || '');
+                              return (
+                                uRole === 'kiosco_asistencia' &&
+                                uActive &&
+                                uBranch === String(s.id) &&
+                                String(u.id) !== String(editingUser?.id || '')
+                              );
+                            })
+                          : null;
+                        return (
+                          <option
+                            key={s.id}
+                            value={String(s.id)}
+                            disabled={Boolean(existingBranchKiosk)}
+                            style={{ color: existingBranchKiosk ? '#94a3b8' : '#0f172a', background: '#ffffff', fontWeight: 600 }}
+                          >
+                            📍 {s.name || s.nombre}{existingBranchKiosk ? ' (Ya tiene 1 Kiosco activo)' : ''}
+                          </option>
+                        );
+                      })}
                   </select>
                 </div>
               </div>

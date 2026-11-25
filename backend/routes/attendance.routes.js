@@ -473,9 +473,9 @@ function createAttendanceRouter(pool) {
         date,
         origEntrada,
         origSalida,
-        newEntrada: newHoraEntrada,
-        newSalida: newHoraSalida,
-        reason,
+        newEntrada: entradaVal,
+        newSalida: salidaVal,
+        reason: finalReason,
         createdBy,
       });
 

@@ -1017,6 +1017,31 @@ function createAuthRouter(pool, options = {}) {
             if (mainBranch.length > 0) resolvedBranchId = mainBranch[0].id;
           }
 
+          // Límite estricto de 1 usuario Kiosco de Asistencia activo por sucursal
+          if (isKioskRole && isActive && resolvedBranchId) {
+            const [existingKiosk] = await runner.query(
+              `SELECT id, COALESCE(nombre, name, email) AS kiosk_name
+               FROM users
+               WHERE tenant_id = ?
+                 AND LOWER(COALESCE(role, '')) = 'kiosco_asistencia'
+                 AND COALESCE(is_active, TRUE) = TRUE
+                 AND LOWER(COALESCE(estado, 'Activo')) != 'inactivo'
+                 AND (branch_id::text = ? OR salon_id::text = ?)
+               LIMIT 1`,
+              [tenantId, String(resolvedBranchId), String(resolvedBranchId)]
+            );
+            if (existingKiosk.length > 0) {
+              if (txClient) await txClient.query('ROLLBACK');
+              return {
+                status: 409,
+                body: {
+                  error: `Esta sucursal ya cuenta con un usuario de Kiosco de Asistencia activo (${existingKiosk[0].kiosk_name}). Solo se permite 1 Kiosco por sucursal.`,
+                  code: 'KIOSK_BRANCH_LIMIT_REACHED'
+                }
+              };
+            }
+          }
+
           const [result] = await runner.query(
             `INSERT INTO users (
                tenant_id, branch_id, name, nombre, username, email, password_hash, password,
@@ -1213,6 +1238,35 @@ function createAuthRouter(pool, options = {}) {
                 }
               };
             }
+            const nextKioskActive = isActive !== undefined
+              ? isActive
+              : ((targetUser.is_active === true || targetUser.is_active === 1 || targetUser.is_active === null) &&
+                String(targetUser.estado || 'Activo').toLowerCase() !== 'inactivo');
+            const targetKioskBranch = resolvedBranchId || targetUser.branch_id || targetUser.salon_id;
+            if (nextKioskActive && targetKioskBranch) {
+              const [existingKiosk] = await runner.query(
+                `SELECT id, COALESCE(nombre, name, email) AS kiosk_name
+                 FROM users
+                 WHERE tenant_id = ?
+                   AND id::text != ?
+                   AND LOWER(COALESCE(role, '')) = 'kiosco_asistencia'
+                   AND COALESCE(is_active, TRUE) = TRUE
+                   AND LOWER(COALESCE(estado, 'Activo')) != 'inactivo'
+                   AND (branch_id::text = ? OR salon_id::text = ?)
+                 LIMIT 1`,
+                [tenantId, String(id), String(targetKioskBranch), String(targetKioskBranch)]
+              );
+              if (existingKiosk.length > 0) {
+                if (txClient) await txClient.query('ROLLBACK');
+                return {
+                  status: 409,
+                  body: {
+                    error: `Esta sucursal ya cuenta con un usuario de Kiosco de Asistencia activo (${existingKiosk[0].kiosk_name}). Solo se permite 1 Kiosco por sucursal.`,
+                    code: 'KIOSK_BRANCH_LIMIT_REACHED'
+                  }
+                };
+              }
+            }
           }
 
           // Validar cupo atómicamente ante cualquier cambio que incremente usuarios facturables:
@@ -1361,7 +1415,8 @@ function createAuthRouter(pool, options = {}) {
             } catch { /* pre-migration optional columns */ }
           }
 
-          if (isActive === false || privilegeChanged) {
+          const passwordWasChanged = Boolean(password && String(password).trim() !== '');
+          if (isActive === false || privilegeChanged || passwordWasChanged) {
             try {
               await runner.query(
                 'UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id = ?',
@@ -1374,7 +1429,7 @@ function createAuthRouter(pool, options = {}) {
                 await revokeDevicesByKioskUser(runner, {
                   tenantId,
                   userId: String(id),
-                  reason: isActive === false ? 'Cuenta kiosco desactivada' : 'Rol o sucursal de cuenta kiosco modificada'
+                  reason: isActive === false ? 'Cuenta kiosco desactivada' : (passwordWasChanged ? 'Contraseña de kiosco restablecida' : 'Rol o sucursal de cuenta kiosco modificada')
                 });
               } catch { }
             }
@@ -2014,6 +2069,30 @@ function createAuthRouter(pool, options = {}) {
             });
           }
 
+          // Bloquear apertura simultánea del mismo usuario Kiosco si ya tiene una sesión con latido activo (< 25s)
+          if (isKioskAccount && u.tenant_id && req.body?.force_takeover !== true) {
+            try {
+              const [activeKioskSess] = await pool.query(
+                `SELECT id, ip_address, last_activity
+                 FROM user_sessions
+                 WHERE user_id = ?
+                   AND tenant_id = ?
+                   AND is_active = 1
+                   AND last_activity > NOW() - INTERVAL '25 seconds'
+                 LIMIT 1`,
+                [String(u.id), u.tenant_id]
+              );
+              if (activeKioskSess && activeKioskSess.length > 0) {
+                return res.status(409).json({
+                  error: 'Este usuario de Kiosco de Asistencia ya está abierto simultáneamente en otro navegador o dispositivo. Cierra sesión en el dispositivo activo o finalízala desde Seguridad → Sesiones Activas.',
+                  code: 'KIOSK_SESSION_ALREADY_ACTIVE'
+                });
+              }
+            } catch {
+              // Ignorar en entornos de prueba in-memory sin INTERVAL SQL
+            }
+          }
+
           let sessionId;
           let kioskDeviceBind = null;
           try {
@@ -2418,6 +2497,107 @@ function createAuthRouter(pool, options = {}) {
       return res.status(500).json({ valid: false, error: 'Error verificando sesión en base de datos.' });
     }
   };
+
+  // Cambio de contraseña personal por el propio trabajador o administrador autenticado
+  // (El administrador conserva prioridad total desde Administración -> Usuarios sin requerir la clave anterior)
+  router.post('/auth/change-password', async (req, res) => {
+    try {
+      const auth = req.auth;
+      if (!auth || !auth.id) {
+        return res.status(401).json({ error: 'No autenticado.' });
+      }
+      const normalizedRole = String(auth.role || '').trim().toLowerCase();
+      if (normalizedRole === 'client' || normalizedRole === 'kiosco_asistencia') {
+        return res.status(403).json({ error: 'Esta cuenta no admite cambio de contraseña desde este módulo.' });
+      }
+
+      const { currentPassword, newPassword } = req.body || {};
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: 'Debes indicar tu contraseña actual y la nueva contraseña.' });
+      }
+      if (String(newPassword).length < 6) {
+        return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+      }
+      if (String(newPassword) === String(currentPassword)) {
+        return res.status(400).json({ error: 'La nueva contraseña debe ser diferente a la actual.' });
+      }
+
+      const userId = String(auth.id);
+      const [rows] = await pool.query(
+        'SELECT id, email, name, nombre, role, tenant_id, branch_id, salon_id, password_hash, password, token_version, is_active, estado FROM users WHERE id::text = ? LIMIT 1',
+        [userId]
+      );
+      if (!rows || rows.length === 0) {
+        return res.status(404).json({ error: 'Usuario no encontrado.' });
+      }
+      const u = rows[0];
+      if (u.is_active === false || String(u.estado || '').toLowerCase() === 'inactivo') {
+        return res.status(403).json({ error: 'Tu usuario se encuentra inactivo.' });
+      }
+
+      const storedSecret = u.password_hash || u.password || '';
+      let isCurrentValid = false;
+      if (String(storedSecret).startsWith('$2a$') || String(storedSecret).startsWith('$2b$')) {
+        isCurrentValid = await bcrypt.compare(String(currentPassword), storedSecret);
+      } else if (storedSecret) {
+        isCurrentValid = String(storedSecret) === String(currentPassword);
+      }
+
+      if (!isCurrentValid) {
+        return res.status(401).json({ error: 'La contraseña actual ingresada es incorrecta.' });
+      }
+
+      const hashedNew = await bcrypt.hash(String(newPassword), 10);
+      const nextTokenVersion = Number(u.token_version || 1) + 1;
+
+      if (u.tenant_id) {
+        await pool.query(
+          'UPDATE users SET password_hash = ?, password = NULL, token_version = ? WHERE id::text = ? AND tenant_id = ?',
+          [hashedNew, nextTokenVersion, userId, u.tenant_id]
+        );
+      } else {
+        await pool.query(
+          'UPDATE users SET password_hash = ?, password = NULL, token_version = ? WHERE id::text = ?',
+          [hashedNew, nextTokenVersion, userId]
+        );
+      }
+
+      // Cerrar otras sesiones activas salvo la actual
+      if (auth.sessionId) {
+        await pool.query(
+          'UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND id != ?',
+          [userId, String(auth.sessionId)]
+        ).catch(() => {});
+      }
+
+      const isSuperAdmin = Boolean(auth.isSuperAdmin || String(u.role || '').toLowerCase() === 'superadmin');
+      const refreshedToken = signAuthToken({
+        sub: userId,
+        id: userId,
+        email: u.email,
+        name: u.name || u.nombre,
+        role: auth.role || u.role,
+        tenantId: isSuperAdmin ? null : u.tenant_id,
+        branchId: u.branch_id || u.salon_id || null,
+        sessionId: auth.sessionId || null,
+        isSuperAdmin,
+        tokenVersion: nextTokenVersion,
+      });
+
+      res.cookie('auth_token', refreshedToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 24 * 60 * 60 * 1000,
+      });
+
+      return res.json({ success: true, message: 'Contraseña actualizada exitosamente.' });
+    } catch (err) {
+      console.error('[CHANGE PASSWORD ERROR]:', err);
+      return res.status(500).json({ error: 'Error al cambiar la contraseña.' });
+    }
+  });
 
   router.post('/auth/session-check', handleSessionCheck);
   router.get('/auth/session-status', handleSessionCheck);

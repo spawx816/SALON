@@ -3,13 +3,16 @@ import { Link } from 'react-router-dom';
 import {
   Package, Layers, ArrowLeftRight, ShoppingCart, Truck, AlertTriangle,
   Plus, Search, Filter, RefreshCw, CheckCircle2, XCircle, DollarSign,
-  TrendingUp, Lock, ShieldCheck, ArrowDownRight, ArrowUpRight, Warehouse
+  TrendingUp, Lock, ShieldCheck, ArrowDownRight, ArrowUpRight, Warehouse, Printer
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useEntitlements } from '../../context/EntitlementsContext';
+import { useAuth } from '../../context/AuthContext';
+import InventoryReceiptPrintModal from './InventoryReceiptPrintModal';
 
 export default function InventoryModule() {
   const { canAccess, isPro } = useEntitlements();
+  const { user } = useAuth();
   const hasInventory = canAccess('inventory');
   const hasAdvanced = canAccess('inventory_advanced');
 
@@ -57,6 +60,8 @@ export default function InventoryModule() {
 
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [submittingTrf, setSubmittingTrf] = useState(false);
+  const [inventoryReceipt, setInventoryReceipt] = useState(null);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [transferForm, setTransferForm] = useState({
     transfer_number: '',
     source_location_id: '',
@@ -219,7 +224,35 @@ export default function InventoryModule() {
     adjInFlightRef.current = true;
     setSubmittingAdj(true);
     try {
-      await dataService.makeInventoryAdjustment(adjForm);
+      const selectedProd =
+        catalogProducts.find((p) => String(p.id) === String(adjForm.productId)) ||
+        products.find((p) => String(p.id) === String(adjForm.productId));
+      const res = await dataService.makeInventoryAdjustment(adjForm);
+      const mov = res?.movement || {};
+      const locObj = locations.find((l) => String(l.id) === String(mov.location_id));
+      const isEntry = adjForm.adjustmentType === 'ADJUSTMENT_IN';
+
+      setInventoryReceipt({
+        kind: 'adjustment',
+        folio: mov.id ? `AJU-${String(mov.id).slice(0, 8).toUpperCase()}` : `AJU-${Date.now().toString().slice(-6)}`,
+        date: mov.created_at || new Date().toISOString(),
+        operationLabel: isEntry ? 'Ajuste de Inventario — Entrada (+)' : 'Ajuste de Inventario — Salida (-)',
+        operatorName: mov.user_name || user?.nombre || user?.name || user?.email || 'Usuario',
+        locationName: locObj?.name || user?.salon_name || 'Almacén Principal',
+        reason: adjForm.reason || mov.reason || '',
+        items: [
+          {
+            sku: selectedProd?.sku || selectedProd?.codigo || '—',
+            name: selectedProd?.name || selectedProd?.nombre || 'Producto',
+            quantity: isEntry ? `+${Math.abs(Number(adjForm.quantity))}` : `-${Math.abs(Number(adjForm.quantity))}`,
+            unit: selectedProd?.unit_of_measure || '',
+            previousStock: res?.previous_stock ?? '—',
+            newStock: res?.new_stock ?? mov.balance_after ?? '—',
+          },
+        ],
+      });
+      setShowReceiptModal(true);
+
       showNotification('Ajuste de inventario aplicado correctamente');
       setShowAdjustmentModal(false);
       setAdjForm({ productId: '', quantity: '1', adjustmentType: 'ADJUSTMENT_IN', reason: '' });
@@ -232,14 +265,52 @@ export default function InventoryModule() {
     }
   };
 
+  const buildTransferReceipt = (trf, opLabel) => {
+    const srcLoc =
+      trf?.source_location_name ||
+      locations.find((l) => String(l.id) === String(trf?.source_location_id))?.name ||
+      'Origen';
+    const dstLoc =
+      trf?.destination_location_name ||
+      locations.find((l) => String(l.id) === String(trf?.destination_location_id))?.name ||
+      'Destino';
+    const rawItems = Array.isArray(trf?.items) ? trf.items : [];
+    const mappedItems = rawItems.map((it) => {
+      const prod =
+        products.find((p) => String(p.id) === String(it.product_id)) ||
+        catalogProducts.find((p) => String(p.id) === String(it.product_id));
+      return {
+        sku: it.sku || prod?.sku || prod?.codigo || '—',
+        name: it.product_name || prod?.name || prod?.nombre || 'Producto',
+        quantity: it.quantity_transferred || it.quantity_requested || 1,
+        unit: prod?.unit_of_measure || '',
+      };
+    });
+    return {
+      kind: 'transfer',
+      folio: trf?.transfer_number || (trf?.id ? `TRF-${String(trf.id).slice(0, 8).toUpperCase()}` : 'TRF'),
+      date: trf?.received_at || trf?.dispatched_at || trf?.created_at || new Date().toISOString(),
+      operationLabel: opLabel,
+      operatorName: user?.nombre || user?.name || user?.email || trf?.requested_by || 'Usuario',
+      sourceLocation: srcLoc,
+      destinationLocation: dstLoc,
+      reason: trf?.notes || 'Transferencia entre ubicaciones',
+      items: mappedItems,
+    };
+  };
+
   const handleCreateTransfer = async (e) => {
     e.preventDefault();
     if (submittingTrf || trfInFlightRef.current) return;
     trfInFlightRef.current = true;
     setSubmittingTrf(true);
     try {
-      await dataService.createInventoryTransfer({
-        transfer_number: transferForm.transfer_number || `TRF-${Date.now().toString().slice(-6)}`,
+      const generatedNum = transferForm.transfer_number || `TRF-${Date.now().toString().slice(-6)}`;
+      const selectedProd =
+        products.find((p) => String(p.id) === String(transferForm.productId)) ||
+        catalogProducts.find((p) => String(p.id) === String(transferForm.productId));
+      const created = await dataService.createInventoryTransfer({
+        transfer_number: generatedNum,
         source_location_id: transferForm.source_location_id,
         destination_location_id: transferForm.destination_location_id,
         notes: transferForm.notes,
@@ -247,6 +318,29 @@ export default function InventoryModule() {
           { product_id: transferForm.productId, quantity_requested: Number(transferForm.quantity) }
         ]
       });
+
+      setInventoryReceipt(
+        buildTransferReceipt(
+          {
+            ...created,
+            transfer_number: created?.transfer_number || generatedNum,
+            source_location_id: transferForm.source_location_id,
+            destination_location_id: transferForm.destination_location_id,
+            notes: transferForm.notes,
+            items: [
+              {
+                product_id: transferForm.productId,
+                product_name: selectedProd?.name || selectedProd?.nombre || 'Producto',
+                sku: selectedProd?.sku || '—',
+                quantity_requested: Number(transferForm.quantity),
+              },
+            ],
+          },
+          'Solicitud / Orden de Transferencia'
+        )
+      );
+      setShowReceiptModal(true);
+
       showNotification('Transferencia solicitada exitosamente');
       setShowTransferModal(false);
       setTransferForm({
@@ -772,12 +866,14 @@ export default function InventoryModule() {
                           {t.status}
                         </span>
                       </td>
-                      <td style={{ padding: '0.75rem 1rem' }}>
+                      <td style={{ padding: '0.75rem 1rem', display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
                         {t.status === 'REQUESTED' && (
                           <button
                             onClick={async () => {
                               try {
-                                await dataService.dispatchInventoryTransfer(t.id);
+                                const res = await dataService.dispatchInventoryTransfer(t.id);
+                                setInventoryReceipt(buildTransferReceipt(res?.transfer || t, 'Despacho de Transferencia'));
+                                setShowReceiptModal(true);
                                 showNotification('Transferencia despachada');
                                 loadTabData();
                               } catch (e) { showNotification(e.message, true); }
@@ -791,7 +887,9 @@ export default function InventoryModule() {
                           <button
                             onClick={async () => {
                               try {
-                                await dataService.receiveInventoryTransfer(t.id);
+                                const res = await dataService.receiveInventoryTransfer(t.id);
+                                setInventoryReceipt(buildTransferReceipt(res?.transfer || t, 'Recepción de Transferencia'));
+                                setShowReceiptModal(true);
                                 showNotification('Transferencia recibida en destino');
                                 loadTabData();
                               } catch (e) { showNotification(e.message, true); }
@@ -801,6 +899,25 @@ export default function InventoryModule() {
                             Recibir
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInventoryReceipt(
+                              buildTransferReceipt(
+                                t,
+                                t.status === 'RECEIVED'
+                                  ? 'Recepción de Transferencia'
+                                  : t.status === 'DISPATCHED'
+                                    ? 'Despacho de Transferencia'
+                                    : 'Solicitud de Transferencia'
+                              )
+                            );
+                            setShowReceiptModal(true);
+                          }}
+                          style={{ background: '#f1f5f9', color: '#09090b', border: '1px solid #cbd5e1', padding: '0.38rem 0.65rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}
+                        >
+                          <Printer size={13} /> Acuse
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -1033,6 +1150,17 @@ export default function InventoryModule() {
                 />
               </div>
 
+              <div style={{ marginBottom: '0.9rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.3rem' }}>Observaciones / Motivo (opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Reposición semanal de cabina"
+                  value={transferForm.notes}
+                  onChange={(e) => setTransferForm({ ...transferForm, notes: e.target.value })}
+                  style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
+                />
+              </div>
+
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.2rem' }}>
                 <button
                   type="button"
@@ -1053,6 +1181,13 @@ export default function InventoryModule() {
           </div>
         </div>
       )}
+
+      <InventoryReceiptPrintModal
+        receipt={inventoryReceipt}
+        isOpen={showReceiptModal}
+        onClose={() => setShowReceiptModal(false)}
+        autoPrint
+      />
     </div>
   );
 }

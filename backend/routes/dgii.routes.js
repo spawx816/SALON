@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { createQuarantineGuard } = require('../middleware/quarantine.middleware.cjs');
 const { requirePermission, getBranchScope } = require('../middleware/rbac.middleware');
+const { extractVisitPaymentsCents } = require('../services/cash_register_aggregation.service');
 
 let forge = null;
 try { forge = require('node-forge'); } catch (e) {}
@@ -432,7 +433,74 @@ function createDgiiRouter(pool) {
 
     query += ' ORDER BY visited_at DESC';
     const [rows] = await pool.query(query, params);
-    const records = rows || [];
+    const records = (rows || []).map((row) => {
+      const rncDigits = String(row.rnc_cliente || '').replace(/\D/g, '');
+      const tipoIdentificacion = rncDigits.length === 9 ? '1' : (rncDigits.length === 11 ? '2' : '3');
+      const totalNum = Number(row.total || 0);
+      const itbisNum = Number(row.itbis || 0);
+      const subtotalNum = Number(row.subtotal || 0);
+      const descuentoNum = Number(row.descuento || 0);
+      // En Formato 607 DGII: Monto Facturado = base neta sin ITBIS; ITBIS Facturado = ITBIS
+      const montoFacturado = Number(Math.max(0, totalNum - itbisNum).toFixed(2));
+      const itbisFacturado = Number(itbisNum.toFixed(2));
+
+      const payCents = extractVisitPaymentsCents(row);
+      let efectivo = Number(((payCents.efectivo || 0) / 100).toFixed(2));
+      let tarjeta = Number(((payCents.tarjeta || 0) / 100).toFixed(2));
+      let chequeTransferencia = Number(((payCents.transferencia || 0) / 100).toFixed(2));
+      let bonosCertificados = Number(((payCents.gift_card || 0) / 100).toFixed(2));
+      let ventaCredito = Number(((payCents.consumo_empleado || 0) / 100).toFixed(2));
+      let otrasFormas = Number((((payCents.otros || 0) + (payCents.plan_beauty || 0)) / 100).toFixed(2));
+
+      const sumPaid = Number((efectivo + tarjeta + chequeTransferencia + bonosCertificados + ventaCredito + otrasFormas).toFixed(2));
+      if (sumPaid <= 0 && totalNum > 0) {
+        const rawMethod = String(row.metodo_pago || '').toLowerCase();
+        if (rawMethod.includes('tarjeta')) {
+          tarjeta = Number(totalNum.toFixed(2));
+        } else if (rawMethod.includes('transf') || rawMethod.includes('cheque') || rawMethod.includes('deposito') || rawMethod.includes('depósito')) {
+          chequeTransferencia = Number(totalNum.toFixed(2));
+        } else if (rawMethod.includes('gift') || rawMethod.includes('bono') || rawMethod.includes('certificado')) {
+          bonosCertificados = Number(totalNum.toFixed(2));
+        } else if (rawMethod.includes('credito') || rawMethod.includes('crédito') || rawMethod.includes('nomina') || rawMethod.includes('nómina')) {
+          ventaCredito = Number(totalNum.toFixed(2));
+        } else {
+          efectivo = Number(totalNum.toFixed(2));
+        }
+      }
+
+      const visitedDate = row.visited_at ? new Date(row.visited_at) : null;
+      const fechaComprobante = visitedDate && !isNaN(visitedDate.getTime())
+        ? visitedDate.toLocaleDateString('es-DO', { timeZone: 'America/Santo_Domingo', day: '2-digit', month: '2-digit', year: 'numeric' })
+        : '';
+      const fechaComprobanteYmd = visitedDate && !isNaN(visitedDate.getTime())
+        ? visitedDate.toLocaleDateString('en-CA', { timeZone: 'America/Santo_Domingo' }).replace(/-/g, '')
+        : '';
+
+      return {
+        ...row,
+        subtotal: subtotalNum,
+        descuento: descuentoNum,
+        itbis: itbisFacturado,
+        total: Number(totalNum.toFixed(2)),
+        cliente: row.rzn_soc_cliente || row.client_name || 'CONSUMIDOR FINAL',
+        rnc_cedula: rncDigits,
+        tipo_identificacion: tipoIdentificacion,
+        numero_comprobante: row.ncf || '',
+        ncf_modificado: '',
+        tipo_ingreso: '01 - Ingresos por Operaciones (No Financieros)',
+        fecha_comprobante: fechaComprobante,
+        fecha_comprobante_ymd: fechaComprobanteYmd,
+        monto_facturado: montoFacturado,
+        itbis_facturado: itbisFacturado,
+        efectivo,
+        cheque_transferencia: chequeTransferencia,
+        tarjeta,
+        venta_credito: ventaCredito,
+        bonos_certificados: bonosCertificados,
+        permuta: 0,
+        otras_formas: otrasFormas,
+      };
+    });
     return { records, targetPeriod, tenantId };
   };
 
@@ -448,22 +516,45 @@ function createDgiiRouter(pool) {
   router.get('/report-607', requirePermission('accounting.view'), async (req, res) => {
     try {
       const { records, targetPeriod, tenantId } = await queryReport607(req, res);
-      const [tRows] = await pool.query('SELECT business_name, rnc FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
+      const [tRows] = await pool.query('SELECT business_name, legal_name, rnc, address FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
       const tenant = tRows[0] || {};
       const totals = records.reduce((acc, row) => {
         acc.subtotal += Number(row.subtotal || 0);
         acc.descuento += Number(row.descuento || 0);
         acc.total += Number(row.total || 0);
+        acc.montoFacturado += Number(row.monto_facturado || 0);
+        acc.itbisFacturado += Number(row.itbis_facturado || 0);
+        acc.efectivo += Number(row.efectivo || 0);
+        acc.chequeTransferencia += Number(row.cheque_transferencia || 0);
+        acc.tarjeta += Number(row.tarjeta || 0);
+        acc.ventaCredito += Number(row.venta_credito || 0);
+        acc.bonosCertificados += Number(row.bonos_certificados || 0);
+        acc.otrasFormas += Number(row.otras_formas || 0);
         return acc;
-      }, { subtotal: 0, descuento: 0, total: 0 });
+      }, {
+        subtotal: 0,
+        descuento: 0,
+        total: 0,
+        montoFacturado: 0,
+        itbisFacturado: 0,
+        efectivo: 0,
+        chequeTransferencia: 0,
+        tarjeta: 0,
+        ventaCredito: 0,
+        bonosCertificados: 0,
+        otrasFormas: 0,
+      });
 
       res.json({
         header: {
           empresa: tenant.business_name || 'SalonPro',
+          nombre_comercial: tenant.business_name || 'SalonPro',
+          razon_social: tenant.legal_name || '',
+          direccion: tenant.address || '',
           rnc: tenant.rnc || '',
           periodo: targetPeriod || '',
           cantidad_registros: records.length,
-          fecha_impresion: new Date().toLocaleDateString('es-DO')
+          fecha_impresion: new Date().toLocaleDateString('es-DO', { timeZone: 'America/Santo_Domingo' })
         },
         records,
         totals
@@ -481,16 +572,28 @@ function createDgiiRouter(pool) {
       const rnc = String(tRows?.[0]?.rnc || '').replace(/\D/g, '');
       const header = `607|${rnc}|${targetPeriod || ''}|${records.length}`;
       const lines = records.map((r) => [
-        String(r.rnc_cliente || '').replace(/\D/g, ''),
-        r.rnc_cliente && String(r.rnc_cliente).replace(/\D/g, '').length === 9 ? 1 : (r.rnc_cliente ? 2 : 3),
-        r.ncf || '',
-        '',
+        r.rnc_cedula || '',
+        r.tipo_identificacion || 3,
+        r.numero_comprobante || r.ncf || '',
+        r.ncf_modificado || '',
         '01',
-        r.visited_at ? new Date(r.visited_at).toISOString().slice(0, 10).replace(/-/g, '') : '',
+        r.fecha_comprobante_ymd || '',
         '',
-        Number(r.subtotal || 0).toFixed(2),
-        Number(r.itbis || 0).toFixed(2),
-        Number(r.total || 0).toFixed(2),
+        Number(r.monto_facturado || 0).toFixed(2),
+        Number(r.itbis_facturado || 0).toFixed(2),
+        '0.00',
+        '0.00',
+        '0.00',
+        '0.00',
+        '0.00',
+        '0.00',
+        Number(r.efectivo || 0).toFixed(2),
+        Number(r.cheque_transferencia || 0).toFixed(2),
+        Number(r.tarjeta || 0).toFixed(2),
+        Number(r.venta_credito || 0).toFixed(2),
+        Number(r.bonos_certificados || 0).toFixed(2),
+        '0.00',
+        Number(r.otras_formas || 0).toFixed(2),
       ].join('|'));
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="DGII_F_607_${rnc || 'EMPRESA'}_${targetPeriod || 'PERIODO'}.txt"`);

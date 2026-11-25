@@ -457,15 +457,19 @@ export default function Reporte607Module() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ background: '#09090b', color: '#ffffff', padding: '0.2rem 0.5rem', borderRadius: '4px', fontWeight: 900, fontSize: '0.85rem', letterSpacing: '1px' }}>{reportData?.header?.nombre_comercial || 'SALONPRO'}</span>
+                <span style={{ background: '#09090b', color: '#ffffff', padding: '0.2rem 0.5rem', borderRadius: '4px', fontWeight: 900, fontSize: '0.85rem', letterSpacing: '1px' }}>{reportData?.header?.nombre_comercial || reportData?.header?.empresa || 'SALONPRO'}</span>
                 {reportData?.header?.razon_social && <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#09090b' }}>{reportData.header.razon_social}</h2>}
               </div>
-              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: '#64748b', maxWidth: '600px' }}>
-                AVENIDA LOS PALMEROS 96, PISO 1, LOCAL 3, EDIFICIO SUPERMERCADO BRAVO, LOS FRAILES, NUEVO, SANTO DOMINGO ESTE, SANTO DOMINGO
-              </p>
-              <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.75rem', fontWeight: 700, color: '#09090b' }}>
-                RNC: {reportData?.header?.rnc || '131917038'}
-              </p>
+              {reportData?.header?.direccion && (
+                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: '#64748b', maxWidth: '600px' }}>
+                  {reportData.header.direccion}
+                </p>
+              )}
+              {reportData?.header?.rnc && (
+                <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.75rem', fontWeight: 700, color: '#09090b' }}>
+                  RNC: {reportData.header.rnc}
+                </p>
+              )}
             </div>
 
             <div style={{ textAlign: 'right' }}>
@@ -562,7 +566,9 @@ export default function Reporte607Module() {
                       <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 700, borderRight: '1px solid #e2e8f0' }}>
                         {Number(r.monto_facturado || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td style={{ padding: '5px 8px', textAlign: 'right', borderRight: '1px solid #e2e8f0' }}>0.00</td>
+                      <td style={{ padding: '5px 8px', textAlign: 'right', borderRight: '1px solid #e2e8f0', fontWeight: Number(r.itbis_facturado || 0) !== 0 ? 700 : 400 }}>
+                        {Number(r.itbis_facturado || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
                       <td style={{ padding: '5px 8px', textAlign: 'right', borderRight: '1px solid #e2e8f0' }}>0.00</td>
                       <td style={{ padding: '5px 8px', textAlign: 'right', borderRight: '1px solid #e2e8f0' }}>0.00</td>
                       <td style={{ padding: '5px 8px', textAlign: 'right', borderRight: '1px solid #e2e8f0' }}>0.00</td>
@@ -580,12 +586,16 @@ export default function Reporte607Module() {
                       <td style={{ padding: '5px 8px', textAlign: 'right', borderRight: '1px solid #e2e8f0', fontWeight: r.tarjeta !== 0 ? 700 : 400 }}>
                         {Number(r.tarjeta || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td style={{ padding: '5px 8px', textAlign: 'right', borderRight: '1px solid #e2e8f0' }}>0.00</td>
+                      <td style={{ padding: '5px 8px', textAlign: 'right', borderRight: '1px solid #e2e8f0', fontWeight: Number(r.venta_credito || 0) !== 0 ? 700 : 400 }}>
+                        {Number(r.venta_credito || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
                       <td style={{ padding: '5px 8px', textAlign: 'right', borderRight: '1px solid #e2e8f0', fontWeight: r.bonos_certificados !== 0 ? 700 : 400 }}>
                         {Number(r.bonos_certificados || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td style={{ padding: '5px 8px', textAlign: 'right', borderRight: '1px solid #e2e8f0' }}>0.00</td>
-                      <td style={{ padding: '5px 8px', textAlign: 'right' }}>0.00</td>
+                      <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: Number(r.otras_formas || 0) !== 0 ? 700 : 400 }}>
+                        {Number(r.otras_formas || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
                     </tr>
                   );
                 })}
@@ -600,7 +610,9 @@ export default function Reporte607Module() {
                   <td style={{ padding: '8px', textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.15)', color: '#4ADE80' }}>
                     {Number(totals.montoFacturado || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
-                  <td style={{ padding: '8px', textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.15)' }}>0.00</td>
+                  <td style={{ padding: '8px', textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.15)', color: '#4ADE80' }}>
+                    {Number(totals.itbisFacturado || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
                   <td style={{ padding: '8px', textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.15)' }}>0.00</td>
                   <td style={{ padding: '8px', textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.15)' }}>0.00</td>
                   <td style={{ padding: '8px', textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.15)' }}>0.00</td>
@@ -618,12 +630,16 @@ export default function Reporte607Module() {
                   <td style={{ padding: '8px', textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.15)', color: '#67E8F9' }}>
                     {Number(totals.tarjeta || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
-                  <td style={{ padding: '8px', textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.15)' }}>0.00</td>
+                  <td style={{ padding: '8px', textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.15)', color: '#67E8F9' }}>
+                    {Number(totals.ventaCredito || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
                   <td style={{ padding: '8px', textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.15)', color: '#67E8F9' }}>
                     {Number(totals.bonosCertificados || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td style={{ padding: '8px', textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.15)' }}>0.00</td>
-                  <td style={{ padding: '8px', textAlign: 'right' }}>0.00</td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#67E8F9' }}>
+                    {Number(totals.otrasFormas || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
                 </tr>
               </tfoot>
 

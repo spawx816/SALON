@@ -1047,7 +1047,7 @@ function createPayrollRouter(pool) {
     let otrosIngresos = 0.00;
     const ingresosItemsList = [];
 
-    // 4.1. EVALUAR REGLAS ESPECIALES (Scoped by tenant_id)
+    // 4.1. EVALUAR REGLAS ESPECIALES (Fallback solo si no se generó ya como Bono_Meta en employee_commissions_log)
     if (emp.commission_scheme_id) {
       try {
         const [countRules] = await pool.query(
@@ -1058,24 +1058,41 @@ function createPayrollRouter(pool) {
           const targetCount = parseInt(cr.cantidad_meta) || 0;
           const bonusAmt = parseFloat(cr.bono_monto) || 0;
           if (targetCount > 0 && bonusAmt > 0 && cr.service_name) {
+            const [alreadyAwarded] = await pool.query(
+              `SELECT COUNT(*) AS cnt FROM employee_commissions_log
+               WHERE tenant_id = ?
+                 AND (employee_id::text = ? OR employee_id::text = ? OR employee_name = ?)
+                 AND visit_id LIKE ?
+                 AND created_at >= ? AND created_at <= ?
+                 AND COALESCE(status, 'Pendiente') != 'Anulada'`,
+              [tenantId, empId, `EMP-${empId}`, empName, `BONO-META-${cr.id}-%`, `${start_date} 00:00:00`, `${end_date} 23:59:59`]
+            );
+            if (Number(alreadyAwarded?.[0]?.cnt || 0) > 0) {
+              continue; // Ya incluido automáticamente en la columna de comisiones
+            }
+
             const [performed] = await pool.query(`
-              SELECT COUNT(*) as count 
+              SELECT COALESCE(SUM(cantidad), 0) as count 
               FROM employee_commissions_log 
               WHERE tenant_id = ?
                 AND (employee_id::text = ? OR employee_id::text = ? OR employee_name = ?)
-                AND service_name LIKE ?
+                AND LOWER(TRIM(service_name)) = LOWER(TRIM(?))
+                AND visit_id NOT LIKE 'BONO-META-%'
                 AND created_at >= ? AND created_at <= ?
-                AND COALESCE(status, 'Pendiente') NOT IN ('Anulada', 'Pagada', 'Pagado')
-                AND payout_id IS NULL
-            `, [tenantId, empId, `EMP-${empId}`, empName, `%${cr.service_name}%`, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
+                AND COALESCE(status, 'Pendiente') != 'Anulada'
+            `, [tenantId, empId, `EMP-${empId}`, empName, cr.service_name, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
 
-            const totalPerformed = performed[0]?.count || 0;
-            if (totalPerformed >= targetCount) {
-              otrosIngresos += bonusAmt;
+            const totalPerformed = Number(performed[0]?.count || 0);
+            const completedGoals = Math.floor(totalPerformed / targetCount);
+            if (completedGoals >= 1) {
+              const repStr = String(cr.repeticion || '').toLowerCase();
+              const times = repStr.includes('sin l') ? completedGoals : (repStr.includes('dos') ? Math.min(2, completedGoals) : 1);
+              const totalBonus = Number((bonusAmt * times).toFixed(2));
+              otrosIngresos += totalBonus;
               ingresosItemsList.push({
                 id: `bono_meta_${cr.id}`,
                 label: `Bono Meta: ${cr.service_name} (${totalPerformed}/${targetCount})`,
-                monto: bonusAmt
+                monto: totalBonus
               });
             }
           }
@@ -2180,54 +2197,189 @@ function createPayrollRouter(pool) {
     }
   });
 
-  // 9. Cálculo y Reporte de Regalías del Año (Salario de Navidad Ley 16-92 RD - Scoped by tenant_id)
+  // 9. Cálculo y Reporte Real de Regalías del Año (Salario de Navidad Ley 16-92 RD - Scoped by tenant_id)
   router.get('/regalias/:year', async (req, res) => {
     try {
-      const year = parseInt(req.params.year) || new Date().getFullYear();
+      const year = parseInt(req.params.year, 10) || new Date().getFullYear();
       const tenantId = req.verifiedTenantId;
+      const scope = await resolveAuthorizedBranchDescriptors(req, tenantId);
 
       let [staffList] = await pool.query(
-        "SELECT * FROM staff_records WHERE tenant_id = ? AND (status = 'Activo' OR status = 'Active' OR status IS NULL)",
-        [tenantId]
+        `SELECT * FROM staff_records
+         WHERE tenant_id = ?
+           AND (
+             status = 'Activo' OR status = 'Active' OR status IS NULL
+             OR (fecha_salida IS NOT NULL AND EXTRACT(YEAR FROM fecha_salida) >= ?)
+           )
+         ORDER BY nombre ASC`,
+        [tenantId, year]
       );
 
+      if (scope.restricted) {
+        staffList = (staffList || []).filter((emp) => isEmployeeInBranchScope(emp, scope));
+      }
+
+      // 1. Nóminas reales registradas en el año (excluyendo anuladas)
+      const [payrollRows] = await pool.query(
+        `SELECT
+           pi.employee_id,
+           pi.employee_name,
+           EXTRACT(MONTH FROM COALESCE(pp.end_date, pp.start_date))::INT AS mes_num,
+           COALESCE(SUM(COALESCE(pi.salario_fijo, 0) + COALESCE(pi.feriados, 0)), 0) AS salario_ordinario,
+           COALESCE(SUM(COALESCE(pi.comisiones, 0)), 0) AS comisiones
+         FROM payroll_items pi
+         JOIN payroll_periods pp ON pp.id = pi.payroll_id AND pp.tenant_id = pi.tenant_id
+         WHERE pi.tenant_id = ?
+           AND EXTRACT(YEAR FROM COALESCE(pp.end_date, pp.start_date)) = ?
+           AND LOWER(COALESCE(pp.status, '')) != 'anulada'
+         GROUP BY pi.employee_id, pi.employee_name, EXTRACT(MONTH FROM COALESCE(pp.end_date, pp.start_date))`,
+        [tenantId, year]
+      );
+
+      // 2. Comisiones reales del POS para meses donde aún no se haya cerrado nómina
+      const [commRows] = await pool.query(
+        `SELECT
+           employee_id::text AS emp_id,
+           employee_name,
+           EXTRACT(MONTH FROM (created_at AT TIME ZONE 'America/Santo_Domingo'))::INT AS mes_num,
+           COALESCE(SUM(COALESCE(monto_comision, commission_amount, 0)), 0) AS total_comisiones
+         FROM employee_commissions_log
+         WHERE tenant_id = ?
+           AND EXTRACT(YEAR FROM (created_at AT TIME ZONE 'America/Santo_Domingo')) = ?
+           AND COALESCE(status, 'Pendiente') != 'Anulada'
+         GROUP BY employee_id::text, employee_name, EXTRACT(MONTH FROM (created_at AT TIME ZONE 'America/Santo_Domingo'))`,
+        [tenantId, year]
+      );
+
+      const payrollMap = new Map();
+      for (const r of payrollRows || []) {
+        const keyById = `${String(r.employee_id)}:${r.mes_num}`;
+        payrollMap.set(keyById, {
+          salario_ordinario: Number(r.salario_ordinario || 0),
+          comisiones: Number(r.comisiones || 0),
+        });
+        if (r.employee_name) {
+          const nameKey = `NAME:${String(r.employee_name).trim().toLowerCase()}:${r.mes_num}`;
+          if (!payrollMap.has(nameKey)) {
+            payrollMap.set(nameKey, {
+              salario_ordinario: Number(r.salario_ordinario || 0),
+              comisiones: Number(r.comisiones || 0),
+            });
+          }
+        }
+      }
+
+      const commMap = new Map();
+      for (const c of commRows || []) {
+        const keyById = `${String(c.emp_id)}:${c.mes_num}`;
+        commMap.set(keyById, (commMap.get(keyById) || 0) + Number(c.total_comisiones || 0));
+        if (c.employee_name) {
+          const nameKey = `NAME:${String(c.employee_name).trim().toLowerCase()}:${c.mes_num}`;
+          commMap.set(nameKey, (commMap.get(nameKey) || 0) + Number(c.total_comisiones || 0));
+        }
+      }
+
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1; // 1..12
       const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
       const regaliasList = [];
       let granTotalAcumulado = 0;
       let granTotalRegalias = 0;
 
-      for (const emp of staffList) {
+      for (const emp of staffList || []) {
         const empId = String(emp.id);
-        const baseMensual = parseFloat(emp.salario_base || 20000.00);
+        const empNameNorm = String(emp.nombre || '').trim().toLowerCase();
+        const baseMensual = Math.max(0, Number(emp.salario_base || 0));
+
+        const hireDate = emp.fecha_entrada ? new Date(emp.fecha_entrada) : null;
+        const exitDate = emp.fecha_salida ? new Date(emp.fecha_salida) : null;
+        if (hireDate && !isNaN(hireDate.getTime()) && hireDate.getFullYear() > year) {
+          continue;
+        }
+        if (exitDate && !isNaN(exitDate.getTime()) && exitDate.getFullYear() < year) {
+          continue;
+        }
 
         const desglose = [];
         let totalAcumulado = 0;
         let mesesTrabajados = 0;
 
         for (let m = 0; m < 12; m++) {
-          const comisionMes = Math.floor((baseMensual * 0.4) + (Math.sin(m + parseInt(empId)) * 2000));
-          const salarioMes = baseMensual + Math.max(0, comisionMes);
+          const monthNum = m + 1;
+          const isFutureMonth = year > currentYear || (year === currentYear && monthNum > currentMonth);
+          const monthStart = new Date(year, m, 1);
+          const monthEnd = new Date(year, m + 1, 0, 23, 59, 59);
+
+          const pEntry =
+            payrollMap.get(`${empId}:${monthNum}`) ||
+            payrollMap.get(`EMP-${empId}:${monthNum}`) ||
+            (empNameNorm ? payrollMap.get(`NAME:${empNameNorm}:${monthNum}`) : null);
+
+          let salarioOrd = 0;
+          let comisionMes = 0;
+
+          if (pEntry) {
+            salarioOrd = Number(pEntry.salario_ordinario.toFixed(2));
+            comisionMes = Number(pEntry.comisiones.toFixed(2));
+          } else if (!isFutureMonth) {
+            const hiredAfterMonth = hireDate && !isNaN(hireDate.getTime()) && hireDate > monthEnd;
+            const exitedBeforeMonth = exitDate && !isNaN(exitDate.getTime()) && exitDate < monthStart;
+
+            if (!hiredAfterMonth && !exitedBeforeMonth) {
+              // Prorratear días activos del mes si ingresó o salió a mitad de mes, o si es el mes en curso
+              const totalDaysInMonth = new Date(year, m + 1, 0).getDate();
+              let activeStartDay = 1;
+              let activeEndDay = year === currentYear && monthNum === currentMonth ? now.getDate() : totalDaysInMonth;
+
+              if (hireDate && !isNaN(hireDate.getTime()) && hireDate.getFullYear() === year && hireDate.getMonth() === m) {
+                activeStartDay = Math.max(activeStartDay, hireDate.getDate());
+              }
+              if (exitDate && !isNaN(exitDate.getTime()) && exitDate.getFullYear() === year && exitDate.getMonth() === m) {
+                activeEndDay = Math.min(activeEndDay, exitDate.getDate());
+              }
+
+              const workedDays = Math.max(0, activeEndDay - activeStartDay + 1);
+              if (workedDays > 0 && baseMensual > 0) {
+                const ratio = workedDays >= totalDaysInMonth ? 1 : workedDays / 30;
+                salarioOrd = Number(Math.min(baseMensual, baseMensual * ratio).toFixed(2));
+              }
+
+              const posComm =
+                commMap.get(`${empId}:${monthNum}`) ??
+                commMap.get(`EMP-${empId}:${monthNum}`) ??
+                (empNameNorm ? commMap.get(`NAME:${empNameNorm}:${monthNum}`) : 0) ??
+                0;
+              comisionMes = Number(Number(posComm).toFixed(2));
+            }
+          }
+
+          const totalMes = Number((salarioOrd + comisionMes).toFixed(2));
+          if (totalMes > 0) {
+            mesesTrabajados++;
+          }
+          totalAcumulado = Number((totalAcumulado + totalMes).toFixed(2));
+
           desglose.push({
             mes: meses[m],
-            mes_numero: m + 1,
-            salario_ordinario: baseMensual,
-            comisiones: Math.max(0, comisionMes),
-            total_mes: salarioMes
+            mes_numero: monthNum,
+            salario_ordinario: salarioOrd,
+            comisiones: comisionMes,
+            total_mes: totalMes,
           });
-          totalAcumulado += salarioMes;
-          mesesTrabajados++;
         }
 
+        // Ley 16-92 Art. 219: Salario de Navidad = 1/12 del total devengado en el año calendario
         const montoRegalia = Number((totalAcumulado / 12).toFixed(2));
-        granTotalAcumulado += totalAcumulado;
-        granTotalRegalias += montoRegalia;
+        granTotalAcumulado = Number((granTotalAcumulado + totalAcumulado).toFixed(2));
+        granTotalRegalias = Number((granTotalRegalias + montoRegalia).toFixed(2));
 
         regaliasList.push({
           year,
           employee_id: empId,
           employee_name: emp.nombre || 'Colaborador',
-          posicion: emp.posicion || 'Estilista',
-          sucursal: emp.localidad || (emp.salon_id == 2 ? 'Villa Mella' : 'San Vicente'),
+          posicion: emp.posicion || 'Colaborador',
+          sucursal: emp.localidad || 'Principal',
           salario_base_mensual: baseMensual,
           meses_trabajados: mesesTrabajados,
           total_acumulado_anual: totalAcumulado,

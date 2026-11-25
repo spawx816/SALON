@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Printer, X, ShieldCheck, Receipt } from 'lucide-react';
 import { QRCodeSVG } from '../../utils/qrCodeGenerator';
 import { useTenantBranding } from '../../context/TenantBrandingContext';
@@ -10,8 +10,18 @@ import { useTenantBranding } from '../../context/TenantBrandingContext';
  *    documento persistido de venta finalizada, sin QR fiscal simulado ni texto "Pendiente ante la DGII".
  * 3. Factura Electrónica e-CF: únicamente cuando existe emisión electrónica real (dgii_track_id / codigo_seguridad_ecf).
  */
-export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }) {
+export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose, autoPrint = false }) {
   const { branding } = useTenantBranding();
+
+  useEffect(() => {
+    if (isOpen && invoice && autoPrint) {
+      const timer = setTimeout(() => {
+        window.print();
+      }, 250);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, invoice, autoPrint]);
+
   if (!isOpen || !invoice) return null;
 
   const isDefaultBranding = !branding?.business_name || branding.business_name === 'SalonPro';

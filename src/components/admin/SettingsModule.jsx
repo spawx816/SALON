@@ -9,7 +9,7 @@ import KioskDevicesPanel from '../settings/KioskDevicesPanel';
 
 const SettingsModule = () => {
   const { showNotification } = useNotification();
-  const [activeTab, setActiveTab] = useState('contract'); // 'contract' | 'email'
+  const [activeTab, setActiveTab] = useState('print_templates'); // 'print_templates' | 'contract' | 'email' | 'kiosks'
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testEmail, setTestEmail] = useState('');
@@ -74,6 +74,27 @@ const SettingsModule = () => {
       {/* Navigation Tabs */}
       <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '2rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.75rem', flexWrap: 'wrap' }}>
         <button
+          onClick={() => setActiveTab('print_templates')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.65rem 1.25rem',
+            borderRadius: '10px',
+            border: 'none',
+            background: activeTab === 'print_templates' ? '#0ea5e9' : '#f1f5f9',
+            color: activeTab === 'print_templates' ? '#fff' : '#475569',
+            fontWeight: 700,
+            fontSize: '0.875rem',
+            cursor: 'pointer',
+            boxShadow: activeTab === 'print_templates' ? '0 4px 12px rgba(14, 165, 233, 0.25)' : 'none',
+            transition: 'all 0.2s'
+          }}
+        >
+          <Printer size={17} /> Plantillas de impresión
+        </button>
+
+        <button
           onClick={() => setActiveTab('contract')}
           style={{
             display: 'flex',
@@ -113,27 +134,6 @@ const SettingsModule = () => {
           }}
         >
           <Mail size={17} /> Servidor de Correo (SMTP)
-        </button>
-
-        <button
-          onClick={() => setActiveTab('print_templates')}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            padding: '0.65rem 1.25rem',
-            borderRadius: '10px',
-            border: 'none',
-            background: activeTab === 'print_templates' ? '#0ea5e9' : '#f1f5f9',
-            color: activeTab === 'print_templates' ? '#fff' : '#475569',
-            fontWeight: 700,
-            fontSize: '0.875rem',
-            cursor: 'pointer',
-            boxShadow: activeTab === 'print_templates' ? '0 4px 12px rgba(14, 165, 233, 0.25)' : 'none',
-            transition: 'all 0.2s'
-          }}
-        >
-          <Printer size={17} /> Plantillas de impresión
         </button>
 
         <button

@@ -1148,7 +1148,7 @@ export default function SaasBillingModule() {
             <button
               type="button"
               className="sb-btn"
-              onClick={() => navigate('/personal')}
+              onClick={() => navigate('/seguridad?tab=users')}
             >
               <span>Usuarios</span>
               <ExternalLink size={14} />
@@ -1724,6 +1724,10 @@ export default function SaasBillingModule() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                     <span>Nueva capacidad tras contratar (+{seatsQuote.additionalSeats})</span>
                     <strong>{seatsQuote.newMaxUsers} usuarios</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', color: '#0f172a' }}>
+                    <span>Tarifa mensual sin prorrateo (+{seatsQuote.additionalSeats} × US${seatsQuote.seatMonthlyUsd ?? extraUserUnitUsd}/mes)</span>
+                    <strong>US${seatsQuote.additionalMonthlyUsd ?? (seatsQuote.additionalSeats * extraUserUnitUsd)}/mes</strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                     <span>Importe prorrateado ({seatsQuote.remainingDays} días restantes)</span>

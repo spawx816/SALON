@@ -19,6 +19,7 @@ import { NotificationProvider, useNotification } from './context/NotificationCon
 import { hasUiPermission } from './utils/rbacCatalog';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import ReportIssueModal from './components/common/ReportIssueModal';
+import ChangePasswordModal from './components/common/ChangePasswordModal';
 import FeatureForbiddenGate from './components/common/FeatureForbiddenGate';
 import NotFoundPage from './components/common/NotFoundPage';
 
@@ -121,6 +122,7 @@ const AppContent = () => {
   const [isBiOpen, setIsBiOpen] = useState(false);
   const [isPayrollOpen, setIsPayrollOpen] = useState(false);
   const [isReportIssueOpen, setIsReportIssueOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -1155,6 +1157,20 @@ const AppContent = () => {
         </nav>
 
         <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+          {!isClient && (
+            <button
+              type="button"
+              onClick={() => {
+                closeMobileMenu();
+                setIsChangePasswordOpen(true);
+              }}
+              className="logout-btn"
+              style={{ opacity: 0.9 }}
+            >
+              <Key size={17} />
+              <span>Cambiar contraseña</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -1165,7 +1181,7 @@ const AppContent = () => {
             style={{ opacity: 0.9 }}
           >
             <LifeBuoy size={17} />
-            <span>Reportar problema</span>
+            <span>Reporte de incidente</span>
           </button>
           <button onClick={handleLogout} className="logout-btn">
             <LogOut size={18} />
@@ -1173,6 +1189,7 @@ const AppContent = () => {
           </button>
         </div>
         <ReportIssueModal isOpen={isReportIssueOpen} onClose={() => setIsReportIssueOpen(false)} />
+        <ChangePasswordModal isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} />
       </aside>
 
       {/* Main Content Area */}

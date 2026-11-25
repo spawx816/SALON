@@ -23,6 +23,8 @@ const AttendanceKiosk = () => {
   const [kioskActive, setKioskActive] = useState(false);
   const [sessionChecking, setSessionChecking] = useState(true);
   const [kioskLoadError, setKioskLoadError] = useState('');
+  const [isDuplicateTab, setIsDuplicateTab] = useState(false);
+  const kioskTabIdRef = useRef(`kiosk_tab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
   const [kioskSessionInfo, setKioskSessionInfo] = useState(null);
   const [punchToken, setPunchToken] = useState('');
   const [kioskBannerError, setKioskBannerError] = useState('');
@@ -188,10 +190,118 @@ const AttendanceKiosk = () => {
     }
   };
 
-  // Check bound kiosk session on mount
+  // Check bound kiosk session on mount + prevent multiple simultaneous tabs/sessions
   useEffect(() => {
-    loadBoundKioskState();
+    const LOCK_KEY = 'etereas_kiosk_single_tab_lock';
+    const tabId = kioskTabIdRef.current;
+    let blocked = false;
+
+    const checkAndClaimTabLock = () => {
+      try {
+        const raw = localStorage.getItem(LOCK_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.tabId !== tabId && Date.now() - Number(parsed.ts || 0) < 8000) {
+            blocked = true;
+            setIsDuplicateTab(true);
+            return false;
+          }
+        }
+        localStorage.setItem(LOCK_KEY, JSON.stringify({ tabId, ts: Date.now() }));
+        blocked = false;
+        setIsDuplicateTab(false);
+        return true;
+      } catch {
+        return true;
+      }
+    };
+
+    const claimed = checkAndClaimTabLock();
+    let bc = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel('etereas_kiosk_single_tab_channel');
+        bc.onmessage = (ev) => {
+          if (ev?.data?.type === 'PING_KIOSK_TAB' && !blocked && ev.data.tabId !== tabId) {
+            bc.postMessage({ type: 'KIOSK_TAB_ALREADY_OPEN', ownerTabId: tabId });
+          } else if (ev?.data?.type === 'KIOSK_TAB_ALREADY_OPEN' && ev.data.ownerTabId !== tabId && blocked) {
+            setIsDuplicateTab(true);
+          }
+        };
+        if (!claimed) {
+          bc.postMessage({ type: 'PING_KIOSK_TAB', tabId });
+        }
+      }
+    } catch {
+      // BroadcastChannel optional
+    }
+
+    if (claimed) {
+      loadBoundKioskState();
+    } else {
+      setSessionChecking(false);
+    }
+
+    const lockInterval = setInterval(() => {
+      if (!blocked) {
+        try {
+          localStorage.setItem(LOCK_KEY, JSON.stringify({ tabId, ts: Date.now() }));
+        } catch {}
+      }
+    }, 3000);
+
+    const releaseTabLock = () => {
+      if (!blocked) {
+        try {
+          const raw = localStorage.getItem(LOCK_KEY);
+          const parsed = raw ? JSON.parse(raw) : null;
+          if (!parsed || parsed.tabId === tabId) {
+            localStorage.removeItem(LOCK_KEY);
+          }
+        } catch {}
+      }
+    };
+    window.addEventListener('beforeunload', releaseTabLock);
+
+    return () => {
+      clearInterval(lockInterval);
+      window.removeEventListener('beforeunload', releaseTabLock);
+      releaseTabLock();
+      if (bc) {
+        try { bc.close(); } catch {}
+      }
+    };
   }, []);
+
+  // Revalidar periódicamente la sesión del Kiosco para cerrar de inmediato si fue revocada remotamente
+  useEffect(() => {
+    if (!kioskActive || isDuplicateTab) return undefined;
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch('/api/kiosk/session', { credentials: 'include' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.active) {
+          setKioskActive(false);
+          setKioskSessionInfo(null);
+          setKioskLoadError('La sesión del Kiosco finalizó o fue revocada por el administrador.');
+        }
+      } catch {
+        // Ignorar microcortes transitorios de red
+      }
+    }, 12000);
+
+    const onInvalidated = () => {
+      setKioskActive(false);
+      setKioskSessionInfo(null);
+      setKioskLoadError('La sesión de este usuario Kiosco fue cerrada o revocada.');
+    };
+    window.addEventListener('etereas:session-invalidated', onInvalidated);
+
+    return () => {
+      clearInterval(poll);
+      window.removeEventListener('etereas:session-invalidated', onInvalidated);
+    };
+  }, [kioskActive, isDuplicateTab]);
 
   // Start Camera
   const startCamera = async () => {
@@ -916,17 +1026,19 @@ const AttendanceKiosk = () => {
             <p style={{ fontSize: '0.85rem', color: '#a1a1aa', margin: 0 }}>Confirmando vinculación del dispositivo y sucursal asignada.</p>
           </div>
         </div>
-      ) : !kioskActive && (isKioskOnlyUser || kioskLoadError) ? (
+      ) : isDuplicateTab || (!kioskActive && (isKioskOnlyUser || kioskLoadError)) ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', maxWidth: '500px', width: '100%', margin: '2rem auto' }}>
           <div style={{ background: '#18181b', border: '1px solid #27272a', padding: '2.5rem 2rem', borderRadius: '24px', width: '100%', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)', textAlign: 'center' }}>
             <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'rgba(245, 158, 11, 0.12)', color: '#fbbf24', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
               <ShieldAlert size={30} />
             </div>
             <h3 style={{ fontSize: '1.35rem', fontWeight: 900, marginBottom: '0.5rem', color: '#ffffff' }}>
-              Kiosco no disponible
+              {isDuplicateTab ? 'Kiosco ya abierto en otra ventana' : 'Kiosco no disponible'}
             </h3>
             <p style={{ fontSize: '0.88rem', color: '#a1a1aa', marginBottom: '1.5rem', lineHeight: 1.5 }}>
-              {kioskLoadError || kioskBannerError || 'La sesión de este dispositivo expiró o fue revocada. Reintenta o vuelve a iniciar sesión.'}
+              {isDuplicateTab
+                ? 'Por seguridad, el Kiosco de Asistencia no puede abrirse más de una vez simultáneamente. Utiliza la pestaña o ventana que ya se encuentra activa.'
+                : (kioskLoadError || kioskBannerError || 'La sesión de este dispositivo expiró o fue revocada. Reintenta o vuelve a iniciar sesión.')}
             </p>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
               <button

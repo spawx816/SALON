@@ -3,7 +3,7 @@ import { Printer, X, Ticket } from 'lucide-react';
 import DocumentPrintRenderer from './DocumentPrintRenderer';
 import { useTenantBranding } from '../../context/TenantBrandingContext';
 
-export default function TurnTicketModal({ isOpen, onClose, branchId = 'default' }) {
+export default function TurnTicketModal({ isOpen, onClose, branchId = 'default', simpleMode = false }) {
   const { branding } = useTenantBranding();
   const [serviceName, setServiceName] = useState('');
   const [observations, setObservations] = useState('');
@@ -28,14 +28,16 @@ export default function TurnTicketModal({ isOpen, onClose, branchId = 'default' 
   useEffect(() => {
     if (isOpen) {
       setError('');
-      loadRecent();
+      if (!simpleMode) {
+        loadRecent();
+      }
     }
-  }, [isOpen, branchId]);
+  }, [isOpen, branchId, simpleMode]);
 
   if (!isOpen) return null;
 
   const handleEmit = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     if (emitting) return;
     setEmitting(true);
     setError('');
@@ -49,8 +51,8 @@ export default function TurnTicketModal({ isOpen, onClose, branchId = 'default' 
         },
         body: JSON.stringify({
           branch_id: branchId || 'default',
-          service_name: serviceName.trim() || null,
-          observations: observations.trim() || null,
+          service_name: simpleMode ? null : (serviceName.trim() || null),
+          observations: simpleMode ? null : (observations.trim() || null),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -58,7 +60,9 @@ export default function TurnTicketModal({ isOpen, onClose, branchId = 'default' 
       setActiveTicket(data.ticket);
       setServiceName('');
       setObservations('');
-      await loadRecent();
+      if (!simpleMode) {
+        await loadRecent();
+      }
       setTimeout(() => window.print(), 200);
     } catch (err) {
       setError(err.message);
@@ -66,6 +70,72 @@ export default function TurnTicketModal({ isOpen, onClose, branchId = 'default' 
       setEmitting(false);
     }
   };
+
+  if (simpleMode) {
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(9, 9, 11, 0.65)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem',
+        }}
+      >
+        <div
+          style={{
+            background: '#ffffff',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '400px',
+            padding: '1.5rem',
+            boxShadow: '0 24px 60px rgba(9, 9, 11, 0.25)',
+            textAlign: 'center',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Ticket size={18} /> Ticket de Turno
+            </h3>
+            <button type="button" onClick={onClose} aria-label="Cerrar" style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              <X size={16} />
+            </button>
+          </div>
+
+          {error && (
+            <div role="alert" style={{ padding: '0.75rem', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: '0.88rem', marginBottom: '1rem' }}>
+              {error}
+            </div>
+          )}
+
+          <button
+            type="button"
+            disabled={emitting}
+            onClick={handleEmit}
+            style={{ width: '100%', padding: '0.9rem 1rem', borderRadius: '12px', border: 'none', background: '#09090b', color: '#ffffff', fontWeight: 800, fontSize: '0.95rem', cursor: emitting ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+          >
+            <Printer size={17} />
+            <span>{emitting ? 'Generando...' : 'Generar ticket'}</span>
+          </button>
+
+          {activeTicket && (
+            <div style={{ marginTop: '1rem', background: '#f8fafc', borderRadius: '12px', padding: '0.85rem', border: '1px solid #e2e8f0' }}>
+              <DocumentPrintRenderer
+                template={activeTicket.template_snapshot}
+                data={activeTicket}
+                branding={branding}
+                isPreview={false}
+                printableId="etereas-pos-turn-ticket"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

@@ -274,21 +274,38 @@ export default function InvoiceHistory() {
     const end = new Date(visit.visited_at || Date.now());
     let start = null;
 
+    let draftObj = null;
+    if (visit.draft_data) {
+      if (typeof visit.draft_data === 'object') {
+        draftObj = visit.draft_data;
+      } else if (typeof visit.draft_data === 'string') {
+        try {
+          draftObj = JSON.parse(visit.draft_data);
+        } catch {
+          draftObj = null;
+        }
+      }
+    }
+
     if (visit.checkin_time) {
       start = new Date(visit.checkin_time);
     } else if (visit.start_time) {
       start = new Date(visit.start_time);
+    } else if (draftObj?.checkin_time) {
+      start = new Date(draftObj.checkin_time);
+    } else if (typeof visit.id === 'string') {
+      const tsMatch = visit.id.match(/^(?:VIS|TKT)-(\d{13})\b/);
+      if (tsMatch && Number(tsMatch[1]) > 1700000000000) {
+        start = new Date(Number(tsMatch[1]));
+      } else if (!isNaN(Number(visit.id)) && Number(visit.id) > 1700000000000) {
+        start = new Date(Number(visit.id));
+      }
     } else if (visit.id && !isNaN(Number(visit.id)) && Number(visit.id) > 1700000000000) {
       start = new Date(Number(visit.id));
-    } else if (typeof visit.id === 'string' && visit.id.startsWith('TKT-')) {
-      const rawTs = parseInt(visit.id.replace('TKT-', ''), 10);
-      if (!isNaN(rawTs) && rawTs > 1700000000000) {
-        start = new Date(rawTs);
-      }
     }
 
     if (!start || isNaN(start.getTime()) || start.getTime() > end.getTime()) {
-      start = new Date(end.getTime() - (45 * 60 * 1000));
+      start = new Date(end.getTime());
     }
 
     const diffMs = Math.max(0, end.getTime() - start.getTime());
@@ -298,15 +315,17 @@ export default function InvoiceHistory() {
 
     let durationText = '';
     if (hours > 0) {
-      durationText = `${hours}h ${mins > 0 ? `${mins}m` : ''}`;
+      durationText = `${hours}h${mins > 0 ? ` ${mins}m` : ''}`;
+    } else if (diffMins === 0) {
+      durationText = '< 1 min';
     } else {
-      durationText = `${Math.max(1, mins)} min`;
+      durationText = `${diffMins} min`;
     }
 
     return {
-      formattedDate: end.toLocaleDateString('es-DO'),
-      formattedStartTime: start.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' }),
-      formattedEndTime: end.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' }),
+      formattedDate: end.toLocaleDateString('es-DO', { timeZone: 'America/Santo_Domingo' }),
+      formattedStartTime: start.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santo_Domingo' }),
+      formattedEndTime: end.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santo_Domingo' }),
       durationText,
       diffMins
     };

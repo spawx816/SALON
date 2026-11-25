@@ -211,10 +211,12 @@ const VisitRecorder = () => {
   const [printableTicketData, setPrintableTicketData] = useState(null);
   const [showInvoicePrintModal, setShowInvoicePrintModal] = useState(false);
   const [printableInvoiceData, setPrintableInvoiceData] = useState(null);
+  const [autoPrintInvoice, setAutoPrintInvoice] = useState(false);
+  const [activeTicketMode, setActiveTicketMode] = useState('ticket_venta');
   const [showCloseRegisterPrintModal, setShowCloseRegisterPrintModal] = useState(false);
   const [closeRegisterPrintData, setCloseRegisterPrintData] = useState(null);
   const [isCreditoFiscal, setIsCreditoFiscal] = useState(false);
-  const [selectedComprobanteType, setSelectedComprobanteType] = useState('NONE');
+  const [selectedComprobanteType, setSelectedComprobanteType] = useState('B02');
   const [clientRncInput, setClientRncInput] = useState('');
   const [clientRazonSocialInput, setClientRazonSocialInput] = useState('');
   const [allClients, setAllClients] = useState([]);
@@ -231,14 +233,41 @@ const VisitRecorder = () => {
   const [showBlockedSequenceModal, setShowBlockedSequenceModal] = useState(false);
   const [blockedSequenceInfo, setBlockedSequenceInfo] = useState(null);
 
+  const resolveDefaultConsumoType = (seqRes) => {
+    const byType = seqRes?.byType || {};
+    if (seqRes?.dgiiElectronicEnabled && byType.E32?.available) return 'E32';
+    if (byType.B02) return 'B02';
+    const seqs = Array.isArray(seqRes?.sequences) ? seqRes.sequences.filter((s) => !s.is_electronic) : [];
+    const consumoSeq = seqs.find((s) => s.tipo_comprobante === 'B02');
+    if (consumoSeq) return 'B02';
+    return 'B02';
+  };
+
   const fetchSequenceAvailability = async () => {
     try {
       const res = await dataService.getSequenceAvailability();
       if (res && (res.success || res.byType || Array.isArray(res.sequences))) {
         setSequenceAvailability(res);
+        setSelectedComprobanteType((prev) => {
+          if (!prev || prev === 'NONE') return resolveDefaultConsumoType(res);
+          return prev;
+        });
       }
     } catch (err) {
       console.warn('Error al consultar disponibilidad de secuencias de comprobantes:', err);
+    }
+  };
+
+  const fetchActiveTicketMode = async () => {
+    try {
+      const q = salonId && salonId !== 'default' ? `?branch_id=${encodeURIComponent(salonId)}` : '';
+      const res = await fetch(`/api/print-templates${q}`, { credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.active_ticket_mode) {
+        setActiveTicketMode(data.active_ticket_mode);
+      }
+    } catch {
+      // Fallback silencioso a ticket_venta (Pre-cuenta)
     }
   };
 
@@ -1170,6 +1199,7 @@ const VisitRecorder = () => {
     fetchClients();
     fetchTopServices();
     fetchSequenceAvailability();
+    fetchActiveTicketMode();
   }, [salonId]);
 
   const fetchTopServices = async () => {
@@ -1473,7 +1503,7 @@ const VisitRecorder = () => {
     setAdminPin('');
     setAdminOtpCode('');
     setIsCreditoFiscal(false);
-    setSelectedComprobanteType('NONE');
+    setSelectedComprobanteType(resolveDefaultConsumoType(sequenceAvailability));
     setClientRncInput('');
     setClientRazonSocialInput('');
   };
@@ -3104,10 +3134,16 @@ const VisitRecorder = () => {
 
     setLoading(true);
     try {
+      const rawMoveText = newMovementConcept.trim();
+      const formattedMoveConcept = selectedEmp
+        ? `[Préstamo: ${selectedEmp.nombre || selectedEmp.name}] ${rawMoveText}`
+        : (newMovementType === 'Gasto_Imprevisto'
+          ? (rawMoveText.startsWith('[Gasto Imprevisto]') ? rawMoveText : `[Gasto Imprevisto] ${rawMoveText}`)
+          : rawMoveText);
       await dataService.addCashRegisterMovement(activeRegister.id, {
         type: newMovementType,
         amount: amt,
-        concept: selectedEmp ? `[Préstamo: ${selectedEmp.nombre || selectedEmp.name}] ${newMovementConcept.trim()}` : newMovementConcept.trim(),
+        concept: formattedMoveConcept,
         employee_id: selectedEmp ? selectedEmp.id : null,
         employee_name: selectedEmp ? (selectedEmp.nombre || selectedEmp.name) : null,
         user_id: currentUser?.id || 'EMP',
@@ -3342,24 +3378,32 @@ const VisitRecorder = () => {
 
     const hasPlanWashCheck = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
     const isPlanCanjeCheck = (finalTotalAmount === 0 || (appliedPayments.length === 1 && appliedPayments[0].method === 'Plan Beauty') || (hasPlanWashCheck && finalTotalAmount === 0)) && !requiresRnc;
-    const seqMap = sequenceAvailability?.byType || sequenceAvailability || {};
+    const seqMap = sequenceAvailability?.byType || {};
     const ncfTypeToUse = isPlanCanjeCheck
       ? 'NONE'
-      : (selectedComprobanteType && selectedComprobanteType !== 'NONE'
-        ? selectedComprobanteType
-        : (isCreditoFiscal ? 'B01' : 'NONE'));
+      : (isCreditoFiscal
+        ? 'B01'
+        : (selectedComprobanteType && selectedComprobanteType !== 'NONE'
+          ? selectedComprobanteType
+          : resolveDefaultConsumoType(sequenceAvailability)));
 
-    // Validación preventiva de agotamiento/vencimiento antes de iniciar el cobro o emitir factura
-    if (ncfTypeToUse !== 'NONE' && seqMap[ncfTypeToUse] && (seqMap[ncfTypeToUse].isExhausted || seqMap[ncfTypeToUse].isExpired)) {
-      setBlockedSequenceInfo({
-        tipo_comprobante: ncfTypeToUse,
-        nombre_comprobante: seqMap[ncfTypeToUse]?.nombre_comprobante || (ncfTypeToUse === 'B01' ? 'Factura de Crédito Fiscal (B01)' : `Comprobante (${ncfTypeToUse})`),
-        message: seqMap[ncfTypeToUse].isExpired
-          ? 'La secuencia configurada para este tipo de comprobante está vencida.\n\nNotifique al administrador para registrar una nueva secuencia vigente.'
-          : 'No hay comprobantes disponibles en la secuencia configurada.\n\nSe agotaron los números del rango autorizado para este tipo de factura.\n\nFavor de notificar al administrador para agregar una nueva secuencia.'
-      });
-      setShowBlockedSequenceModal(true);
-      return;
+    // Obligatoriedad de comprobantes fiscales configurados y disponibles (al menos Serie B / Consumo B02)
+    if (!isPlanCanjeCheck) {
+      const targetSeq = seqMap[ncfTypeToUse];
+      if (!targetSeq || !targetSeq.available || targetSeq.isExhausted || targetSeq.isExpired) {
+        const noSeqConfigured = !targetSeq;
+        setBlockedSequenceInfo({
+          tipo_comprobante: ncfTypeToUse,
+          nombre_comprobante: targetSeq?.nombre_comprobante || (ncfTypeToUse === 'B01' ? 'Factura de Crédito Fiscal (B01)' : 'Factura de Consumo (B02)'),
+          message: noSeqConfigured
+            ? `Es obligatorio contar con comprobantes fiscales configurados (al menos Serie B / ${ncfTypeToUse}) para facturar y alimentar el Reporte 607.\n\nPor favor agregue una secuencia activa en Administración → Comprobantes Fiscales.`
+            : targetSeq.isExpired
+              ? 'La secuencia configurada para este tipo de comprobante está vencida.\n\nNotifique al administrador para registrar una nueva secuencia vigente.'
+              : 'No hay comprobantes disponibles en la secuencia configurada.\n\nSe agotaron los números del rango autorizado para este tipo de factura.\n\nFavor de notificar al administrador para agregar una nueva secuencia.'
+        });
+        setShowBlockedSequenceModal(true);
+        return;
+      }
     }
 
     await executeCheckout(null, ncfTypeToUse, requiresRnc ? clientRncInput.trim() : '', requiresRnc ? clientRazonSocialInput.trim() : '');
@@ -3460,9 +3504,11 @@ const VisitRecorder = () => {
         finalMetodoPago === 'Plan Beauty'
       ) && !isCreditoFiscal;
 
-      const defaultCommercialType = selectedComprobanteType && selectedComprobanteType !== 'NONE'
-        ? selectedComprobanteType
-        : (isCreditoFiscal ? 'B01' : 'NONE');
+      const defaultCommercialType = isCreditoFiscal
+        ? 'B01'
+        : (selectedComprobanteType && selectedComprobanteType !== 'NONE'
+          ? selectedComprobanteType
+          : resolveDefaultConsumoType(sequenceAvailability));
       const ncfTypeToSend = isPlanRedemptionCheck ? 'NONE' : (chosenNcfType !== null && chosenNcfType !== undefined ? chosenNcfType : defaultCommercialType);
       const rncToSend = customRnc !== null && customRnc !== undefined ? customRnc : (isCreditoFiscal ? clientRncInput.trim() : '');
       const razonSocialToSend = customRazonSocial !== null && customRazonSocial !== undefined ? customRazonSocial : (isCreditoFiscal ? clientRazonSocialInput.trim() : '');
@@ -3547,18 +3593,39 @@ const VisitRecorder = () => {
 
       await loadClientVisitsHistory(finalClientId || finalClientName);
 
-      const isRealEcf = Boolean(checkoutRes?.ncf && String(checkoutRes.ncf).toUpperCase().startsWith('E') && checkoutRes?.codigo_seguridad);
-      const encfMsg = checkoutRes?.ncf
-        ? (isRealEcf
-          ? `\n\n🛡️ e-NCF: ${checkoutRes.ncf} (${checkoutRes.ncf_name || 'e-CF'})\nCódigo Seguridad: ${checkoutRes.codigo_seguridad}`
-          : `\n\n🧾 NCF: ${checkoutRes.ncf} (${checkoutRes.ncf_name || 'Comprobante'})`)
-        : '';
-
-      alert(`✅ Factura finalizada exitosamente.\n\nCliente: ${finalClientName}${encfMsg}\nTotal Facturado: RD$ ${finalTotalAmount.toFixed(2)}\nMétodos Aplicados: ${finalMetodoPago}${cambioAmount > 0 ? `\nCambio / Devuelta: RD$ ${cambioAmount.toFixed(2)}` : ''}`);
+      const finalizedInvoiceObj = {
+        id: checkoutRes?.id || ticketIdToUse,
+        ticket_number: checkoutRes?.ticket_number || selectedTicket?.ticket_number || ticketIdToUse,
+        status: 'Facturado',
+        visited_at: new Date().toISOString(),
+        client_id: finalClientId,
+        client_name: finalClientName,
+        rnc_cliente: rncToSend,
+        rzn_soc_cliente: razonSocialToSend,
+        metodo_pago: finalMetodoPago,
+        applied_payments: sanitizedAppliedPayments,
+        monto_recibido: finalMontoRecibido,
+        devuelta: finalDevuelta,
+        items_detail: canonicalLineItems,
+        subtotal: checkoutRes?.subtotal ?? grossSubtotal,
+        descuento: checkoutRes?.descuento ?? totalDiscounts,
+        itbis: checkoutRes?.itbis ?? itbisAmount,
+        total: checkoutRes?.total ?? finalTotalAmount,
+        ncf: checkoutRes?.ncf || null,
+        ncf_type: ncfTypeToSend !== 'NONE' ? ncfTypeToSend : null,
+        ncf_name: checkoutRes?.ncf_name || null,
+        dgii_track_id: checkoutRes?.track_id || null,
+        codigo_seguridad_ecf: checkoutRes?.codigo_seguridad || null,
+        branch_name: salonsList.find((s) => String(s.id) === String(salonId))?.name || '',
+      };
 
       setShowOtpVerificationModal(false);
       setShowOtpModal(false);
       resetPosToBlankState();
+      setPrintableInvoiceData(finalizedInvoiceObj);
+      setAutoPrintInvoice(true);
+      setShowInvoicePrintModal(true);
+
       await fetchSequenceAvailability();
       await fetchPendingTickets();
       await fetchTopServices();
@@ -3726,6 +3793,10 @@ const VisitRecorder = () => {
 
         <button
           onClick={() => {
+            if (activeTicketMode === 'ticket_turno') {
+              setShowTurnTicketModal(true);
+              return;
+            }
             if (!activeRegister) {
               alert('🔒 DEBE ABRIR LA CAJA DE JORNADA PRIMERO\n\nNo se pueden generar nuevos tickets si no existe una caja abierta en esta sucursal.');
               setShowRegisterOpenModal(true);
@@ -4934,8 +5005,8 @@ const VisitRecorder = () => {
             </div>
           </div>
 
-          {/* SELECTOR EXPLÍCITO DE COMPROBANTE (RESPETA SELECCIÓN DEL OPERADOR: SIN COMPROBANTE O NCF CONVENCIONAL) */}
-          {((finalTotalAmount === 0 || (appliedPayments.length === 1 && appliedPayments[0].method === 'Plan Beauty')) && selectedComprobanteType === 'NONE' && !isCreditoFiscal) ? null : (() => {
+          {/* SELECTOR DE COMPROBANTE FISCAL (CONSUMO B02 POR DEFECTO, SECUENCIAS OBLIGATORIAS) */}
+          {((finalTotalAmount === 0 || (appliedPayments.length === 1 && appliedPayments[0].method === 'Plan Beauty')) && !isCreditoFiscal) ? null : (() => {
             const availList = (sequenceAvailability?.sequences || []).filter((s) => !s.is_electronic);
             const uniqueTypes = [];
             const seen = new Set();
@@ -4945,14 +5016,15 @@ const VisitRecorder = () => {
                 uniqueTypes.push(s);
               }
             });
+            const hasB02Configured = uniqueTypes.some((s) => s.tipo_comprobante === 'B02');
             const showRncFields = selectedComprobanteType === 'B01' || isCreditoFiscal;
             return (
-              <div style={{ margin: '0.45rem 0 0.15rem', padding: '0.6rem 0.75rem', borderRadius: '10px', background: selectedComprobanteType !== 'NONE' ? '#eff6ff' : '#f8fafc', border: `1.5px solid ${selectedComprobanteType !== 'NONE' ? '#3b82f6' : '#e2e8f0'}`, transition: 'all 0.15s ease' }}>
+              <div style={{ margin: '0.45rem 0 0.15rem', padding: '0.6rem 0.75rem', borderRadius: '10px', background: uniqueTypes.length > 0 ? '#eff6ff' : '#fef2f2', border: `1.5px solid ${uniqueTypes.length > 0 ? '#3b82f6' : '#f87171'}`, transition: 'all 0.15s ease' }}>
                 <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: '#334155', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
-                  Tipo de Comprobante
+                  Tipo de Comprobante Fiscal
                 </label>
                 <select
-                  value={selectedComprobanteType}
+                  value={selectedComprobanteType === 'NONE' ? 'B02' : selectedComprobanteType}
                   onChange={(e) => {
                     const val = e.target.value;
                     setSelectedComprobanteType(val);
@@ -4965,7 +5037,9 @@ const VisitRecorder = () => {
                   }}
                   style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.78rem', fontWeight: 700, background: '#ffffff', color: '#0f172a' }}
                 >
-                  <option value="NONE">Sin comprobante fiscal (Factura comercial)</option>
+                  {!hasB02Configured && (
+                    <option value="B02">B02 - Factura de Consumo (Requerida · Sin secuencia activa)</option>
+                  )}
                   {uniqueTypes.map((seq) => (
                     <option key={seq.tipo_comprobante} value={seq.tipo_comprobante}>
                       {seq.tipo_comprobante} - {seq.nombre_comprobante} ({seq.cantidad_disponible} disp.{seq.is_vencido ? ' · Vencida' : seq.is_agotado ? ' · Agotada' : ''})
@@ -4973,8 +5047,8 @@ const VisitRecorder = () => {
                   ))}
                 </select>
                 {uniqueTypes.length === 0 && (
-                  <span style={{ display: 'block', marginTop: '0.3rem', fontSize: '0.68rem', color: '#64748b' }}>
-                    Sin secuencias NCF configuradas. Puedes facturar como comprobante comercial o configurar secuencias en Administración.
+                  <span style={{ display: 'block', marginTop: '0.3rem', fontSize: '0.68rem', color: '#b91c1c', fontWeight: 600 }}>
+                    ⚠️ Debe registrar comprobantes fiscales (al menos B02 Consumo) en Administración → Comprobantes Fiscales para poder facturar.
                   </span>
                 )}
 
@@ -5039,57 +5113,35 @@ const VisitRecorder = () => {
               <Printer size={17} />
             </button>
 
-            {/* PRECUENTA BUTTON (NO ES FACTURA FISCAL, PENDIENTE DE PAGO) */}
-            <button
-              type="button"
-              onClick={handleSaveAndPrintPrecuenta}
-              disabled={lineItems.length === 0 || loading}
-              style={{
-                width: '100%',
-                background: '#f8fafc',
-                color: '#334155',
-                border: '1.5px dashed #94a3b8',
-                padding: '0.65rem',
-                borderRadius: '12px',
-                fontWeight: 700,
-                fontSize: '0.825rem',
-                cursor: lineItems.length > 0 && !loading ? 'pointer' : 'not-allowed',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.4rem',
-                transition: 'all 0.15s ease',
-                opacity: lineItems.length > 0 ? 1 : 0.6
-              }}
-              title="Guarda la visita como Pendiente e imprime la precuenta sin comprobante fiscal"
-            >
-              <FileText size={16} style={{ color: '#64748b' }} />
-              <span>📄 Precuenta (Pendiente de Pago)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowTurnTicketModal(true)}
-              style={{
-                width: '100%',
-                background: '#f0f9ff',
-                color: '#0369a1',
-                border: '1.5px solid #bae6fd',
-                padding: '0.6rem',
-                borderRadius: '12px',
-                fontWeight: 700,
-                fontSize: '0.825rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.4rem',
-              }}
-              title="Emitir o reimprimir ticket de turno sin crear factura ni cobro"
-            >
-              <Printer size={15} />
-              <span>🎟️ Ticket de Turno (Sin Cobro)</span>
-            </button>
+            {/* PRECUENTA BUTTON — solo visible cuando la plantilla activa es Pre-factura / Pre-Cuenta (nunca junto con Ticket de Turno) */}
+            {activeTicketMode !== 'ticket_turno' && (
+              <button
+                type="button"
+                onClick={handleSaveAndPrintPrecuenta}
+                disabled={lineItems.length === 0 || loading}
+                style={{
+                  width: '100%',
+                  background: '#f8fafc',
+                  color: '#334155',
+                  border: '1.5px dashed #94a3b8',
+                  padding: '0.65rem',
+                  borderRadius: '12px',
+                  fontWeight: 700,
+                  fontSize: '0.825rem',
+                  cursor: lineItems.length > 0 && !loading ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.4rem',
+                  transition: 'all 0.15s ease',
+                  opacity: lineItems.length > 0 ? 1 : 0.6
+                }}
+                title="Guarda la visita como Pendiente e imprime la precuenta sin comprobante fiscal"
+              >
+                <FileText size={16} style={{ color: '#64748b' }} />
+                <span>📄 Precuenta (Pendiente de Pago)</span>
+              </button>
+            )}
 
             {/* CARGAR A NÓMINA — solo visible en tickets de empleado */}
             {isEmployeeClient && (
@@ -5973,11 +6025,12 @@ const VisitRecorder = () => {
         </div>
       )}
 
-      {/* MODAL: TICKET DE TURNO CAR WASH (SIN COBRO NI FACTURA) */}
+      {/* MODAL: TICKET DE TURNO (SIN COBRO NI FACTURA) */}
       <TurnTicketModal
         isOpen={showTurnTicketModal}
         onClose={() => setShowTurnTicketModal(false)}
         branchId={salonId || currentUser?.branch_id || 'default'}
+        simpleMode
       />
 
       {/* MODAL: IMPRESIÓN DEL TICKET FÍSICO 80MM (HOMOLOGADO AL SALÓN - PRE-CUENTA) */}
@@ -5995,7 +6048,11 @@ const VisitRecorder = () => {
         <ElectronicInvoicePrintModal
           invoice={printableInvoiceData}
           isOpen={showInvoicePrintModal}
-          onClose={() => setShowInvoicePrintModal(false)}
+          autoPrint={autoPrintInvoice}
+          onClose={() => {
+            setShowInvoicePrintModal(false);
+            setAutoPrintInvoice(false);
+          }}
         />
       )}
 

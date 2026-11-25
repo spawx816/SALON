@@ -81,9 +81,27 @@ function createPrintTemplatesRouter(pool) {
       sql += ' ORDER BY is_default DESC, updated_at DESC';
 
       const [rows] = await pool.query(sql, params);
+      const modeParams = [tenantId];
+      let modeSql = `
+        SELECT document_type FROM print_templates
+        WHERE tenant_id = ?
+          AND document_type IN ('ticket_turno', 'ticket_venta')
+          AND status = 'published'
+          AND is_default = TRUE
+      `;
+      if (branch_id && branch_id !== 'default') {
+        modeSql += ' AND (branch_id = ? OR branch_id IS NULL) ORDER BY CASE WHEN branch_id IS NOT NULL THEN 0 ELSE 1 END, updated_at DESC LIMIT 1';
+        modeParams.push(String(branch_id));
+      } else {
+        modeSql += ' ORDER BY CASE WHEN branch_id IS NULL THEN 0 ELSE 1 END, updated_at DESC LIMIT 1';
+      }
+      const [modeRows] = await pool.query(modeSql, modeParams).catch(() => [[]]);
+      const activeTicketMode = modeRows?.[0]?.document_type === 'ticket_turno' ? 'ticket_turno' : 'ticket_venta';
+
       res.json({
         templates: rows || [],
         defaults: DEFAULT_TEMPLATES,
+        active_ticket_mode: activeTicketMode,
       });
     } catch (err) {
       res.status(500).json({ error: 'Error cargando plantillas de impresión: ' + err.message });
@@ -140,11 +158,19 @@ function createPrintTemplatesRouter(pool) {
       const actorId = req.auth?.userId || req.user?.id || null;
 
       if (isDefault && publishNow) {
-        await pool.query(
-          `UPDATE print_templates SET is_default = FALSE
-           WHERE tenant_id = ? AND document_type = ? AND (branch_id IS NOT DISTINCT FROM ?)`,
-          [tenantId, documentType, branchId]
-        );
+        if (documentType === 'ticket_turno' || documentType === 'ticket_venta') {
+          await pool.query(
+            `UPDATE print_templates SET is_default = FALSE
+             WHERE tenant_id = ? AND document_type IN ('ticket_turno', 'ticket_venta') AND (branch_id IS NOT DISTINCT FROM ?)`,
+            [tenantId, branchId]
+          );
+        } else {
+          await pool.query(
+            `UPDATE print_templates SET is_default = FALSE
+             WHERE tenant_id = ? AND document_type = ? AND (branch_id IS NOT DISTINCT FROM ?)`,
+            [tenantId, documentType, branchId]
+          );
+        }
       }
 
       const [rows] = await pool.query(
@@ -265,11 +291,19 @@ function createPrintTemplatesRouter(pool) {
       if (!rows || rows.length === 0) return res.status(404).json({ error: 'Plantilla no encontrada.' });
       const tpl = rows[0];
 
-      await pool.query(
-        `UPDATE print_templates SET is_default = FALSE
-         WHERE tenant_id = ? AND document_type = ? AND (branch_id IS NOT DISTINCT FROM ?)`,
-        [tenantId, tpl.document_type, tpl.branch_id]
-      );
+      if (tpl.document_type === 'ticket_turno' || tpl.document_type === 'ticket_venta') {
+        await pool.query(
+          `UPDATE print_templates SET is_default = FALSE
+           WHERE tenant_id = ? AND document_type IN ('ticket_turno', 'ticket_venta') AND (branch_id IS NOT DISTINCT FROM ?)`,
+          [tenantId, tpl.branch_id]
+        );
+      } else {
+        await pool.query(
+          `UPDATE print_templates SET is_default = FALSE
+           WHERE tenant_id = ? AND document_type = ? AND (branch_id IS NOT DISTINCT FROM ?)`,
+          [tenantId, tpl.document_type, tpl.branch_id]
+        );
+      }
 
       const [updated] = await pool.query(
         `UPDATE print_templates

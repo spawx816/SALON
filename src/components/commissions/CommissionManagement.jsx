@@ -1647,7 +1647,11 @@ const CommissionManagement = () => {
                           </label>
                           <select
                             value={ruleForm.repeticion || 'Una vez por período'}
-                            onChange={e => setRuleForm({ ...ruleForm, repeticion: e.target.value })}
+                            onChange={e => {
+                              const val = e.target.value;
+                              const lim = val.toLowerCase().includes('dos') ? 2 : (val.toLowerCase().includes('sin l') ? 0 : 1);
+                              setRuleForm({ ...ruleForm, repeticion: val, repeticion_limite: lim });
+                            }}
                             style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontWeight: 700, fontSize: '0.85rem', background: '#ffffff' }}
                           >
                             <option value="Una vez por período">Una vez por período</option>

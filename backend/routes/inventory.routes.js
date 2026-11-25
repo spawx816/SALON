@@ -510,7 +510,11 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
           }
         }
       }
-      const transfer = await transferService.requestTransfer(tenantId, transferData, items);
+      const enrichedTransferData = {
+        ...transferData,
+        requested_by: transferData.requested_by || req.auth?.name || req.auth?.email || 'Usuario',
+      };
+      const transfer = await transferService.requestTransfer(tenantId, enrichedTransferData, items);
       res.status(201).json(transfer);
     } catch (err) {
       if (err.code === 'SAME_LOCATION_TRANSFER') {

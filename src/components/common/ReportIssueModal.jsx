@@ -99,7 +99,7 @@ export default function ReportIssueModal({ isOpen, onClose }) {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <LifeBuoy size={18} color="#2563eb" />
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Reportar un problema</h3>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Reporte de incidente</h3>
           </div>
           <button
             type="button"

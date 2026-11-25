@@ -29,9 +29,9 @@ export default function ExpensesModule() {
   const [salons, setSalons] = useState([]);
   const [migrationPending, setMigrationPending] = useState(false);
 
-  // Período y filtros (por defecto Octubre 2026 alineado con la línea base y datos del boceto)
-  const [selectedYear, setSelectedYear] = useState('2026');
-  const [selectedMonth, setSelectedMonth] = useState('10');
+  // Período y filtros (por defecto mes y año actuales)
+  const [selectedYear, setSelectedYear] = useState(() => String(new Date().getFullYear()));
+  const [selectedMonth, setSelectedMonth] = useState(() => String(new Date().getMonth() + 1).padStart(2, '0'));
   const [filterSalon, setFilterSalon] = useState('all');
   const [filterConcept, setFilterConcept] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -42,10 +42,10 @@ export default function ExpensesModule() {
   // Período activo YYYY-MM
   const currentPeriod = `${selectedYear}-${selectedMonth}`;
 
-  // Formulario preconfigurado idéntico al boceto
+  // Formulario preconfigurado
   const initialFormState = {
     concept_name: 'Préstamos',
-    payment_date: '2026-10-30',
+    payment_date: new Date().toISOString().slice(0, 10),
     amount: '24000.00',
     payment_method: 'Transferencia',
     account_name: 'Cuenta operativa · 5678',

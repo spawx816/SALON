@@ -146,7 +146,7 @@ const AttendanceLogs = () => {
   // Schedule overrides states
   const [overridesList, setOverridesList] = useState([]);
   const [isOverrideModalOpen, setIsOverrideModalOpen] = useState(false);
-  const [overrideMode, setOverrideMode] = useState('individual'); // 'individual', 'swap', or 'self'
+  const [overrideMode, setOverrideMode] = useState('individual'); // 'individual', 'swap', 'self', or 'descanso'
   const [newOverrideForm, setNewOverrideForm] = useState({
     employeeId: '',
     employeeId2: '',
@@ -155,6 +155,7 @@ const AttendanceLogs = () => {
     dateWork: new Date().toLocaleDateString('sv-SE'),
     newHoraEntrada: '08:00',
     newHoraSalida: '17:00',
+    adminPin: '',
     reason: ''
   });
 
@@ -624,6 +625,26 @@ const AttendanceLogs = () => {
           createdBy: creatorName
         };
         res = await dataService.saveScheduleSwap(payload);
+      } else if (overrideMode === 'descanso') {
+        if (!newOverrideForm.employeeId || !newOverrideForm.date || !newOverrideForm.reason) {
+          alert("Por favor selecciona el empleado, la fecha del descanso extra y el motivo.");
+          setLoading(false);
+          return;
+        }
+        if (!isGlobalAdmin && !newOverrideForm.adminPin) {
+          alert("Se requiere clave PIN de administrador para autorizar un Descanso Extra.");
+          setLoading(false);
+          return;
+        }
+        const payload = {
+          employeeId: newOverrideForm.employeeId,
+          date: newOverrideForm.date,
+          isDescanso: true,
+          adminPin: newOverrideForm.adminPin || undefined,
+          reason: newOverrideForm.reason,
+          createdBy: creatorName
+        };
+        res = await dataService.saveScheduleOverride(payload);
       } else {
         if (!newOverrideForm.employeeId || !newOverrideForm.date || !newOverrideForm.newHoraEntrada || !newOverrideForm.newHoraSalida || !newOverrideForm.reason) {
           alert("Por favor completa todos los campos del cambio temporal.");
@@ -3461,7 +3482,13 @@ const AttendanceLogs = () => {
                               )}
                             </td>
                             <td style={{ padding: '1rem 1.5rem', color: o.status === 'Anulado' ? '#94a3b8' : '#10b981', fontWeight: 800, textDecoration: o.status === 'Anulado' ? 'line-through' : 'none' }}>
-                              {format12h(o.new_hora_entrada)} - {format12h(o.new_hora_salida)}
+                              {!o.new_hora_entrada && !o.new_hora_salida ? (
+                                <span style={{ background: '#ecfdf5', color: '#047857', padding: '0.22rem 0.6rem', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 800 }}>
+                                  🌴 Descanso Extra
+                                </span>
+                              ) : (
+                                `${format12h(o.new_hora_entrada)} - ${format12h(o.new_hora_salida)}`
+                              )}
                             </td>
                             <td style={{ padding: '1rem 1.5rem', color: '#09090b', fontWeight: 650 }}>
                               {o.reason}
@@ -5139,12 +5166,12 @@ const AttendanceLogs = () => {
             <form onSubmit={handleSaveOverride} style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               
               {/* Mode Toggle (Pills) */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', background: '#f4f4f5', padding: '3px', borderRadius: '12px', border: '1px solid #e4e4e7', marginBottom: '0.25rem', gap: '3px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', background: '#f4f4f5', padding: '4px', borderRadius: '12px', border: '1px solid #e4e4e7', marginBottom: '0.25rem', gap: '4px' }}>
                 <button
                   type="button"
                   onClick={() => setOverrideMode('individual')}
                   style={{
-                    padding: '0.5rem 0.25rem', borderRadius: '9px', border: 'none',
+                    padding: '0.5rem 0.35rem', borderRadius: '9px', border: 'none',
                     background: overrideMode === 'individual' ? 'white' : 'transparent',
                     color: overrideMode === 'individual' ? '#09090b' : '#71717a',
                     fontWeight: overrideMode === 'individual' ? 800 : 600,
@@ -5157,9 +5184,24 @@ const AttendanceLogs = () => {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setOverrideMode('descanso')}
+                  style={{
+                    padding: '0.5rem 0.35rem', borderRadius: '9px', border: 'none',
+                    background: overrideMode === 'descanso' ? 'white' : 'transparent',
+                    color: overrideMode === 'descanso' ? '#047857' : '#71717a',
+                    fontWeight: overrideMode === 'descanso' ? 800 : 600,
+                    fontSize: '0.74rem', cursor: 'pointer', transition: 'all 0.15s ease',
+                    boxShadow: overrideMode === 'descanso' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    textAlign: 'center', whiteSpace: 'nowrap'
+                  }}
+                >
+                  🌴 Descanso Extra
+                </button>
+                <button
+                  type="button"
                   onClick={() => setOverrideMode('swap')}
                   style={{
-                    padding: '0.5rem 0.25rem', borderRadius: '9px', border: 'none',
+                    padding: '0.5rem 0.35rem', borderRadius: '9px', border: 'none',
                     background: overrideMode === 'swap' ? 'white' : 'transparent',
                     color: overrideMode === 'swap' ? '#09090b' : '#71717a',
                     fontWeight: overrideMode === 'swap' ? 800 : 600,
@@ -5174,7 +5216,7 @@ const AttendanceLogs = () => {
                   type="button"
                   onClick={() => setOverrideMode('self')}
                   style={{
-                    padding: '0.5rem 0.25rem', borderRadius: '9px', border: 'none',
+                    padding: '0.5rem 0.35rem', borderRadius: '9px', border: 'none',
                     background: overrideMode === 'self' ? 'white' : 'transparent',
                     color: overrideMode === 'self' ? '#09090b' : '#71717a',
                     fontWeight: overrideMode === 'self' ? 800 : 600,
@@ -5187,7 +5229,50 @@ const AttendanceLogs = () => {
                 </button>
               </div>
 
-              {overrideMode === 'individual' ? (
+              {overrideMode === 'descanso' ? (
+                <>
+                  <div style={{ padding: '0.65rem 0.85rem', borderRadius: '10px', background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#065f46', fontSize: '0.78rem', fontWeight: 600 }}>
+                    Asigna un día de descanso extraordinario sin obligación de reponer otro día y limpia cualquier ausencia registrada en esa fecha.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <label style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Empleado</label>
+                    <select
+                      required
+                      value={newOverrideForm.employeeId}
+                      onChange={(e) => setNewOverrideForm(prev => ({ ...prev, employeeId: e.target.value }))}
+                      style={{ padding: '0.65rem 1rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.88rem', outline: 'none', background: 'white', cursor: 'pointer' }}
+                    >
+                      <option value="">Selecciona al empleado...</option>
+                      {employees.map(emp => (
+                        <option key={emp.id} value={emp.id}>{emp.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <label style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Fecha del Descanso Extra</label>
+                    <input
+                      type="date"
+                      required
+                      value={newOverrideForm.date}
+                      onChange={(e) => setNewOverrideForm(prev => ({ ...prev, date: e.target.value }))}
+                      style={{ padding: '0.65rem 1rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.88rem', outline: 'none' }}
+                    />
+                  </div>
+                  {!isGlobalAdmin && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                      <label style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>PIN de Administrador *</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="Ingresa clave PIN de autorización"
+                        value={newOverrideForm.adminPin || ''}
+                        onChange={(e) => setNewOverrideForm(prev => ({ ...prev, adminPin: e.target.value }))}
+                        style={{ padding: '0.65rem 1rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.88rem', outline: 'none' }}
+                      />
+                    </div>
+                  )}
+                </>
+              ) : overrideMode === 'individual' ? (
                 // Individual Form Mode
                 <>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>

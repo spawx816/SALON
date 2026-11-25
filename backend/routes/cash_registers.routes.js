@@ -280,7 +280,10 @@ function createCashRegistersRouter(pool) {
 
   const ALLOWED_MANUAL_MOVEMENT_TYPES = new Set([
     'ingreso', 'in', 'entrada', 'entrada_adicional',
-    'salida', 'gasto', 'retiro', 'sangria', 'prestamo', 'devolucion', 'refund'
+    'salida', 'gasto', 'gasto_imprevisto',
+    'retiro', 'retiro_efectivo', 'sangria',
+    'prestamo', 'prestamo_empleado',
+    'devolucion', 'refund'
   ]);
 
   const resolveBranchIdForTenant = async (tenantId, requestedSalonId) => {
@@ -939,7 +942,15 @@ function createCashRegistersRouter(pool) {
       if (!isValidRegisterUuid(id)) {
         return res.status(400).json({ error: `Identificador de caja inválido ('${id}').`, code: 'INVALID_REGISTER_ID' });
       }
-      const { type = 'Salida', amount, concept, reason, payment_method = 'Efectivo' } = req.body;
+      const {
+        type = 'Salida',
+        amount,
+        concept,
+        reason,
+        payment_method = 'Efectivo',
+        employee_id = null,
+        employee_name = null,
+      } = req.body;
 
       const normalizedType = String(type || '').trim().toLowerCase();
       if (!ALLOWED_MANUAL_MOVEMENT_TYPES.has(normalizedType)) {
@@ -975,21 +986,88 @@ function createCashRegistersRouter(pool) {
         return res.status(400).json({ error: 'El monto debe ser un número válido mayor a 0.', code: 'INVALID_MOVEMENT_AMOUNT' });
       }
 
-      const finalConcept = String(concept || reason || 'Movimiento de caja').trim() || 'Movimiento de caja';
+      const rawConcept = String(concept || reason || 'Movimiento de caja').trim() || 'Movimiento de caja';
+      const isLoanMovement = normalizedType.includes('prestamo');
+      const isUnexpectedExpense =
+        !isLoanMovement &&
+        (normalizedType === 'gasto_imprevisto' || normalizedType === 'gasto' || normalizedType === 'salida');
+
+      const finalConcept = isUnexpectedExpense
+        ? (rawConcept.startsWith('[Gasto Imprevisto]') ? rawConcept : `[Gasto Imprevisto] ${rawConcept}`)
+        : rawConcept;
+
       const amountCents = Math.round(numAmount * 100);
       const operatorId = req.auth?.id ? String(req.auth.id) : null;
       const operatorName = req.auth?.name || req.auth?.email || 'Recepción';
+      const empIdVal = employee_id ? String(employee_id).trim() : null;
+      const empNameVal = employee_name ? String(employee_name).trim() : null;
 
       const [result] = await pool.query(
-        `INSERT INTO cash_register_movements (tenant_id, cash_register_id, type, payment_method, amount, amount_cents, concept, user_id, user_name, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        `INSERT INTO cash_register_movements (
+           tenant_id, cash_register_id, type, payment_method, amount, amount_cents,
+           concept, user_id, user_name, employee_id, employee_name, created_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
          RETURNING id`,
-        [tenantId, id, String(type).trim(), payment_method, numAmount, amountCents, finalConcept, operatorId, operatorName]
+        [tenantId, id, String(type).trim(), payment_method, numAmount, amountCents, finalConcept, operatorId, operatorName, empIdVal, empNameVal]
       );
+      const movementId = result.insertId || result[0]?.id;
+
+      // Sincronización automática: Gastos de caja diarios / Gastos imprevistos -> Egresos (con el mismo prefijo [Gasto Imprevisto])
+      if (isUnexpectedExpense && movementId) {
+        const branchRef = String(reg.branch_id || reg.salon_id || '');
+        let branchName = '';
+        if (branchRef) {
+          const [bRows] = await pool.query(
+            'SELECT name FROM branches WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+            [branchRef, tenantId]
+          ).catch(() => [[]]);
+          branchName = bRows?.[0]?.name || '';
+        }
+        await pool.query(
+          `INSERT INTO expenses (
+             tenant_id, salon_id, branch_id, salon_name,
+             concept, concept_name, description, observation,
+             category, amount, date, expense_date, payment_date,
+             payment_method, account_name, reference, status, created_by, created_at, updated_at
+           )
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Operativo', ?, CURRENT_DATE, CURRENT_DATE, CURRENT_DATE, ?, 'Caja Chica / Efectivo', ?, 'Registrado', ?, NOW(), NOW())`,
+          [
+            tenantId,
+            String(reg.salon_id || reg.branch_id || ''),
+            branchRef,
+            branchName,
+            finalConcept,
+            finalConcept,
+            finalConcept,
+            finalConcept,
+            numAmount,
+            payment_method || 'Efectivo',
+            `CRM-${movementId}`,
+            operatorName,
+          ]
+        ).catch((expErr) => {
+          console.error('[CashRegister->Expenses] Error sincronizando gasto imprevisto a egresos:', expErr.message);
+        });
+      }
+
+      // Préstamos a empleados: NO van a Egresos, se registran como descuento pendiente para Nómina
+      if (isLoanMovement && empIdVal && /^\d+$/.test(empIdVal) && movementId) {
+        await pool.query(
+          `INSERT INTO employee_discounts (
+             tenant_id, employee_id, employee_name, type, amount, discount_amount,
+             date, notes, status, created_by, cash_register_movement_id, created_at
+           )
+           VALUES (?, ?, ?, 'Préstamo', ?, ?, CURRENT_DATE, ?, 'Pendiente', ?, ?, NOW())`,
+          [tenantId, Number(empIdVal), empNameVal || 'Empleado', numAmount, numAmount, finalConcept, operatorName, movementId]
+        ).catch((loanErr) => {
+          console.error('[CashRegister->EmployeeDiscounts] Error registrando préstamo de empleado:', loanErr.message);
+        });
+      }
 
       res.json({
         success: true,
-        id: result.insertId || result[0]?.id,
+        id: movementId,
         message: 'Movimiento registrado correctamente'
       });
     } catch (err) {
