@@ -5160,36 +5160,6 @@ const VisitRecorder = () => {
               <Printer size={17} />
             </button>
 
-            {/* PRECUENTA BUTTON — solo visible cuando la plantilla activa es Pre-factura / Pre-Cuenta (nunca junto con Ticket de Turno) */}
-            {activeTicketMode !== 'ticket_turno' && (
-              <button
-                type="button"
-                onClick={handleSaveAndPrintPrecuenta}
-                disabled={lineItems.length === 0 || loading}
-                style={{
-                  width: '100%',
-                  background: '#f8fafc',
-                  color: '#334155',
-                  border: '1.5px dashed #94a3b8',
-                  padding: '0.65rem',
-                  borderRadius: '12px',
-                  fontWeight: 700,
-                  fontSize: '0.825rem',
-                  cursor: lineItems.length > 0 && !loading ? 'pointer' : 'not-allowed',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.4rem',
-                  transition: 'all 0.15s ease',
-                  opacity: lineItems.length > 0 ? 1 : 0.6
-                }}
-                title="Guarda la visita como Pendiente e imprime la precuenta sin comprobante fiscal"
-              >
-                <FileText size={16} style={{ color: '#64748b' }} />
-                <span>📄 Precuenta (Pendiente de Pago)</span>
-              </button>
-            )}
-
             {/* CARGAR A NÓMINA — solo visible en tickets de empleado */}
             {isEmployeeClient && (
               <button
