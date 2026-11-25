@@ -75,13 +75,15 @@ export default function PrintTemplatesDesigner() {
   const [issuedTurn, setIssuedTurn] = useState(null);
   const [recentTurns, setRecentTurns] = useState([]);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (branchOverride = undefined) => {
     setLoading(true);
     setError('');
     try {
+      const targetBranch = branchOverride !== undefined ? branchOverride : selectedBranchId;
+      const branchQuery = targetBranch ? `?branch_id=${encodeURIComponent(targetBranch)}` : '';
       const [availRes, tplRes, salonsRes, turnsRes, servicesRes] = await Promise.all([
         fetch('/api/print-templates/availability', { credentials: 'include' }),
-        fetch('/api/print-templates', { credentials: 'include' }),
+        fetch(`/api/print-templates${branchQuery}`, { credentials: 'include' }),
         fetch('/api/salons', { credentials: 'include' }),
         fetch('/api/turn-tickets', { credentials: 'include' }),
         fetch('/api/services', { credentials: 'include' }),
@@ -110,7 +112,7 @@ export default function PrintTemplatesDesigner() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedBranchId]);
 
   useEffect(() => {
     loadData();

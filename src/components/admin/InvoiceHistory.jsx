@@ -882,48 +882,50 @@ export default function InvoiceHistory() {
   return (
     <div style={{ padding: '1rem 1.25rem', maxWidth: '1600px', margin: '0 auto', fontFamily: 'inherit' }}>
       
-      {/* PRINT CSS STYLES (Applies only when printing) */}
-      <style>{`
-        @media print {
-          @page {
-            size: landscape;
-            margin: 10mm;
+      {/* PRINT CSS STYLES (Applies only when printing financial table, disabled when invoice receipt modal is open) */}
+      {!showInvoicePrintModal && (
+        <style>{`
+          @media print {
+            @page {
+              size: landscape;
+              margin: 10mm;
+            }
+            body * {
+              visibility: hidden !important;
+            }
+            #printable-financial-report, #printable-financial-report * {
+              visibility: visible !important;
+            }
+            #printable-financial-report {
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
+              width: 100% !important;
+              padding: 10px !important;
+              background: #ffffff !important;
+              color: #000000 !important;
+            }
+            .no-print {
+              display: none !important;
+            }
+            table {
+              width: 100% !important;
+              font-size: 7.5pt !important;
+              border-collapse: collapse !important;
+            }
+            thead {
+              display: table-header-group !important;
+            }
+            tr {
+              page-break-inside: avoid !important;
+            }
+            th, td {
+              padding: 4px 5px !important;
+              border: 1px solid #cbd5e1 !important;
+            }
           }
-          body * {
-            visibility: hidden !important;
-          }
-          #printable-financial-report, #printable-financial-report * {
-            visibility: visible !important;
-          }
-          #printable-financial-report {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            padding: 10px !important;
-            background: #ffffff !important;
-            color: #000000 !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-          table {
-            width: 100% !important;
-            font-size: 7.5pt !important;
-            border-collapse: collapse !important;
-          }
-          thead {
-            display: table-header-group !important;
-          }
-          tr {
-            page-break-inside: avoid !important;
-          }
-          th, td {
-            padding: 4px 5px !important;
-            border: 1px solid #cbd5e1 !important;
-          }
-        }
-      `}</style>
+        `}</style>
+      )}
 
       {/* HEADER */}
       <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>

@@ -1805,6 +1805,11 @@ function createVisitsRouter(pool, helpers = {}) {
           ]
         );
       } else {
+        const directTsMatch = String(id || '').match(/^(?:VIS|TKT)-(\d{13})\b/);
+        const resolvedCheckinIso =
+          directTsMatch && Number(directTsMatch[1]) > 1700000000000
+            ? new Date(Number(directTsMatch[1])).toISOString()
+            : new Date().toISOString();
         await db.query(
           `INSERT INTO visits (
              id, tenant_id, ticket_number, client_id, client_name, salon_id,
@@ -1813,7 +1818,7 @@ function createVisitsRouter(pool, helpers = {}) {
              ncf, ncf_type, ncf_name, rnc_cliente, rzn_soc_cliente,
              empleado_peluquera, empleado_lava_pelo, empleado_manicurista,
              cash_register_id, status, visited_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, jsonb_build_object('checkin_time', NOW()), ?, ?, ?, ?, ?, ?, ?, ?, 'DOP', ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, jsonb_build_object('checkin_time', ?::text), ?, ?, ?, ?, ?, ?, ?, ?, 'DOP', ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())`,
           [
             id,
             tenantId,
@@ -1823,6 +1828,7 @@ function createVisitsRouter(pool, helpers = {}) {
             String(salon_id),
             serializedServices,
             finalSerializedItems,
+            resolvedCheckinIso,
             numSubtotal,
             subtotalCents,
             numDescuento,
@@ -2210,10 +2216,81 @@ function createVisitsRouter(pool, helpers = {}) {
         });
       }
 
-      await pool.query(
-        "UPDATE employee_commissions_log SET status = 'Anulada' WHERE visit_id = ? AND tenant_id = ?",
+      const [voidedCommRows] = await pool.query(
+        "UPDATE employee_commissions_log SET status = 'Anulada' WHERE visit_id = ? AND tenant_id = ? RETURNING employee_id, scheme_id, service_name, created_at",
         [id, tenantId]
       );
+
+      // Reevaluar bonos por meta 'Contar' si la anulación bajó el acumulado por debajo de la meta
+      if (Array.isArray(voidedCommRows) && voidedCommRows.length > 0) {
+        try {
+          for (const vcr of voidedCommRows) {
+            if (!vcr.employee_id || !vcr.scheme_id) continue;
+            const [cRules] = await pool.query(
+              `SELECT * FROM commission_scheme_rules
+               WHERE tenant_id = ? AND scheme_id = ? AND LOWER(COALESCE(rule_type, '')) = 'especial' AND operacion = 'Contar'
+                 AND LOWER(TRIM(service_name)) = LOWER(TRIM(?))`,
+              [tenantId, Number(vcr.scheme_id), String(vcr.service_name || '')]
+            );
+            for (const rule of cRules || []) {
+              const targetGoal = parseInt(rule.cantidad_meta, 10) || 0;
+              if (targetGoal <= 0) continue;
+              const d = vcr.created_at ? new Date(vcr.created_at) : new Date();
+              const ymd = d.toLocaleDateString('en-CA', { timeZone: 'America/Santo_Domingo' });
+              const [yy, mm, dd] = ymd.split('-').map(Number);
+              const pNorm = String(rule.periodo || 'Mensual').trim().toLowerCase();
+              let pKey = `${yy}-${String(mm).padStart(2, '0')}`;
+              let pStart = `${pKey}-01 00:00:00-04:00`;
+              let pEnd = `${pKey}-${String(new Date(yy, mm, 0).getDate()).padStart(2, '0')} 23:59:59.999-04:00`;
+              if (pNorm === 'diario') {
+                pKey = ymd;
+                pStart = `${ymd} 00:00:00-04:00`;
+                pEnd = `${ymd} 23:59:59.999-04:00`;
+              } else if (pNorm === 'semanal') {
+                const localNoon = new Date(`${ymd}T12:00:00-04:00`);
+                const dow = localNoon.getUTCDay();
+                const diffToMon = dow === 0 ? -6 : 1 - dow;
+                const mon = new Date(localNoon.getTime() + diffToMon * 86400000);
+                const sun = new Date(mon.getTime() + 6 * 86400000);
+                const monYmd = mon.toISOString().slice(0, 10);
+                const sunYmd = sun.toISOString().slice(0, 10);
+                pKey = `SEM-${monYmd}`;
+                pStart = `${monYmd} 00:00:00-04:00`;
+                pEnd = `${sunYmd} 23:59:59.999-04:00`;
+              } else if (pNorm === 'quincenal') {
+                const isQ1 = dd <= 15;
+                const ym = `${yy}-${String(mm).padStart(2, '0')}`;
+                pKey = `${ym}-${isQ1 ? 'Q1' : 'Q2'}`;
+                pStart = `${ym}-${isQ1 ? '01' : '16'} 00:00:00-04:00`;
+                pEnd = `${ym}-${isQ1 ? '15' : String(new Date(yy, mm, 0).getDate()).padStart(2, '0')} 23:59:59.999-04:00`;
+              }
+              const [remRows] = await pool.query(
+                `SELECT COALESCE(SUM(cantidad), 0) AS total_qty
+                 FROM employee_commissions_log
+                 WHERE tenant_id = ? AND employee_id = ? AND LOWER(TRIM(service_name)) = LOWER(TRIM(?))
+                   AND visit_id NOT LIKE 'BONO-META-%' AND COALESCE(status, 'Pendiente') != 'Anulada'
+                   AND created_at >= ? AND created_at <= ?`,
+                [tenantId, Number(vcr.employee_id), String(rule.service_name), pStart, pEnd]
+              );
+              const remGoals = Math.floor(Number(remRows?.[0]?.total_qty || 0) / targetGoal);
+              const bonusPrefix = `BONO-META-${rule.id}-${vcr.employee_id}-${pKey}-`;
+              const [exBonuses] = await pool.query(
+                `SELECT id, visit_id, status, payout_id FROM employee_commissions_log
+                 WHERE tenant_id = ? AND employee_id = ? AND visit_id LIKE ?`,
+                [tenantId, Number(vcr.employee_id), `${bonusPrefix}%`]
+              );
+              for (const bRow of exBonuses || []) {
+                const slotNum = parseInt(String(bRow.visit_id).slice(bonusPrefix.length), 10);
+                if (Number.isFinite(slotNum) && slotNum > remGoals && !bRow.payout_id && !['Pagada', 'Pagado'].includes(String(bRow.status || ''))) {
+                  await pool.query('DELETE FROM employee_commissions_log WHERE id = ? AND tenant_id = ?', [bRow.id, tenantId]);
+                }
+              }
+            }
+          }
+        } catch (reEvalErr) {
+          console.warn('[VOID BONUS RE-EVAL WARN]:', reEvalErr.message);
+        }
+      }
 
       await pool.query(
         "UPDATE employee_discounts SET status = 'Anulado' WHERE visit_id = ? AND tenant_id = ?",

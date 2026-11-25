@@ -334,6 +334,7 @@ function createKioskRouter(pool, { authenticate }) {
       }
       return res.json({
         bound: true,
+        active: true,
         device: resolved.device,
         tenant: resolved.tenant,
         branch: resolved.branch,
@@ -516,21 +517,35 @@ function createKioskRouter(pool, { authenticate }) {
       }
 
       const emp = authCheck.employee;
-      let userPasswordHash = emp.password || null;
-      if (!userPasswordHash) {
-        const [uRows] = await pool.query(
-          `SELECT COALESCE(password_hash, password) AS password FROM users
-           WHERE tenant_id = ? AND (is_active IS NULL OR is_active = TRUE)
-             AND (id::text = ? OR (email IS NOT NULL AND email != '' AND LOWER(email) = LOWER(?)))
-           LIMIT 1`,
-          [device.tenant_id, String(employee_id), String(emp.email || '')]
-        );
-        userPasswordHash = uRows?.[0]?.password || null;
-      }
+      // Prioridad a la contraseña del usuario en Administración -> Usuarios (users.password_hash) y respaldo a staff_records.password
+      const [uRows] = await pool.query(
+        `SELECT COALESCE(password_hash, password) AS password FROM users
+         WHERE tenant_id = ? AND (is_active IS NULL OR is_active = TRUE)
+           AND LOWER(COALESCE(estado, 'Activo')) != 'inactivo'
+           AND (
+             id::text = ?
+             OR (email IS NOT NULL AND email != '' AND LOWER(TRIM(email)) = LOWER(TRIM(?)))
+             OR LOWER(TRIM(COALESCE(nombre, name, ''))) = LOWER(TRIM(?))
+           )
+         ORDER BY CASE WHEN email IS NOT NULL AND LOWER(TRIM(email)) = LOWER(TRIM(?)) THEN 0 ELSE 1 END
+         LIMIT 1`,
+        [device.tenant_id, String(employee_id), String(emp.email || ''), String(emp.nombre || ''), String(emp.email || '')]
+      );
+      const userAccountSecret = uRows?.[0]?.password || null;
+      const staffSecret = emp.password || null;
 
-      const validPassword = userPasswordHash
-        ? await bcrypt.compare(String(password), String(userPasswordHash)).catch(() => false)
-        : false;
+      const checkSecret = async (secret) => {
+        if (!secret) return false;
+        const s = String(secret);
+        if (s.startsWith('$2a$') || s.startsWith('$2b$')) {
+          return bcrypt.compare(String(password), s).catch(() => false);
+        }
+        return s === String(password);
+      };
+
+      const validPassword = userAccountSecret
+        ? await checkSecret(userAccountSecret)
+        : await checkSecret(staffSecret);
 
       if (!validPassword) {
         recordPinFailure(device.id, String(employee_id));

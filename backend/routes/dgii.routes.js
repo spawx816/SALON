@@ -424,11 +424,11 @@ function createDgiiRouter(pool) {
     if (targetPeriod && /^\d{6}$/.test(String(targetPeriod))) {
       const y = String(targetPeriod).slice(0, 4);
       const m = String(targetPeriod).slice(4, 6);
-      query += ' AND EXTRACT(YEAR FROM visited_at) = ? AND EXTRACT(MONTH FROM visited_at) = ?';
+      query += " AND EXTRACT(YEAR FROM (visited_at AT TIME ZONE 'America/Santo_Domingo')) = ? AND EXTRACT(MONTH FROM (visited_at AT TIME ZONE 'America/Santo_Domingo')) = ?";
       params.push(Number(y), Number(m));
     } else if (start_date && end_date) {
       query += ' AND visited_at >= ? AND visited_at <= ?';
-      params.push(`${start_date} 00:00:00`, `${end_date} 23:59:59`);
+      params.push(`${start_date} 00:00:00-04:00`, `${end_date} 23:59:59.999-04:00`);
     }
 
     query += ' ORDER BY visited_at DESC';
@@ -581,12 +581,13 @@ function createDgiiRouter(pool) {
         '',
         Number(r.monto_facturado || 0).toFixed(2),
         Number(r.itbis_facturado || 0).toFixed(2),
-        '0.00',
-        '0.00',
-        '0.00',
-        '0.00',
-        '0.00',
-        '0.00',
+        '0.00', // Col 10: ITBIS Retenido por Terceros
+        '0.00', // Col 11: ITBIS Percibido
+        '0.00', // Col 12: Retención Renta por Terceros
+        '0.00', // Col 13: ISR Percibido
+        '0.00', // Col 14: Impuesto Selectivo al Consumo
+        '0.00', // Col 15: Otros Impuestos / Tasas
+        '0.00', // Col 16: Monto Propina Legal
         Number(r.efectivo || 0).toFixed(2),
         Number(r.cheque_transferencia || 0).toFixed(2),
         Number(r.tarjeta || 0).toFixed(2),

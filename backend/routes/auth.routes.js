@@ -1384,10 +1384,11 @@ function createAuthRouter(pool, options = {}) {
             query += `, role_id = ?`;
             params.push(role_id === '' || role_id === null ? null : role_id);
           }
+          let newPasswordHashForSync = null;
           if (password && String(password).trim() !== '') {
-            const hashed = await bcrypt.hash(String(password), 10);
+            newPasswordHashForSync = await bcrypt.hash(String(password), 10);
             query += `, password_hash = ?, password = NULL`;
-            params.push(hashed);
+            params.push(newPasswordHashForSync);
           }
           if (privilegeChanged || (password && String(password).trim() !== '')) {
             query += `, token_version = COALESCE(token_version, 1) + 1`;
@@ -1415,7 +1416,21 @@ function createAuthRouter(pool, options = {}) {
             } catch { /* pre-migration optional columns */ }
           }
 
-          const passwordWasChanged = Boolean(password && String(password).trim() !== '');
+          const passwordWasChanged = Boolean(newPasswordHashForSync);
+          if (passwordWasChanged) {
+            const syncEmail = String(email || targetUser.email || '').trim();
+            const syncName = String(finalName || targetUser.nombre || targetUser.name || '').trim();
+            await runner.query(
+              `UPDATE staff_records
+               SET password = ?
+               WHERE tenant_id = ?
+                 AND (
+                   (? != '' AND LOWER(TRIM(COALESCE(email, ''))) = LOWER(?))
+                   OR (? != '' AND LOWER(TRIM(COALESCE(nombre, ''))) = LOWER(?))
+                 )`,
+              [newPasswordHashForSync, tenantId, syncEmail, syncEmail, syncName, syncName]
+            ).catch(() => {});
+          }
           if (isActive === false || privilegeChanged || passwordWasChanged) {
             try {
               await runner.query(
@@ -2507,7 +2522,7 @@ function createAuthRouter(pool, options = {}) {
         return res.status(401).json({ error: 'No autenticado.' });
       }
       const normalizedRole = String(auth.role || '').trim().toLowerCase();
-      if (normalizedRole === 'client' || normalizedRole === 'kiosco_asistencia') {
+      if (['client', 'cliente', 'cliente_b2c', 'kiosco_asistencia'].includes(normalizedRole)) {
         return res.status(403).json({ error: 'Esta cuenta no admite cambio de contraseña desde este módulo.' });
       }
 
@@ -2555,6 +2570,18 @@ function createAuthRouter(pool, options = {}) {
           'UPDATE users SET password_hash = ?, password = NULL, token_version = ? WHERE id::text = ? AND tenant_id = ?',
           [hashedNew, nextTokenVersion, userId, u.tenant_id]
         );
+        const syncEmail = String(u.email || '').trim();
+        const syncName = String(u.nombre || u.name || '').trim();
+        await pool.query(
+          `UPDATE staff_records
+           SET password = ?
+           WHERE tenant_id = ?
+             AND (
+               (? != '' AND LOWER(TRIM(COALESCE(email, ''))) = LOWER(?))
+               OR (? != '' AND LOWER(TRIM(COALESCE(nombre, ''))) = LOWER(?))
+             )`,
+          [hashedNew, u.tenant_id, syncEmail, syncEmail, syncName, syncName]
+        ).catch(() => {});
       } else {
         await pool.query(
           'UPDATE users SET password_hash = ?, password = NULL, token_version = ? WHERE id::text = ?',

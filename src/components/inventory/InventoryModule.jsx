@@ -53,6 +53,7 @@ export default function InventoryModule() {
   const trfInFlightRef = useRef(false);
   const [adjForm, setAdjForm] = useState({
     productId: '',
+    locationId: '',
     quantity: '1',
     adjustmentType: 'ADJUSTMENT_IN',
     reason: ''
@@ -202,17 +203,28 @@ export default function InventoryModule() {
     setAdjSearch('');
     setAdjForm({
       productId: preselectedProductId ? String(preselectedProductId) : '',
+      locationId: '',
       quantity: '1',
       adjustmentType: 'ADJUSTMENT_IN',
       reason: ''
     });
     setShowAdjustmentModal(true);
     try {
-      const activeProds = await dataService.getInventoryProducts({ activeOnly: true });
+      const [activeProds, locs] = await Promise.all([
+        dataService.getInventoryProducts({ activeOnly: true }),
+        dataService.getInventoryLocations().catch(() => []),
+      ]);
       const onlyProducts = (activeProds || []).filter(
         p => (!p.item_type || String(p.item_type).toUpperCase() === 'PRODUCTO') && p.is_active !== false && p.activo !== 0
       );
       setCatalogProducts(onlyProducts);
+      if (Array.isArray(locs) && locs.length > 0) {
+        setLocations(locs);
+        const defLoc = locs.find((l) => l.is_default) || locs[0];
+        if (defLoc) {
+          setAdjForm((prev) => ({ ...prev, locationId: prev.locationId || String(defLoc.id) }));
+        }
+      }
     } catch (err) {
       showNotification(err.message, true);
     }
@@ -229,7 +241,7 @@ export default function InventoryModule() {
         products.find((p) => String(p.id) === String(adjForm.productId));
       const res = await dataService.makeInventoryAdjustment(adjForm);
       const mov = res?.movement || {};
-      const locObj = locations.find((l) => String(l.id) === String(mov.location_id));
+      const locObj = locations.find((l) => String(l.id) === String(mov.location_id || adjForm.locationId));
       const isEntry = adjForm.adjustmentType === 'ADJUSTMENT_IN';
 
       setInventoryReceipt({
@@ -255,7 +267,7 @@ export default function InventoryModule() {
 
       showNotification('Ajuste de inventario aplicado correctamente');
       setShowAdjustmentModal(false);
-      setAdjForm({ productId: '', quantity: '1', adjustmentType: 'ADJUSTMENT_IN', reason: '' });
+      setAdjForm({ productId: '', locationId: '', quantity: '1', adjustmentType: 'ADJUSTMENT_IN', reason: '' });
       loadTabData();
     } catch (err) {
       showNotification(err.message, true);
@@ -1026,6 +1038,22 @@ export default function InventoryModule() {
                       ))}
                   </select>
                 </div>
+
+                {locations.length > 0 && (
+                  <div style={{ marginBottom: '0.8rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Almacén / Sucursal *</label>
+                    <select
+                      required
+                      value={adjForm.locationId}
+                      onChange={(e) => setAdjForm({ ...adjForm, locationId: e.target.value })}
+                      style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
+                    >
+                      {locations.map((loc) => (
+                        <option key={loc.id} value={loc.id}>{loc.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginBottom: '0.8rem' }}>
                   <div>

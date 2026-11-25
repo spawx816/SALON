@@ -98,7 +98,30 @@ class InventoryTransferRepository {
       }
       sql += ' ORDER BY t.created_at DESC';
       const [rows] = await this.pool.query(sql, params);
-      return rows || [];
+      if (!rows || rows.length === 0) return [];
+
+      const transferIds = rows.map((r) => r.id);
+      const placeholders = transferIds.map(() => '?').join(', ');
+      const [allItems] = await this.pool.query(
+        `SELECT ti.*, COALESCE(p.nombre, p.name) as product_name, p.sku
+         FROM inventory_transfer_items ti
+         LEFT JOIN services p ON ti.product_id = p.id AND ti.tenant_id = p.tenant_id
+         WHERE ti.tenant_id = ? AND ti.transfer_id IN (${placeholders})
+         ORDER BY COALESCE(p.nombre, p.name) ASC`,
+        [tenantId, ...transferIds]
+      ).catch(() => [[]]);
+
+      const itemsByTransfer = new Map();
+      for (const item of allItems || []) {
+        const list = itemsByTransfer.get(item.transfer_id) || [];
+        list.push(item);
+        itemsByTransfer.set(item.transfer_id, list);
+      }
+
+      return rows.map((r) => ({
+        ...r,
+        items: itemsByTransfer.get(r.id) || [],
+      }));
     }
     return [];
   }

@@ -1551,6 +1551,10 @@ const VisitRecorder = () => {
     if (!ticket) return;
     setSelectedTicket(ticket);
     setIsTicketExpanded(true);
+    setIsCreditoFiscal(false);
+    setSelectedComprobanteType(resolveDefaultConsumoType(sequenceAvailability));
+    setClientRncInput(ticket.rnc_cliente || ticket.client_cedula || '');
+    setClientRazonSocialInput(ticket.rzn_soc_cliente || ticket.client_name || '');
 
     let draft = {};
     try {
@@ -3926,6 +3930,10 @@ const VisitRecorder = () => {
                       setMontoRecibido('');
                       setPendingDiscountItem(null);
                       setIsAdminAuthorized(false);
+                      setIsCreditoFiscal(false);
+                      setSelectedComprobanteType(resolveDefaultConsumoType(sequenceAvailability));
+                      setClientRncInput('');
+                      setClientRazonSocialInput('');
                     }}
                     style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#64748b', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', borderRadius: '8px', padding: '0.25rem 0.6rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
                     title="Cambiar cliente"
@@ -3960,8 +3968,44 @@ const VisitRecorder = () => {
                       Sin cliente seleccionado
                     </h4>
                     <p style={{ margin: 0, fontSize: '0.775rem', color: '#64748b', lineHeight: 1.4 }}>
-                      Selecciona un ticket pendiente o presiona <strong>+ Generar Nuevo Ticket</strong> en la barra superior.
+                      {activeTicketMode === 'ticket_turno'
+                        ? 'Selecciona un cliente para facturar en caja o usa + Generar Nuevo Ticket arriba para emitir un Ticket de Turno.'
+                        : <>Selecciona un ticket pendiente o presiona <strong>+ Generar Nuevo Ticket</strong> en la barra superior.</>}
                     </p>
+                    {activeTicketMode === 'ticket_turno' && (
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap', marginTop: '0.75rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!activeRegister) {
+                              alert('🔒 DEBE ABRIR LA CAJA DE JORNADA PRIMERO\n\nNo se puede iniciar cobro si no existe una caja abierta en esta sucursal.');
+                              setShowRegisterOpenModal(true);
+                              return;
+                            }
+                            setClientFound({ id: 'INVITADO', nombre: 'Cliente General', name: 'Cliente General', es_invitado: true });
+                            setIsCreditoFiscal(false);
+                            setSelectedComprobanteType(resolveDefaultConsumoType(sequenceAvailability));
+                          }}
+                          style={{ padding: '0.5rem 0.85rem', borderRadius: '10px', border: 'none', background: '#09090b', color: '#ffffff', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer' }}
+                        >
+                          Cobro Rápido (Cliente General)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!activeRegister) {
+                              alert('🔒 DEBE ABRIR LA CAJA DE JORNADA PRIMERO\n\nNo se puede iniciar cobro si no existe una caja abierta en esta sucursal.');
+                              setShowRegisterOpenModal(true);
+                              return;
+                            }
+                            setShowNewTicketModal(true);
+                          }}
+                          style={{ padding: '0.5rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer' }}
+                        >
+                          Buscar / Seleccionar Cliente
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -5007,28 +5051,31 @@ const VisitRecorder = () => {
 
           {/* SELECTOR DE COMPROBANTE FISCAL (CONSUMO B02 POR DEFECTO, SECUENCIAS OBLIGATORIAS) */}
           {((finalTotalAmount === 0 || (appliedPayments.length === 1 && appliedPayments[0].method === 'Plan Beauty')) && !isCreditoFiscal) ? null : (() => {
-            const availList = (sequenceAvailability?.sequences || []).filter((s) => !s.is_electronic);
-            const uniqueTypes = [];
-            const seen = new Set();
-            availList.forEach((s) => {
-              if (!seen.has(s.tipo_comprobante)) {
-                seen.add(s.tipo_comprobante);
-                uniqueTypes.push(s);
-              }
-            });
-            const hasB02Configured = uniqueTypes.some((s) => s.tipo_comprobante === 'B02');
-            const showRncFields = selectedComprobanteType === 'B01' || isCreditoFiscal;
+            const byTypeObj = sequenceAvailability?.byType || {};
+            const allowEcf = Boolean(sequenceAvailability?.dgiiElectronicEnabled);
+            const uniqueTypes = Object.entries(byTypeObj)
+              .filter(([code, info]) => info && (allowEcf || !String(code).toUpperCase().startsWith('E')))
+              .map(([code, info]) => ({
+                tipo_comprobante: code,
+                nombre_comprobante: info.nombre_comprobante || code,
+                cantidad_disponible: info.remaining ?? info.cantidad_disponible ?? 0,
+                is_vencido: Boolean(info.isExpired ?? info.is_vencido),
+                is_agotado: Boolean(info.isExhausted ?? info.is_agotado),
+              }));
+            const defaultTypeCode = allowEcf && byTypeObj.E32 ? 'E32' : 'B02';
+            const hasConsumoConfigured = uniqueTypes.some((s) => s.tipo_comprobante === defaultTypeCode || s.tipo_comprobante === 'B02');
+            const showRncFields = selectedComprobanteType === 'B01' || selectedComprobanteType === 'E31' || isCreditoFiscal;
             return (
               <div style={{ margin: '0.45rem 0 0.15rem', padding: '0.6rem 0.75rem', borderRadius: '10px', background: uniqueTypes.length > 0 ? '#eff6ff' : '#fef2f2', border: `1.5px solid ${uniqueTypes.length > 0 ? '#3b82f6' : '#f87171'}`, transition: 'all 0.15s ease' }}>
                 <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: '#334155', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
                   Tipo de Comprobante Fiscal
                 </label>
                 <select
-                  value={selectedComprobanteType === 'NONE' ? 'B02' : selectedComprobanteType}
+                  value={selectedComprobanteType === 'NONE' ? defaultTypeCode : selectedComprobanteType}
                   onChange={(e) => {
                     const val = e.target.value;
                     setSelectedComprobanteType(val);
-                    const isB01 = val === 'B01';
+                    const isB01 = val === 'B01' || val === 'E31';
                     setIsCreditoFiscal(isB01);
                     if (isB01) {
                       if (clientFound?.cedula && !clientRncInput) setClientRncInput(clientFound.cedula);
@@ -5037,8 +5084,8 @@ const VisitRecorder = () => {
                   }}
                   style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.78rem', fontWeight: 700, background: '#ffffff', color: '#0f172a' }}
                 >
-                  {!hasB02Configured && (
-                    <option value="B02">B02 - Factura de Consumo (Requerida · Sin secuencia activa)</option>
+                  {!hasConsumoConfigured && (
+                    <option value={defaultTypeCode}>{defaultTypeCode} - Factura de Consumo (Requerida · Sin secuencia activa)</option>
                   )}
                   {uniqueTypes.map((seq) => (
                     <option key={seq.tipo_comprobante} value={seq.tipo_comprobante}>
@@ -6014,7 +6061,7 @@ const VisitRecorder = () => {
                 Cancelar
               </button>
               <button
-                onClick={executeCheckout}
+                onClick={() => executeCheckout()}
                 disabled={loading || otpCode.length < 4}
                 style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#10b981', color: '#ffffff', fontWeight: 800 }}
               >

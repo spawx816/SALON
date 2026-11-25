@@ -16,8 +16,8 @@ export default function Reporte607Module() {
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState({
     header: {
-      empresa: 'ETEREAS SRL',
-      rnc: '131917038',
+      empresa: 'SalonPro',
+      rnc: '',
       periodo: new Date().toISOString().slice(0, 7).replace('-', ''),
       cantidad_registros: 0,
       fecha_impresion: new Date().toLocaleDateString('es-DO')
@@ -54,8 +54,8 @@ export default function Reporte607Module() {
       } else if (res && res.records) {
         setReportData({
           header: {
-            empresa: 'ETEREAS SRL',
-            rnc: '131917038',
+            empresa: 'SalonPro',
+            rnc: '',
             periodo: currentPeriod,
             cantidad_registros: res.records.length,
             fecha_impresion: new Date().toLocaleDateString('es-DO')
@@ -66,8 +66,8 @@ export default function Reporte607Module() {
       } else {
         setReportData({
           header: {
-            empresa: 'ETEREAS SRL',
-            rnc: '131917038',
+            empresa: 'SalonPro',
+            rnc: '',
             periodo: currentPeriod,
             cantidad_registros: 0,
             fecha_impresion: new Date().toLocaleDateString('es-DO')
@@ -134,7 +134,7 @@ export default function Reporte607Module() {
         'Otras Formas de Ventas'
       ];
 
-      const rncEmpresa = String(reportData?.header?.rnc || '131917038');
+      const rncEmpresa = String(reportData?.header?.rnc || '');
       const periodoFiscal = String(reportData?.header?.periodo || currentPeriod);
       const totalRegistros = filteredRecords.length;
 

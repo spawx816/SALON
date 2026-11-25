@@ -119,8 +119,10 @@ export function TenantBrandingProvider({ children }) {
       const cached = localStorage.getItem(`salon_pro_branding_${tenantId}`);
       if (cached) {
         const parsed = JSON.parse(cached);
-        setBranding(parsed);
-        applyCssTokens(parsed);
+        if (parsed && !(parsed.is_default && String(parsed.primary_color || '').toLowerCase() === '#0f172a')) {
+          setBranding(parsed);
+          applyCssTokens(parsed);
+        }
       }
     } catch (_) {}
 
@@ -128,6 +130,7 @@ export function TenantBrandingProvider({ children }) {
     setError(null);
     try {
       const res = await fetch('/api/tenant/branding', {
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json'
         }

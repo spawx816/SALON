@@ -28,6 +28,7 @@ export default function TurnTicketModal({ isOpen, onClose, branchId = 'default',
   useEffect(() => {
     if (isOpen) {
       setError('');
+      setActiveTicket(null);
       if (!simpleMode) {
         loadRecent();
       }

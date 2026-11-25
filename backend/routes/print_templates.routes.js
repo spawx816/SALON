@@ -90,7 +90,7 @@ function createPrintTemplatesRouter(pool) {
           AND is_default = TRUE
       `;
       if (branch_id && branch_id !== 'default') {
-        modeSql += ' AND (branch_id = ? OR branch_id IS NULL) ORDER BY CASE WHEN branch_id IS NOT NULL THEN 0 ELSE 1 END, updated_at DESC LIMIT 1';
+        modeSql += ' AND (branch_id = ? OR branch_id IS NULL) ORDER BY updated_at DESC LIMIT 1';
         modeParams.push(String(branch_id));
       } else {
         modeSql += ' ORDER BY CASE WHEN branch_id IS NULL THEN 0 ELSE 1 END, updated_at DESC LIMIT 1';
@@ -337,11 +337,19 @@ function createPrintTemplatesRouter(pool) {
       if (!def) return res.status(400).json({ error: 'Tipo de documento inválido.' });
 
       const branchId = req.body?.branch_id ? String(req.body.branch_id).trim() : null;
-      await pool.query(
-        `UPDATE print_templates SET is_default = FALSE
-         WHERE tenant_id = ? AND document_type = ? AND (branch_id IS NOT DISTINCT FROM ?)`,
-        [tenantId, documentType, branchId]
-      );
+      if (documentType === 'ticket_turno' || documentType === 'ticket_venta') {
+        await pool.query(
+          `UPDATE print_templates SET is_default = FALSE
+           WHERE tenant_id = ? AND document_type IN ('ticket_turno', 'ticket_venta') AND (branch_id IS NOT DISTINCT FROM ?)`,
+          [tenantId, branchId]
+        );
+      } else {
+        await pool.query(
+          `UPDATE print_templates SET is_default = FALSE
+           WHERE tenant_id = ? AND document_type = ? AND (branch_id IS NOT DISTINCT FROM ?)`,
+          [tenantId, documentType, branchId]
+        );
+      }
 
       const id = crypto.randomUUID();
       const [inserted] = await pool.query(

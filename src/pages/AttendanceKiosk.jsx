@@ -280,7 +280,7 @@ const AttendanceKiosk = () => {
       try {
         const res = await fetch('/api/kiosk/session', { credentials: 'include' });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data?.active) {
+        if (!res.ok || (!data?.bound && !data?.active)) {
           setKioskActive(false);
           setKioskSessionInfo(null);
           setKioskLoadError('La sesión del Kiosco finalizó o fue revocada por el administrador.');
@@ -1043,7 +1043,20 @@ const AttendanceKiosk = () => {
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                onClick={loadBoundKioskState}
+                onClick={() => {
+                  if (isDuplicateTab) {
+                    try {
+                      const raw = localStorage.getItem('etereas_kiosk_single_tab_lock');
+                      const parsed = raw ? JSON.parse(raw) : null;
+                      if (parsed && parsed.tabId !== kioskTabIdRef.current && Date.now() - Number(parsed.ts || 0) < 8000) {
+                        return;
+                      }
+                      localStorage.setItem('etereas_kiosk_single_tab_lock', JSON.stringify({ tabId: kioskTabIdRef.current, ts: Date.now() }));
+                    } catch {}
+                    setIsDuplicateTab(false);
+                  }
+                  loadBoundKioskState();
+                }}
                 style={{
                   padding: '0.75rem 1.35rem',
                   borderRadius: '12px',
@@ -1057,22 +1070,24 @@ const AttendanceKiosk = () => {
               >
                 Reintentar Conexión
               </button>
-              <button
-                type="button"
-                onClick={handleKioskLogout}
-                style={{
-                  padding: '0.75rem 1.35rem',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(239,68,68,0.4)',
-                  background: 'rgba(239,68,68,0.12)',
-                  color: '#fca5a5',
-                  fontWeight: 800,
-                  fontSize: '0.88rem',
-                  cursor: 'pointer',
-                }}
-              >
-                Cerrar Sesión
-              </button>
+              {!isDuplicateTab && (
+                <button
+                  type="button"
+                  onClick={handleKioskLogout}
+                  style={{
+                    padding: '0.75rem 1.35rem',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(239,68,68,0.4)',
+                    background: 'rgba(239,68,68,0.12)',
+                    color: '#fca5a5',
+                    fontWeight: 800,
+                    fontSize: '0.88rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cerrar Sesión
+                </button>
+              )}
             </div>
           </div>
         </div>

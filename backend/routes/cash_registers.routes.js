@@ -1029,9 +1029,9 @@ function createCashRegistersRouter(pool) {
              tenant_id, salon_id, branch_id, salon_name,
              concept, concept_name, description, observation,
              category, amount, date, expense_date, payment_date,
-             payment_method, account_name, reference, status, created_by, created_at, updated_at
+             payment_method, account_name, reference, status, created_by, created_at
            )
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Operativo', ?, CURRENT_DATE, CURRENT_DATE, CURRENT_DATE, ?, 'Caja Chica / Efectivo', ?, 'Registrado', ?, NOW(), NOW())`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Operativo', ?, CURRENT_DATE, CURRENT_DATE, CURRENT_DATE, ?, 'Caja Chica / Efectivo', ?, 'Registrado', ?, NOW())`,
           [
             tenantId,
             String(reg.salon_id || reg.branch_id || ''),

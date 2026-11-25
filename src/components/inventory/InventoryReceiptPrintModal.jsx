@@ -51,6 +51,10 @@ export default function InventoryReceiptPrintModal({ receipt, isOpen, onClose, a
     >
       <style>{`
         @media print {
+          @page {
+            size: auto;
+            margin: 10mm;
+          }
           body * {
             visibility: hidden !important;
           }
@@ -59,13 +63,13 @@ export default function InventoryReceiptPrintModal({ receipt, isOpen, onClose, a
             visibility: visible !important;
           }
           #printable-inventory-receipt {
-            position: fixed !important;
+            position: absolute !important;
             left: 0 !important;
             top: 0 !important;
             width: 100% !important;
             max-width: 190mm !important;
             margin: 0 !important;
-            padding: 8mm !important;
+            padding: 4mm !important;
             box-shadow: none !important;
             border: none !important;
             background: #ffffff !important;
