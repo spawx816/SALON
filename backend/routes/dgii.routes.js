@@ -445,12 +445,12 @@ function createDgiiRouter(pool) {
       const itbisFacturado = Number(itbisNum.toFixed(2));
 
       const payCents = extractVisitPaymentsCents(row);
-      let efectivo = Number(((payCents.efectivo || 0) / 100).toFixed(2));
-      let tarjeta = Number(((payCents.tarjeta || 0) / 100).toFixed(2));
-      let chequeTransferencia = Number(((payCents.transferencia || 0) / 100).toFixed(2));
-      let bonosCertificados = Number(((payCents.gift_card || 0) / 100).toFixed(2));
-      let ventaCredito = Number(((payCents.consumo_empleado || 0) / 100).toFixed(2));
-      let otrasFormas = Number((((payCents.otros || 0) + (payCents.plan_beauty || 0)) / 100).toFixed(2));
+      let efectivo = Number(((payCents.efectivo_cents ?? Math.round((payCents.efectivo || 0) * 100)) / 100).toFixed(2));
+      let tarjeta = Number(((payCents.tarjeta_cents ?? Math.round((payCents.tarjeta || 0) * 100)) / 100).toFixed(2));
+      let chequeTransferencia = Number(((payCents.transferencia_cents ?? Math.round((payCents.transferencia || 0) * 100)) / 100).toFixed(2));
+      let bonosCertificados = Number(((payCents.gift_card_cents ?? Math.round((payCents.gift_card || 0) * 100)) / 100).toFixed(2));
+      let ventaCredito = Number(((payCents.consumo_empleado_cents ?? Math.round((payCents.consumo_empleado || 0) * 100)) / 100).toFixed(2));
+      let otrasFormas = Number((((payCents.otros_cents ?? 0) + (payCents.plan_beauty_cents ?? 0)) / 100).toFixed(2));
 
       const sumPaid = Number((efectivo + tarjeta + chequeTransferencia + bonosCertificados + ventaCredito + otrasFormas).toFixed(2));
       if (sumPaid <= 0 && totalNum > 0) {

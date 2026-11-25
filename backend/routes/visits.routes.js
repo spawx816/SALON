@@ -582,10 +582,11 @@ function createVisitsRouter(pool, helpers = {}) {
       }
 
       // Evaluar metas de reglas especiales con operación 'Contar' y otorgar el bono al cumplirse la meta
-      const contarRules = rulesRows.filter(
+      const contarRules = (schemeRuleRows || []).filter(
         (r) => String(r.rule_type || '').toLowerCase() === 'especial' && String(r.operacion || '').trim() === 'Contar'
       );
-      if (contarRules.length > 0 && validEmployees.length > 0) {
+      const activeStaffList = staffRows || [];
+      if (contarRules.length > 0 && activeStaffList.length > 0) {
         const resolvePeriodWindow = (rawDate, rawPeriodo) => {
           const d = rawDate ? new Date(rawDate) : new Date();
           const validDate = isNaN(d.getTime()) ? new Date() : d;
@@ -636,13 +637,13 @@ function createVisitsRouter(pool, helpers = {}) {
           };
         };
 
-        const refDates = [...new Set(workItems.map((w) => {
+        const refDates = [...new Set((preparedItems || []).map((w) => {
           const dt = w.visitedAt ? new Date(w.visitedAt) : new Date();
           return isNaN(dt.getTime()) ? new Date().toISOString() : dt.toISOString();
         }))];
         if (refDates.length === 0) refDates.push(new Date().toISOString());
 
-        for (const emp of validEmployees) {
+        for (const emp of activeStaffList) {
           const empRules = contarRules.filter((r) => Number(r.scheme_id) === Number(emp.commission_scheme_id));
           if (empRules.length === 0) continue;
 
