@@ -748,10 +748,28 @@ function apiRequest(baseUrl, method, urlPath, { body = null, jar = null, headers
     assert.strictEqual(oldPassLogin.status, 401);
 
     // La nueva clave puesta por el Administrador funciona tanto en Login Web como en Kiosco
+    const adminOverrideJar = new CookieJar();
     const adminOverrideLogin = await apiRequest(baseUrl, 'POST', '/api/auth/login', {
+      jar: adminOverrideJar,
       body: { email: workerEmail, password: 'ClaveAsignadaPorAdmin99!' },
     });
     assert.strictEqual(adminOverrideLogin.status, 200, 'Debe poder accederse con la contraseña asignada por el Administrador');
+
+    // Bloqueo de sesión simultánea para TODOS los usuarios (igual que Kiosco):
+    // Mientras adminOverrideJar está activo (< 25s), un segundo login del mismo usuario DEBE devolver 409 SESSION_ALREADY_ACTIVE
+    const dupUserLogin = await apiRequest(baseUrl, 'POST', '/api/auth/login', {
+      body: { email: workerEmail, password: 'ClaveAsignadaPorAdmin99!' },
+    });
+    assert.strictEqual(dupUserLogin.status, 409, `Login simultáneo de usuario regular debía dar 409, dio ${dupUserLogin.status}`);
+    assert.strictEqual(dupUserLogin.json.code, 'SESSION_ALREADY_ACTIVE');
+
+    // Al cerrar sesión explícitamente, puede volver a iniciar sesión de inmediato
+    const logoutWorker = await apiRequest(baseUrl, 'POST', '/api/auth/logout', { jar: adminOverrideJar });
+    assert.strictEqual(logoutWorker.status, 200);
+    const reloginAfterLogout = await apiRequest(baseUrl, 'POST', '/api/auth/login', {
+      body: { email: workerEmail, password: 'ClaveAsignadaPorAdmin99!' },
+    });
+    assert.strictEqual(reloginAfterLogout.status, 200, 'Tras cerrar sesión, el usuario debe poder iniciar sesión nuevamente');
 
     const kioskVerifyAdminPass = await apiRequest(baseUrl, 'POST', '/api/kiosk/verify-employee', {
       jar: kioskJarA,

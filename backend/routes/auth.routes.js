@@ -2084,23 +2084,27 @@ function createAuthRouter(pool, options = {}) {
             });
           }
 
-          // Bloquear apertura simultánea del mismo usuario Kiosco si ya tiene una sesión con latido activo (< 25s)
-          if (isKioskAccount && u.tenant_id && req.body?.force_takeover !== true) {
+          // Bloquear apertura simultánea del mismo usuario si ya tiene una sesión con latido activo (< 25s)
+          if (req.body?.force_takeover !== true) {
             try {
-              const [activeKioskSess] = await pool.query(
+              const tenantClause = u.tenant_id ? 'tenant_id = ?' : 'tenant_id IS NULL';
+              const activeParams = u.tenant_id ? [String(u.id), u.tenant_id] : [String(u.id)];
+              const [activeSess] = await pool.query(
                 `SELECT id, ip_address, last_activity
                  FROM user_sessions
                  WHERE user_id = ?
-                   AND tenant_id = ?
+                   AND ${tenantClause}
                    AND is_active = 1
                    AND last_activity > NOW() - INTERVAL '25 seconds'
                  LIMIT 1`,
-                [String(u.id), u.tenant_id]
+                activeParams
               );
-              if (activeKioskSess && activeKioskSess.length > 0) {
+              if (activeSess && activeSess.length > 0) {
                 return res.status(409).json({
-                  error: 'Este usuario de Kiosco de Asistencia ya está abierto simultáneamente en otro navegador o dispositivo. Cierra sesión en el dispositivo activo o finalízala desde Seguridad → Sesiones Activas.',
-                  code: 'KIOSK_SESSION_ALREADY_ACTIVE'
+                  error: isKioskAccount
+                    ? 'Este usuario de Kiosco de Asistencia ya está abierto simultáneamente en otro navegador o dispositivo. Cierra sesión en el dispositivo activo o finalízala desde Seguridad → Sesiones Activas.'
+                    : 'Este usuario ya tiene una sesión abierta simultáneamente en otro navegador o dispositivo. Cierra sesión en el dispositivo activo o finalízala desde Seguridad → Sesiones Activas.',
+                  code: isKioskAccount ? 'KIOSK_SESSION_ALREADY_ACTIVE' : 'SESSION_ALREADY_ACTIVE'
                 });
               }
             } catch {
@@ -2247,6 +2251,30 @@ function createAuthRouter(pool, options = {}) {
 
         if (!isClientPassValid) {
           return res.status(401).json({ error: 'Contraseña incorrecta.' });
+        }
+
+        if (req.body?.force_takeover !== true) {
+          try {
+            const clientTenantClause = client.tenant_id ? 'tenant_id = ?' : 'tenant_id IS NULL';
+            const clientActiveParams = client.tenant_id ? [String(client.id), client.tenant_id] : [String(client.id)];
+            const [activeClientSess] = await pool.query(
+              `SELECT id FROM user_sessions
+               WHERE user_id = ?
+                 AND ${clientTenantClause}
+                 AND is_active = 1
+                 AND last_activity > NOW() - INTERVAL '25 seconds'
+               LIMIT 1`,
+              clientActiveParams
+            );
+            if (activeClientSess && activeClientSess.length > 0) {
+              return res.status(409).json({
+                error: 'Esta cuenta ya tiene una sesión abierta simultáneamente en otro navegador o dispositivo. Cierra la sesión activa antes de iniciar una nueva.',
+                code: 'SESSION_ALREADY_ACTIVE'
+              });
+            }
+          } catch {
+            // Ignorar en entornos sin INTERVAL SQL
+          }
         }
 
         const { sessionId } = await issueSingleActiveUserSession(pool, {

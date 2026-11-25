@@ -123,12 +123,103 @@ const AppContent = () => {
   const [isPayrollOpen, setIsPayrollOpen] = useState(false);
   const [isReportIssueOpen, setIsReportIssueOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [isDuplicateUserTab, setIsDuplicateUserTab] = useState(false);
+  const userTabIdRef = React.useRef(`utab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
     document.title = 'Etereas';
   }, [location.pathname]);
+
+  // Bloqueo de pestañas simultáneas para cualquier usuario autenticado (igual que Kiosco)
+  const isKioskOnlyForLock =
+    String(user?.role || user?.rol || '').trim().toLowerCase() === 'kiosco_asistencia' ||
+    Boolean(user?.kioskOnly);
+  useEffect(() => {
+    if (!user?.id || isKioskOnlyForLock || location.pathname === '/asistencia') {
+      setIsDuplicateUserTab(false);
+      return undefined;
+    }
+
+    const LOCK_KEY = `etereas_user_single_tab_lock_${user.id}`;
+    const CHANNEL_NAME = `etereas_user_single_tab_channel_${user.id}`;
+    const tabId = userTabIdRef.current;
+    let blocked = false;
+
+    const checkAndClaimTabLock = () => {
+      try {
+        const raw = localStorage.getItem(LOCK_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.tabId !== tabId && Date.now() - Number(parsed.ts || 0) < 8000) {
+            blocked = true;
+            setIsDuplicateUserTab(true);
+            return false;
+          }
+        }
+        localStorage.setItem(LOCK_KEY, JSON.stringify({ tabId, ts: Date.now() }));
+        blocked = false;
+        setIsDuplicateUserTab(false);
+        return true;
+      } catch {
+        return true;
+      }
+    };
+
+    const claimed = checkAndClaimTabLock();
+    let bc = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel(CHANNEL_NAME);
+        bc.onmessage = (ev) => {
+          if (ev?.data?.type === 'PING_USER_TAB' && !blocked && ev.data.tabId !== tabId) {
+            bc.postMessage({ type: 'USER_TAB_ALREADY_OPEN', ownerTabId: tabId });
+          } else if (ev?.data?.type === 'USER_TAB_ALREADY_OPEN' && ev.data.ownerTabId !== tabId && blocked) {
+            setIsDuplicateUserTab(true);
+          }
+        };
+        if (!claimed) {
+          bc.postMessage({ type: 'PING_USER_TAB', tabId });
+        }
+      }
+    } catch {
+      // BroadcastChannel optional
+    }
+
+    const lockInterval = setInterval(() => {
+      if (!blocked) {
+        try {
+          localStorage.setItem(LOCK_KEY, JSON.stringify({ tabId, ts: Date.now() }));
+        } catch {}
+      }
+    }, 3000);
+
+    const releaseTabLock = () => {
+      if (!blocked) {
+        try {
+          const raw = localStorage.getItem(LOCK_KEY);
+          const parsed = raw ? JSON.parse(raw) : null;
+          if (!parsed || parsed.tabId === tabId) {
+            localStorage.removeItem(LOCK_KEY);
+          }
+        } catch {}
+      }
+    };
+
+    window.addEventListener('beforeunload', releaseTabLock);
+    window.addEventListener('pagehide', releaseTabLock);
+
+    return () => {
+      clearInterval(lockInterval);
+      window.removeEventListener('beforeunload', releaseTabLock);
+      window.removeEventListener('pagehide', releaseTabLock);
+      releaseTabLock();
+      if (bc) {
+        try { bc.close(); } catch {}
+      }
+    };
+  }, [user?.id, isKioskOnlyForLock, location.pathname]);
 
   const isClientsActive = location.pathname.startsWith('/lista-clientes') || location.pathname.startsWith('/registro-cliente') || location.pathname.startsWith('/clientes');
   const isSalesActive = location.pathname.startsWith('/visitas') || location.pathname.startsWith('/cajas') || location.pathname.startsWith('/facturas') || location.pathname.startsWith('/servicios') || location.pathname.startsWith('/marketing') || location.pathname.startsWith('/inventario') || location.pathname.startsWith('/inventory') || isClientsActive;
@@ -400,6 +491,53 @@ const AppContent = () => {
           <Route path="/saas-checkout/retorno" element={<SaasCheckoutReturnPage />} />
         </Routes>
       </Suspense>
+    );
+  }
+
+  if (isDuplicateUserTab) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#09090b', color: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
+        <div style={{ maxWidth: '460px', width: '100%', background: '#18181b', border: '1px solid #27272a', borderRadius: '20px', padding: '2rem', textAlign: 'center', boxShadow: '0 24px 48px rgba(0,0,0,0.45)' }}>
+          <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'rgba(245, 158, 11, 0.14)', border: '1px solid rgba(245, 158, 11, 0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
+            <Shield size={26} color="#f59e0b" />
+          </div>
+          <h2 style={{ fontSize: '1.35rem', fontWeight: 900, margin: '0 0 0.6rem 0', color: '#ffffff' }}>
+            Sesión ya abierta en otra ventana
+          </h2>
+          <p style={{ fontSize: '0.9rem', color: '#a1a1aa', margin: '0 0 1.5rem 0', lineHeight: 1.55 }}>
+            Por seguridad, tu usuario solo puede tener un inicio de sesión activo a la vez. Utiliza la pestaña o ventana que ya se encuentra abierta.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                const LOCK_KEY = `etereas_user_single_tab_lock_${user?.id}`;
+                const raw = localStorage.getItem(LOCK_KEY);
+                const parsed = raw ? JSON.parse(raw) : null;
+                if (parsed && parsed.tabId !== userTabIdRef.current && Date.now() - Number(parsed.ts || 0) < 8000) {
+                  return;
+                }
+                localStorage.setItem(LOCK_KEY, JSON.stringify({ tabId: userTabIdRef.current, ts: Date.now() }));
+                setIsDuplicateUserTab(false);
+              } catch {
+                setIsDuplicateUserTab(false);
+              }
+            }}
+            style={{
+              padding: '0.78rem 1.4rem',
+              borderRadius: '12px',
+              border: 'none',
+              background: '#ffffff',
+              color: '#09090b',
+              fontWeight: 800,
+              fontSize: '0.88rem',
+              cursor: 'pointer'
+            }}
+          >
+            Reintentar Conexión
+          </button>
+        </div>
+      </div>
     );
   }
 
