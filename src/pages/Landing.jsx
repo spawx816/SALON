@@ -743,7 +743,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                 <span className="et-offer-badge">PLAN PRINCIPAL</span>
                 <span>
                   Operación integral por sucursal ·{' '}
-                  <strong className="et-offer-price">Add-on opcional de Membresías B2C</strong>
+                  <strong className="et-offer-price">Módulo opcional de membresías</strong>
                 </span>
                 <span className="et-hero-offer-sub">
                   3 usuarios incluidos por sucursal · Clientes CRM e inventario avanzado incluidos
@@ -1235,13 +1235,10 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                       />
                       <span style={{ flex: 1 }}>
                         <span style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
-                          Agregar Suscripciones y Membresías B2C
+                          Agregar membresías para mis clientes
                         </span>
-                        <span style={{ display: 'block', fontSize: '12px', color: '#2563eb', fontWeight: 700, marginTop: '2px' }}>
-                          US$99/mes por bloque de hasta 3 sucursales + implementación e integración con pasarela de pago
-                        </span>
-                        <span style={{ display: 'block', fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                          1–3 sucursales = 1 membresía · 4–6 sucursales = 2 membresías. Implementación cotizada por separado.
+                        <span style={{ display: 'block', fontSize: '11.5px', color: '#475569', marginTop: '3px', lineHeight: 1.45 }}>
+                          Elige en cuántas sucursales ofrecerás membresías a tus clientes. Cada bloque de hasta 3 sucursales por tan solo US$99 al mes. La implementación y la integración con la pasarela de pago se cotizan por separado.
                         </span>
                       </span>
                     </label>
@@ -1356,7 +1353,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                     className="et-btn-primary et-cta-full"
                     onClick={(e) => openOnboardingModal('principal', e.currentTarget)}
                   >
-                    Solicitar alta Plan Principal →
+                    Registrar mi empresa →
                   </button>
                   <p className="et-cta-sub">Revisa tu selección antes de continuar.</p>
                 </div>
