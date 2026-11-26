@@ -479,8 +479,8 @@ async function runTests() {
     });
     assert.strictEqual(blockReassign.status, 409, `Expected 409 reassigning settled visit, got ${blockReassign.status}`);
 
-    // Generate payroll draft for today -> Emp1 MUST ONLY get cFixed (500.00), NEVER cPct (400.00 already 'Pagado' + payout_id)!
-    const today = new Date().toISOString().slice(0, 10);
+    // Generate payroll draft for today (RD timezone) -> Emp1 MUST ONLY get cFixed (500.00), NEVER cPct (400.00 already 'Pagado' + payout_id)!
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santo_Domingo' });
     const payrollDraft = await requestJson(baseUrl, 'POST', '/api/payroll/generate', {
       token: tokenOwnerA,
       body: { start_date: today, end_date: today, period_name: `Nómina M4 ${ts}`, salon_id: bA1 },
