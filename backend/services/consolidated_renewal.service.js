@@ -122,8 +122,7 @@ class ConsolidatedRenewalService {
     const extraUserUsd = Number(pricing?.principal?.extraUserUsd ?? 30);
     const addonBlockUsd = Number(pricing?.addons?.memberships?.usd ?? 99);
 
-    const principalMembershipsCount = Math.max(1, Math.ceil(billableBranches / 3));
-    const branchUsdMinor = BigInt(Math.round(branchUsd * 100)) * BigInt(principalMembershipsCount);
+    const branchUsdMinor = BigInt(Math.round(branchUsd * 100)) * BigInt(billableBranches);
     const extraUserUsdMinor = BigInt(Math.round(extraUserUsd * 100)) * BigInt(extraUsers);
     const addonUsdMinor = BigInt(Math.round(addonBlockUsd * 100)) * BigInt(addonBlocks);
     const subtotalUsdMinor = branchUsdMinor + extraUserUsdMinor + addonUsdMinor;
@@ -148,7 +147,7 @@ class ConsolidatedRenewalService {
     const lineItems = [
       {
         item_type: 'PLAN_BRANCHES',
-        description: `Plan Principal Etereas (${principalMembershipsCount} ${principalMembershipsCount === 1 ? 'membresía' : 'membresías'} · hasta ${principalMembershipsCount * 3} sucursales)`,
+        description: `Plan Principal Etereas (${billableBranches} ${billableBranches === 1 ? 'sucursal' : 'sucursales'})`,
         amount_minor: branchDopMinor,
         usd_minor: branchUsdMinor.toString(),
       },

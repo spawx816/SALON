@@ -611,8 +611,11 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
     : extraUserPrice !== null
       ? Number((extraUsersCount * extraUserPrice).toFixed(2))
       : null;
+  const addonBlocksCount = wantsMembershipsAddon
+    ? Math.max(1, Math.ceil(effectiveAddonBranches / 3))
+    : 0;
   const addonMonthlySubtotal = wantsMembershipsAddon
-    ? Number((effectiveAddonBranches * addonUnitPrice).toFixed(2))
+    ? Number((addonBlocksCount * addonUnitPrice).toFixed(2))
     : 0;
   const totalEstimatedMonthly =
     branchesSubtotal !== null && !extraUsersPendingQuote
@@ -914,7 +917,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
               {extraModulesOpen && (
                 <div className="et-accordion-panel">
                   <span className="et-pill-item">Perfiles y CRM de clientes (Plan Principal)</span>
-                  <span className="et-pill-item">Membresías B2C y renovaciones (US$99/mes por sucursal + implementación)</span>
+                  <span className="et-pill-item">Membresías B2C y renovaciones (US$99/mes por bloque de hasta 3 sucursales + implementación)</span>
                   <span className="et-pill-item">Gestión por sucursal</span>
                 </div>
               )}
@@ -1115,7 +1118,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                     inventario avanzado multisucursal, control de asistencia facial, nómina, comisiones, marketing
                     y reportes (606 y 607). Integración de facturación electrónica DGII: contratación y habilitación
                     por separado. El módulo adicional de Suscripciones y Membresías B2C tiene un costo de US$99/mes
-                    por sucursal + implementación e integración con pasarela de pago (cotización por separado).
+                    por bloque de hasta 3 sucursales + implementación e integración con pasarela de pago (cotización por separado).
                   </div>
                 )}
 
@@ -1235,10 +1238,10 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                           Agregar Suscripciones y Membresías B2C
                         </span>
                         <span style={{ display: 'block', fontSize: '12px', color: '#2563eb', fontWeight: 700, marginTop: '2px' }}>
-                          US$99/mes por sucursal + implementación e integración con pasarela de pago
+                          US$99/mes por bloque de hasta 3 sucursales + implementación e integración con pasarela de pago
                         </span>
                         <span style={{ display: 'block', fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                          Implementación cotizada por separado.
+                          1–3 sucursales = 1 membresía · 4–6 sucursales = 2 membresías. Implementación cotizada por separado.
                         </span>
                       </span>
                     </label>

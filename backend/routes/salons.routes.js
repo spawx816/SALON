@@ -51,8 +51,7 @@ function createSalonsRouter(poolOrOptions, options = {}) {
         `SELECT id, licensed_branches, max_branches, extra_user_seats, max_users FROM tenants WHERE id = ? LIMIT 1`,
         [tenantId]
       );
-      const rawLicensed = Math.max(1, Number(tenantRows[0]?.licensed_branches || tenantRows[0]?.max_branches || 1));
-      const licensedBranches = Math.max(rawLicensed, Math.ceil(rawLicensed / 3) * 3);
+      const licensedBranches = Number(tenantRows[0]?.licensed_branches || tenantRows[0]?.max_branches || 1);
 
       const [branchCountRows] = await pool.query(
         `SELECT COUNT(*)::int as total FROM branches WHERE tenant_id = ? AND is_active = true`,
@@ -161,8 +160,7 @@ function createSalonsRouter(poolOrOptions, options = {}) {
         `SELECT licensed_branches, max_branches FROM tenants WHERE id = ? LIMIT 1`,
         [tenantId]
       );
-      const rawLicensed = Math.max(1, Number(tenantRows[0]?.licensed_branches || tenantRows[0]?.max_branches || 1));
-      const licensedBranches = Math.max(rawLicensed, Math.ceil(rawLicensed / 3) * 3);
+      const licensedBranches = Number(tenantRows[0]?.licensed_branches || tenantRows[0]?.max_branches || 1);
       const [branchCountRows] = await pool.query(
         `SELECT COUNT(*)::int as total FROM branches WHERE tenant_id = ? AND is_active = true`,
         [tenantId]
@@ -376,8 +374,7 @@ function createSalonsRouter(poolOrOptions, options = {}) {
         } else {
           const [tenantRows] = await pool.query('SELECT max_branches, licensed_branches FROM tenants WHERE id = ?', [tenantId]);
           const [branchCount] = await pool.query('SELECT COUNT(*) as total FROM branches WHERE tenant_id = ? AND is_active = true', [tenantId]);
-          const rawMaxBranches = Math.max(1, parseInt(tenantRows[0]?.licensed_branches || tenantRows[0]?.max_branches || 1, 10));
-          const maxBranches = Math.max(rawMaxBranches, Math.ceil(rawMaxBranches / 3) * 3);
+          const maxBranches = parseInt(tenantRows[0]?.licensed_branches || tenantRows[0]?.max_branches || 1, 10);
           const currentBranches = parseInt(branchCount[0]?.total || 0, 10);
 
           if (currentBranches >= maxBranches) {

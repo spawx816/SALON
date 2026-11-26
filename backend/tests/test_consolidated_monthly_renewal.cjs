@@ -161,10 +161,10 @@ async function main() {
       assert.strictEqual(resDisabled.reason, 'RENEWAL_WORKER_DISABLED');
 
       const quote = await disabledWorker.calculateConsolidatedQuote({ tenantId: tId });
-      // (1 membresía de hasta 3 sucursales * 99 + 2*30 + 1 bloque add-on*99) = 99 + 60 + 99 = 258 USD * 60.00 = 15,480.00 DOP (1548000 minor)
+      // (3*99 + 2*30 + 2*99) = 297 + 60 + 198 = 555 USD * 60.00 = 33,300.00 DOP (3330000 minor)
       assert.strictEqual(quote.currency, 'DOP');
-      assert.strictEqual(quote.subtotalUsdMinor, '25800');
-      assert.strictEqual(quote.totalDopMinor, '1548000');
+      assert.strictEqual(quote.subtotalUsdMinor, '55500');
+      assert.strictEqual(quote.totalDopMinor, '3330000');
       assert.strictEqual(quote.excludesOneTimeImplementation, true);
       console.log('  ✅ 3. Cotización consolidada (3 sucursales + 2 usuarios + 2 add-ons en DOP) y bloqueo por defecto del worker verificados.');
     }
@@ -418,16 +418,16 @@ async function main() {
     console.log('\n🎉 TODAS LAS PRUEBAS DE RENOVACIÓN MENSUAL CONSOLIDADA PASARON.');
   } finally {
     if (tenantIds.length > 0) {
-      await pool.query('DELETE FROM saas_renewal_runs WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => { });
-      await pool.query('DELETE FROM saas_payments WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => { });
-      await pool.query('DELETE FROM saas_invoice_items WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => { });
-      await pool.query('DELETE FROM saas_invoices WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => { });
-      await pool.query('DELETE FROM saas_invoice_counters WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => { });
-      await pool.query('DELETE FROM saas_payment_methods WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => { });
-      await pool.query('DELETE FROM tenant_subscriptions WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => { });
-      await pool.query('DELETE FROM branches WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => { });
-      await pool.query('DELETE FROM users WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => { });
-      await pool.query('DELETE FROM tenants WHERE id = ANY(?)', [tenantIds]).catch(() => { });
+      await pool.query('DELETE FROM saas_renewal_runs WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => {});
+      await pool.query('DELETE FROM saas_payments WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => {});
+      await pool.query('DELETE FROM saas_invoice_items WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => {});
+      await pool.query('DELETE FROM saas_invoices WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => {});
+      await pool.query('DELETE FROM saas_invoice_counters WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => {});
+      await pool.query('DELETE FROM saas_payment_methods WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => {});
+      await pool.query('DELETE FROM tenant_subscriptions WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => {});
+      await pool.query('DELETE FROM branches WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => {});
+      await pool.query('DELETE FROM users WHERE tenant_id = ANY(?)', [tenantIds]).catch(() => {});
+      await pool.query('DELETE FROM tenants WHERE id = ANY(?)', [tenantIds]).catch(() => {});
     }
     await pool.end();
   }

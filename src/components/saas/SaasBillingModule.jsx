@@ -573,9 +573,7 @@ export default function SaasBillingModule() {
   const isSubscriptionCancelled = status === 'canceled' || status === 'cancelled' || cancelAtPeriodEnd;
 
   const branchesUsed = entitlements?.usage?.branches ?? 0;
-  const rawBranchesLimit = Number(entitlements?.limits?.branches ?? subscription?.branches_count ?? 1) || 1;
-  const principalMembershipsCount = Math.max(1, Math.ceil(rawBranchesLimit / 3));
-  const branchesLimit = Math.max(rawBranchesLimit, principalMembershipsCount * 3);
+  const branchesLimit = Number(entitlements?.limits?.branches ?? subscription?.branches_count ?? 1) || 1;
   const usersUsed = entitlements?.usage?.users ?? 0;
   const usersLimit = Number(entitlements?.limits?.users ?? 3) || 3;
   const usersIncludedPerBranch = 3;
@@ -603,7 +601,7 @@ export default function SaasBillingModule() {
   const extraUserUnitUsd = Number(activePricing?.principal?.extraUserUsd ?? 30);
   const addonBlockUnitUsd = Number(activePricing?.addons?.memberships?.usd ?? 99);
 
-  const branchesMonthlyUsd = Number((principalMembershipsCount * branchUnitUsd).toFixed(2));
+  const branchesMonthlyUsd = Number((branchesLimit * branchUnitUsd).toFixed(2));
   const extraUsersMonthlyUsd = Number((extraUsersCount * extraUserUnitUsd).toFixed(2));
   const addonMonthlyUsd = Number((addonBlocksCount * addonBlockUnitUsd).toFixed(2));
   const totalMonthlyUsd = Number((branchesMonthlyUsd + extraUsersMonthlyUsd + addonMonthlyUsd).toFixed(2));
@@ -866,10 +864,10 @@ export default function SaasBillingModule() {
               >
                 <div>
                   <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
-                    {principalMembershipsCount} {principalMembershipsCount === 1 ? 'membresía principal' : 'membresías principales'} ({branchesLimit} sucursales incluidas)
+                    {branchesLimit} {branchesLimit === 1 ? 'sucursal' : 'sucursales'}
                   </div>
                   <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                    {formatUsdClean(branchUnitUsd)} por membresía · Incluye hasta 3 sucursales y {usersIncludedPerBranch} usuarios por sucursal
+                    {formatUsdClean(branchUnitUsd)} por sucursal · {usersIncludedPerBranch} usuarios incluidos por sucursal
                   </div>
                 </div>
                 <strong style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>
