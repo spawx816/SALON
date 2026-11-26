@@ -156,6 +156,9 @@ function buildCanonicalRegisterDto(register, summary = null) {
 async function sendCashRegisterCloseEmail(pool, {
   tenantId,
   registerId,
+  registerNumber,
+  salonId,
+  salonName: providedSalonName,
   openedAt,
   openedBy,
   closedBy,
@@ -168,6 +171,7 @@ async function sendCashRegisterCloseEmail(pool, {
   difference,
   discrepancyReason,
   notes,
+  summary = {},
 }) {
   try {
     const [tenantRows] = await pool.query(
@@ -176,6 +180,24 @@ async function sendCashRegisterCloseEmail(pool, {
     );
     const tenant = tenantRows?.[0] || {};
     const businessName = tenant.business_name || tenant.legal_name || 'Etereas';
+
+    let branchLabel = providedSalonName || '';
+    if (!branchLabel && salonId) {
+      const [bRows] = await pool.query(
+        'SELECT name FROM branches WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+        [String(salonId), tenantId]
+      ).catch(() => [[]]);
+      if (bRows?.[0]?.name) {
+        branchLabel = bRows[0].name;
+      } else {
+        const [sRows] = await pool.query(
+          'SELECT name FROM salons WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+          [String(salonId), tenantId]
+        ).catch(() => [[]]);
+        if (sRows?.[0]?.name) branchLabel = sRows[0].name;
+      }
+    }
+    const fullSalonName = branchLabel ? `${businessName} - ${branchLabel}` : businessName;
 
     const [adminUsers] = await pool.query(
       "SELECT email FROM users WHERE tenant_id = ? AND role IN ('propietario', 'admin') AND email IS NOT NULL AND email != ''",
@@ -210,58 +232,292 @@ async function sendCashRegisterCloseEmail(pool, {
 
     if (!transporter || !fromAddress) return { sent: false, reason: 'no_smtp_configured' };
 
-    const closedAtStr = new Date().toLocaleString('es-DO', { timeZone: 'America/Santo_Domingo' });
-    const openedAtStr = openedAt ? new Date(openedAt).toLocaleString('es-DO', { timeZone: 'America/Santo_Domingo' }) : 'N/A';
-    const diffColor = difference === 0 ? '#16a34a' : (difference < 0 ? '#dc2626' : '#d97706');
+    const formatDateDO = (dateVal) => {
+      if (!dateVal) return 'N/A';
+      return new Date(dateVal).toLocaleString('es-DO', {
+        timeZone: 'America/Santo_Domingo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      });
+    };
+
+    const openedStr = formatDateDO(openedAt);
+    const closedStr = formatDateDO(new Date());
+    const dateTodayStr = new Date().toLocaleDateString('es-DO', { timeZone: 'America/Santo_Domingo' });
+
+    const efectivoTotal = Number(summary.efectivoTotal ?? cashSales ?? 0);
+    const tarjetaTotal = Number(summary.tarjetaTotal ?? 0);
+    const transferenciaTotal = Number(summary.transferenciaTotal ?? 0);
+    const giftCardTotal = Number(summary.giftCardTotal ?? 0);
+    const consumoTotal = Number(summary.consumoTotal ?? 0);
+    const planBeautyTotal = Number(summary.planBeautyTotal ?? 0);
+    const otrosTotal = Number(summary.otrosTotal ?? 0);
+    const totalFacturado = Number(summary.totalFacturado ?? (efectivoTotal + tarjetaTotal + transferenciaTotal + giftCardTotal + consumoTotal + planBeautyTotal + otrosTotal));
+    const countVentas = Number(summary.countVentas ?? 0);
+
+    const gastosTotal = Number(summary.gastosTotal ?? 0);
+    const prestamosTotal = Number(summary.prestamosTotal ?? 0);
+    const retirosTotal = Number(summary.retirosTotal ?? 0);
+    const entradasTotal = Number(summary.entradasTotal ?? ingresos ?? 0);
+    const devolucionesEfectivoTotal = Number(summary.devolucionesEfectivoTotal ?? 0);
+    const gastosYPrestamosTotal = Number((gastosTotal + prestamosTotal).toFixed(2)) || Math.max(0, Number(salidas || 0) - retirosTotal);
+
+    const listaGastos = Array.isArray(summary.listaGastos) ? summary.listaGastos : [];
+    const listaPrestamos = Array.isArray(summary.listaPrestamos) ? summary.listaPrestamos : [];
+    const listaAnulaciones = Array.isArray(summary.listaAnulaciones) ? summary.listaAnulaciones : [];
+
+    const regNumLabel = registerNumber || `CAJA-#${String(registerId).slice(0, 8).toUpperCase()}`;
+    const obsText = String(notes || '').trim();
+    const diffNum = Number(difference || 0);
+
+    let diffStatusHtml = '';
+    if (Math.abs(diffNum) < 0.01) {
+      diffStatusHtml = '<span style="color: #16a34a; font-weight: 800; background: #dcfce7; padding: 4px 10px; border-radius: 6px;">✅ CUADRADA EXACTA (RD$ 0.00)</span>';
+    } else if (diffNum > 0) {
+      diffStatusHtml = `<span style="color: #0284c7; font-weight: 800; background: #e0f2fe; padding: 4px 10px; border-radius: 6px;">➕ SOBRANTE: +${escapeHtml(fmtMoney(diffNum))}</span>`;
+    } else {
+      diffStatusHtml = `<span style="color: #dc2626; font-weight: 800; background: #fee2e2; padding: 4px 10px; border-radius: 6px;">⚠️ FALTANTE: -${escapeHtml(fmtMoney(Math.abs(diffNum)))}</span>`;
+    }
 
     const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f8fafc; padding: 24px;">
-        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px;">
-          <h2 style="margin: 0 0 6px; color: #0f172a; font-size: 18px;">Cierre / Cuadre de Caja — ${escapeHtml(businessName)}</h2>
-          <p style="margin: 0 0 16px; color: #64748b; font-size: 13px;">Caja #${escapeHtml(registerId)} · Cerrada el ${escapeHtml(closedAtStr)}</p>
-          <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #1e293b;">
-            <tr><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;">Apertura</td><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9; text-align: right;">${escapeHtml(openedAtStr)} (${escapeHtml(openedBy || 'N/A')})</td></tr>
-            <tr><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;">Cerrada por</td><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9; text-align: right;"><strong>${escapeHtml(closedBy)}</strong></td></tr>
-            <tr><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;">Fondo inicial</td><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9; text-align: right;">${escapeHtml(fmtMoney(openingBalance))}</td></tr>
-            <tr><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;">Ventas en efectivo</td><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9; text-align: right;">${escapeHtml(fmtMoney(cashSales))}</td></tr>
-            <tr><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;">Ingresos manuales</td><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9; text-align: right;">${escapeHtml(fmtMoney(ingresos))}</td></tr>
-            <tr><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;">Salidas manuales</td><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9; text-align: right;">-${escapeHtml(fmtMoney(salidas))}</td></tr>
-            <tr><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; font-weight: 700;">Saldo esperado</td><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700;">${escapeHtml(fmtMoney(expectedBalance))}</td></tr>
-            <tr><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; font-weight: 700;">Saldo real contado</td><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700;">${escapeHtml(fmtMoney(closingBalance))}</td></tr>
-            <tr><td style="padding: 8px 0; font-weight: 800; color: ${diffColor};">Diferencia</td><td style="padding: 8px 0; text-align: right; font-weight: 800; color: ${diffColor};">${escapeHtml(fmtMoney(difference))}</td></tr>
-          </table>
-          ${discrepancyReason ? `<p style="margin: 14px 0 0; padding: 10px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; color: #991b1b; font-size: 12px;"><strong>Motivo de diferencia:</strong> ${escapeHtml(discrepancyReason)}</p>` : ''}
-          ${notes ? `<p style="margin: 10px 0 0; color: #475569; font-size: 12px;"><strong>Observaciones:</strong> ${escapeHtml(notes)}</p>` : ''}
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+      </head>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 20px; color: #1e293b;">
+        <div style="max-width: 650px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.06); border: 1px solid #e2e8f0;">
+          <div style="background: #ffffff; padding: 26px 20px 18px 20px; text-align: center; border-bottom: 2px solid #0f172a;">
+            <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: 1.5px; color: #000000 !important; text-transform: uppercase;">${escapeHtml(businessName)}</h1>
+            <h2 style="margin: 6px 0 0 0; font-size: 13px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.8px;">Reporte Oficial de Cierre y Arqueo de Caja</h2>
+          </div>
+          <div style="padding: 24px;">
+            <div style="background: #f1f5f9; border-radius: 12px; padding: 16px; margin-bottom: 20px; font-size: 13px; line-height: 1.6;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <tr>
+                  <td style="padding: 4px 0; color: #64748b;"><strong>Caja N°:</strong></td>
+                  <td style="padding: 4px 0; text-align: right; font-weight: 700; color: #0f172a;">${escapeHtml(regNumLabel)}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 4px 0; color: #64748b;"><strong>Responsable / Cajera:</strong></td>
+                  <td style="padding: 4px 0; text-align: right; font-weight: 700; color: #0f172a;">${escapeHtml(closedBy || openedBy || 'Recepción')}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 4px 0; color: #64748b;"><strong>Sucursal:</strong></td>
+                  <td style="padding: 4px 0; text-align: right; color: #0f172a;">${escapeHtml(fullSalonName)}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 4px 0; color: #64748b;"><strong>Apertura:</strong></td>
+                  <td style="padding: 4px 0; text-align: right; color: #0f172a;">${escapeHtml(openedStr)}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 4px 0; color: #64748b;"><strong>Cierre:</strong></td>
+                  <td style="padding: 4px 0; text-align: right; color: #0f172a;">${escapeHtml(closedStr)}</td>
+                </tr>
+              </table>
+            </div>
+
+            <!-- CARD 1: VENTAS POR MÉTODO -->
+            <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
+              <div style="font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; margin-bottom: 14px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">💳 Resumen de Ventas Facturadas (${countVentas} Transacciones Activas)</div>
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <tr style="border-bottom: 1px dashed #e2e8f0;">
+                  <td style="padding: 6px 0;">💵 Efectivo Neto</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600;">${escapeHtml(fmtMoney(efectivoTotal))}</td>
+                </tr>
+                <tr style="border-bottom: 1px dashed #e2e8f0;">
+                  <td style="padding: 6px 0;">💳 Tarjeta / Verifone Neto</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600;">${escapeHtml(fmtMoney(tarjetaTotal))}</td>
+                </tr>
+                <tr style="border-bottom: 1px dashed #e2e8f0;">
+                  <td style="padding: 6px 0;">📲 Transferencia Neta</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600;">${escapeHtml(fmtMoney(transferenciaTotal))}</td>
+                </tr>
+                ${giftCardTotal > 0 ? `
+                <tr style="border-bottom: 1px dashed #e2e8f0;">
+                  <td style="padding: 6px 0;">🎁 Gift Card / Bono</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600;">${escapeHtml(fmtMoney(giftCardTotal))}</td>
+                </tr>` : ''}
+                ${consumoTotal > 0 ? `
+                <tr style="border-bottom: 1px dashed #e2e8f0;">
+                  <td style="padding: 6px 0;">👥 Consumo Nómina / Empleado</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600;">${escapeHtml(fmtMoney(consumoTotal))}</td>
+                </tr>` : ''}
+                ${planBeautyTotal > 0 ? `
+                <tr style="border-bottom: 1px dashed #e2e8f0;">
+                  <td style="padding: 6px 0;">💎 Plan Beauty (Canjes)</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600;">${escapeHtml(fmtMoney(planBeautyTotal))}</td>
+                </tr>` : ''}
+                ${otrosTotal > 0 ? `
+                <tr style="border-bottom: 1px dashed #e2e8f0;">
+                  <td style="padding: 6px 0;">🏷️ Otros Métodos</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600;">${escapeHtml(fmtMoney(otrosTotal))}</td>
+                </tr>` : ''}
+                <tr style="border-top: 2px solid #0f172a; font-weight: 800; font-size: 15px;">
+                  <td style="padding: 10px 0; color: #0f172a;">TOTAL FACTURADO EN TURNO</td>
+                  <td style="padding: 10px 0; text-align: right; color: #be185d;">${escapeHtml(fmtMoney(totalFacturado))}</td>
+                </tr>
+              </table>
+            </div>
+
+            <!-- CARD ANULACIONES SI EXISTEN -->
+            ${listaAnulaciones.length > 0 ? `
+            <div style="border: 1px solid #fecaca; background: #fff5f5; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
+              <div style="font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #991b1b; margin-bottom: 10px; border-bottom: 1px solid #fee2e2; padding-bottom: 6px;">🚫 Facturas Anuladas Descontadas (${listaAnulaciones.length})</div>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
+                ${listaAnulaciones.map(a => `<li style="padding: 6px 10px; background: #ffffff; border-radius: 6px; margin-bottom: 6px; border-left: 3px solid #dc2626; display: flex; justify-content: space-between;"><span>${escapeHtml(a.concept || a.client_name || a.ticket_number || 'Factura')} (${escapeHtml(a.payment_method || a.metodo_pago || 'N/A')})</span><span style="font-weight: 700; color: #dc2626;">-${escapeHtml(fmtMoney(a.amount || a.total || 0))}</span></li>`).join('')}
+              </ul>
+            </div>` : ''}
+
+            <!-- CARD 2: GASTOS, PRÉSTAMOS Y RETIROS -->
+            ${(gastosTotal > 0 || prestamosTotal > 0 || retirosTotal > 0 || entradasTotal > 0) ? `
+            <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
+              <div style="font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; margin-bottom: 14px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">📉 Salidas, Préstamos y Entradas de Caja</div>
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 10px;">
+                ${gastosTotal > 0 ? `
+                <tr style="border-bottom: 1px dashed #e2e8f0;">
+                  <td style="padding: 6px 0;">🔻 Gastos Imprevistos / Compras:</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #e11d48;">-${escapeHtml(fmtMoney(gastosTotal))}</td>
+                </tr>` : ''}
+                ${prestamosTotal > 0 ? `
+                <tr style="border-bottom: 1px dashed #e2e8f0;">
+                  <td style="padding: 6px 0;">👥 Préstamos a Colaboradoras:</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #e11d48;">-${escapeHtml(fmtMoney(prestamosTotal))}</td>
+                </tr>` : ''}
+                ${retirosTotal > 0 ? `
+                <tr style="border-bottom: 1px dashed #e2e8f0;">
+                  <td style="padding: 6px 0;">🏦 Retiros de Efectivo:</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #e11d48;">-${escapeHtml(fmtMoney(retirosTotal))}</td>
+                </tr>` : ''}
+                ${entradasTotal > 0 ? `
+                <tr style="border-bottom: 1px dashed #e2e8f0;">
+                  <td style="padding: 6px 0;">➕ Entradas Adicionales:</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #16a34a;">+${escapeHtml(fmtMoney(entradasTotal))}</td>
+                </tr>` : ''}
+              </table>
+
+              ${listaPrestamos.length > 0 ? `
+                <div style="font-size: 12px; font-weight: 700; color: #64748b; margin: 10px 0 6px 0;">Detalle de Préstamos:</div>
+                <ul style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
+                  ${listaPrestamos.map(p => `<li style="padding: 6px 10px; background: #f8fafc; border-radius: 6px; margin-bottom: 6px; border-left: 3px solid #f43f5e; display: flex; justify-content: space-between;"><span><strong>${escapeHtml(p.employee_name || 'Colaborador')}</strong>: ${escapeHtml(p.concept || '')}</span><span style="font-weight: 700; color: #be185d;">${escapeHtml(fmtMoney(p.amount))}</span></li>`).join('')}
+                </ul>
+              ` : ''}
+
+              ${listaGastos.length > 0 ? `
+                <div style="font-size: 12px; font-weight: 700; color: #64748b; margin: 10px 0 6px 0;">Detalle de Gastos:</div>
+                <ul style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
+                  ${listaGastos.map(g => `<li style="padding: 6px 10px; background: #f8fafc; border-radius: 6px; margin-bottom: 6px; border-left: 3px solid #e11d48; display: flex; justify-content: space-between;"><span>${escapeHtml(g.concept || '')}</span><span style="font-weight: 700; color: #e11d48;">${escapeHtml(fmtMoney(g.amount))}</span></li>`).join('')}
+                </ul>
+              ` : ''}
+            </div>` : ''}
+
+            <!-- CARD 3: ARQUEO DE EFECTIVO -->
+            <div style="background: #fdf2f8; border: 1px solid #fbcfe8; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
+              <div style="font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #9d174d; margin-bottom: 14px; border-bottom: 1px solid #fbcfe8; padding-bottom: 8px;">💵 Cuadre y Arqueo de Efectivo Físico</div>
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <tr>
+                  <td style="padding: 5px 0;">(+) Fondo Inicial de Caja:</td>
+                  <td style="padding: 5px 0; text-align: right; font-weight: 600;">${escapeHtml(fmtMoney(openingBalance))}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 5px 0;">(+) Ventas Netas en Efectivo:</td>
+                  <td style="padding: 5px 0; text-align: right; font-weight: 600;">+${escapeHtml(fmtMoney(efectivoTotal))}</td>
+                </tr>
+                ${entradasTotal > 0 ? `
+                <tr>
+                  <td style="padding: 5px 0;">(+) Entradas Adicionales:</td>
+                  <td style="padding: 5px 0; text-align: right; font-weight: 600; color: #16a34a;">+${escapeHtml(fmtMoney(entradasTotal))}</td>
+                </tr>` : ''}
+                ${gastosYPrestamosTotal > 0 ? `
+                <tr>
+                  <td style="padding: 5px 0;">(-) Gastos y Préstamos:</td>
+                  <td style="padding: 5px 0; text-align: right; font-weight: 600; color: #e11d48;">-${escapeHtml(fmtMoney(gastosYPrestamosTotal))}</td>
+                </tr>` : ''}
+                ${retirosTotal > 0 ? `
+                <tr>
+                  <td style="padding: 5px 0;">(-) Retiros de Efectivo:</td>
+                  <td style="padding: 5px 0; text-align: right; font-weight: 600; color: #e11d48;">-${escapeHtml(fmtMoney(retirosTotal))}</td>
+                </tr>` : ''}
+                ${devolucionesEfectivoTotal > 0 ? `
+                <tr>
+                  <td style="padding: 5px 0;">(-) Devoluciones en Efectivo:</td>
+                  <td style="padding: 5px 0; text-align: right; font-weight: 600; color: #e11d48;">-${escapeHtml(fmtMoney(devolucionesEfectivoTotal))}</td>
+                </tr>` : ''}
+                <tr style="border-top: 1px solid #f472b6; font-weight: 700;">
+                  <td style="padding: 8px 0; color: #475569;">(=) EFECTIVO ESPERADO EN CAJA:</td>
+                  <td style="padding: 8px 0; text-align: right; color: #0f172a; font-size: 14px;">${escapeHtml(fmtMoney(expectedBalance))}</td>
+                </tr>
+                <tr style="border-top: 2px solid #be185d; font-weight: 800; font-size: 15px;">
+                  <td style="padding: 8px 0; color: #0f172a;">(💵) EFECTIVO DECLARADO (CONTADO):</td>
+                  <td style="padding: 8px 0; text-align: right; color: #0f172a;">${escapeHtml(fmtMoney(closingBalance))}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0;">Resultado del Cuadre:</td>
+                  <td style="padding: 8px 0; text-align: right;">${diffStatusHtml}</td>
+                </tr>
+              </table>
+            </div>
+
+            ${discrepancyReason ? `
+              <div style="background: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #dc2626; padding: 12px 16px; border-radius: 8px; font-size: 13px; color: #991b1b; margin-bottom: 14px;">
+                <strong>⚠️ Motivo de diferencia reportado:</strong><br/>
+                <span>${escapeHtml(discrepancyReason)}</span>
+              </div>
+            ` : ''}
+
+            <!-- CARD 4: OBSERVACIONES -->
+            ${obsText ? `
+              <div style="background: #fffbeb; border: 1px solid #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 8px; font-size: 13px; color: #92400e;">
+                <strong>📝 Observaciones registradas por la recepcionista:</strong><br/>
+                <span style="font-style: italic;">"${escapeHtml(obsText)}"</span>
+              </div>
+            ` : `
+              <div style="font-size: 12px; color: #94a3b8; font-style: italic; text-align: center; margin-top: 10px;">
+                Sin observaciones adicionales registradas en el cierre.
+              </div>
+            `}
+          </div>
+          <div style="background: #f8fafc; padding: 16px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0;">
+            Enviado automáticamente por el Sistema POS &amp; Gestión ${escapeHtml(businessName)} / Etereas.<br/>
+            Este correo es confidencial y para control administrativo interno.
+          </div>
         </div>
-      </div>
+      </body>
+      </html>
     `;
 
     const text = [
-      `Cierre / Cuadre de Caja - ${businessName}`,
-      `Caja #${registerId} | Cerrada: ${closedAtStr}`,
-      `Cerrada por: ${closedBy}`,
+      `${businessName} — Reporte Oficial de Cierre y Arqueo de Caja`,
+      `Caja N°: ${regNumLabel} | Sucursal: ${fullSalonName}`,
+      `Responsable / Cajera: ${closedBy || openedBy || 'Recepción'}`,
+      `Apertura: ${openedStr} | Cierre: ${closedStr}`,
+      `Total Facturado (${countVentas} transacciones): ${fmtMoney(totalFacturado)}`,
+      `Efectivo Neto: ${fmtMoney(efectivoTotal)} | Tarjeta: ${fmtMoney(tarjetaTotal)} | Transferencia: ${fmtMoney(transferenciaTotal)}`,
       `Fondo inicial: ${fmtMoney(openingBalance)}`,
-      `Ventas efectivo: ${fmtMoney(cashSales)}`,
-      `Ingresos manuales: ${fmtMoney(ingresos)}`,
-      `Salidas manuales: -${fmtMoney(salidas)}`,
-      `Saldo esperado: ${fmtMoney(expectedBalance)}`,
-      `Saldo contado: ${fmtMoney(closingBalance)}`,
-      `Diferencia: ${fmtMoney(difference)}`,
+      `Entradas adicionales: +${fmtMoney(entradasTotal)}`,
+      `Gastos y Préstamos: -${fmtMoney(gastosYPrestamosTotal)} | Retiros: -${fmtMoney(retirosTotal)}`,
+      `Efectivo esperado: ${fmtMoney(expectedBalance)}`,
+      `Efectivo declarado: ${fmtMoney(closingBalance)}`,
+      `Diferencia: ${fmtMoney(diffNum)}`,
       discrepancyReason ? `Motivo diferencia: ${discrepancyReason}` : '',
-      notes ? `Observaciones: ${notes}` : '',
+      obsText ? `Observaciones: ${obsText}` : '',
     ].filter(Boolean).join('\n');
 
     await transporter.sendMail({
       from: fromAddress,
       to: recipients.join(', '),
-      subject: `Cuadre de Caja - ${businessName} (${closedAtStr})`,
+      subject: `📊 Cierre de Caja #${regNumLabel} (${dateTodayStr}) - ${closedBy || openedBy || 'Recepción'} [${fmtMoney(totalFacturado)}]`,
       text,
       html,
     });
 
     return { sent: true, recipients_count: recipients.length };
-  } catch (err) {
-    console.error('[CASH REGISTER CLOSE EMAIL ERROR]:', err?.message || err);
+  } catch (emailErr) {
+    console.error('[CASH REGISTER CLOSE EMAIL ERROR]:', emailErr?.message || emailErr);
     return { sent: false, reason: 'send_failed' };
   }
 }
@@ -541,7 +797,7 @@ function createCashRegistersRouter(pool) {
           newId = result.insertId || result[0]?.id;
         }
       } catch (txErr) {
-        if (conn) await conn.rollback().catch(() => {});
+        if (conn) await conn.rollback().catch(() => { });
         throw txErr;
       } finally {
         if (conn) conn.release();
@@ -781,6 +1037,9 @@ function createCashRegistersRouter(pool) {
       const emailResult = await sendCashRegisterCloseEmail(pool, {
         tenantId,
         registerId: id,
+        registerNumber: register.register_number || `CAJA-${String(id).slice(0, 8).toUpperCase()}`,
+        salonId: register.branch_id || register.salon_id || null,
+        salonName: register.salon_name || null,
         openedAt: register.opened_at,
         openedBy: register.opened_by_name || register.opened_by,
         closedBy: effectiveClosedBy,
@@ -793,6 +1052,7 @@ function createCashRegistersRouter(pool) {
         difference,
         discrepancyReason: discrepancy_reason ? String(discrepancy_reason).trim() : null,
         notes: notes || null,
+        summary: closeSummary,
       });
 
       const [closedRows] = await pool.query('SELECT * FROM cash_registers WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
