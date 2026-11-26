@@ -101,8 +101,10 @@ class SaasCheckoutService {
 
     const addonUsd = Number(pricing?.addons?.memberships?.usd ?? 99);
     const branchesPerBlock = Number(pricing?.addons?.memberships?.branchesPerBlock ?? 3);
+    const principalMembershipsCount = Math.max(1, Math.ceil(safeBranches / 3));
+    const grantedBranches = principalMembershipsCount * 3;
     const addonBlocksCount = safeAddonEnabled ? Math.max(1, Math.ceil(safeAddonBranches / branchesPerBlock)) : 0;
-    const branchUsdMinor = BigInt(Math.round(Number(unitUsd) * 100)) * BigInt(safeBranches);
+    const branchUsdMinor = BigInt(Math.round(Number(unitUsd) * 100)) * BigInt(principalMembershipsCount);
     const extraUserUsdMinor =
       safeExtraUsers > 0 ? BigInt(Math.round(Number(extraUserUsd || 0) * 100)) * BigInt(safeExtraUsers) : 0n;
     const addonUsdMinor = safeAddonEnabled ? BigInt(Math.round(addonUsd * 100)) * BigInt(addonBlocksCount) : 0n;
@@ -739,10 +741,13 @@ class SaasCheckoutService {
       if (subRows[0]?.current_period_end) periodEnd = new Date(subRows[0].current_period_end);
 
       const [tenantRows] = await this.pool.query(
-        `SELECT COALESCE(licensed_branches, max_branches, 1) as licensed_branches FROM tenants WHERE id = ? LIMIT 1`,
+        `SELECT COALESCE(licensed_branches, max_branches, 3) as licensed_branches FROM tenants WHERE id = ? LIMIT 1`,
         [tenantId]
       );
-      if (tenantRows[0]) licensedBranches = Number(tenantRows[0].licensed_branches || 1);
+      if (tenantRows[0]) {
+        const rawLic = Math.max(1, Number(tenantRows[0].licensed_branches || 1));
+        licensedBranches = Math.max(rawLic, Math.ceil(rawLic / 3) * 3);
+      }
 
       const [branchCountRows] = await this.pool.query(
         `SELECT COUNT(*)::int as total FROM branches WHERE tenant_id = ? AND is_active = true`,
@@ -813,7 +818,8 @@ class SaasCheckoutService {
 
     const remainingDays = Math.ceil(Number(remainingMs) / (1000 * 60 * 60 * 24));
     const isProrated = remainingMs < totalDurationMs;
-    const nextMonthlyUsd = (currentBranches + 1) * branchMonthlyUsd + (wantsMembershipsAddon ? addonMonthlyUsd : 0);
+    const nextMembershipsCount = Math.max(1, Math.ceil((currentBranches + 1) / 3));
+    const nextMonthlyUsd = nextMembershipsCount * branchMonthlyUsd + (wantsMembershipsAddon ? addonMonthlyUsd : 0);
 
     const fxSnapshot = rateObj ? {
       pair: rateObj.pair || 'USD_DOP',
@@ -1889,12 +1895,12 @@ class SaasCheckoutService {
           );
         }
 
-        // A2. Incrementar licencias en tenants: +1 sucursal, +3 usuarios
+        // A2. Comprar otra membresía otorga un bloque de +3 sucursales (+9 usuarios base incluidos)
         await this.pool.query(
           `UPDATE tenants
-           SET licensed_branches = COALESCE(licensed_branches, max_branches, 1) + 1,
-               max_branches = COALESCE(max_branches, licensed_branches, 1) + 1,
-               max_users = COALESCE(max_users, 3) + 3,
+           SET licensed_branches = GREATEST(3, CEIL(COALESCE(licensed_branches, max_branches, 1)::numeric / 3) * 3) + 3,
+               max_branches = GREATEST(3, CEIL(COALESCE(max_branches, licensed_branches, 1)::numeric / 3) * 3) + 3,
+               max_users = (GREATEST(3, CEIL(COALESCE(licensed_branches, max_branches, 1)::numeric / 3) * 3) + 3) * 3 + COALESCE(extra_user_seats, 0),
                updated_at = NOW()
            WHERE id = ?`,
           [order.tenant_id]
@@ -1936,8 +1942,9 @@ class SaasCheckoutService {
           );
         }
 
-        // 1b. Activar estado del tenant y sincronizar capacidad contratada (sucursales y asientos adicionales facturados)
-        const orderBranches = Math.max(1, Number(order.branches_count || 1));
+        // 1b. Activar estado del tenant y sincronizar capacidad contratada (1 membresía = hasta 3 sucursales)
+        const orderMemberships = Math.max(1, Math.ceil(Math.max(1, Number(order.branches_count || 1)) / 3));
+        const orderBranches = orderMemberships * 3;
         const orderExtraSeats = Math.max(0, Number(order.extra_users_count || 0));
         await this.pool.query(
           `UPDATE tenants

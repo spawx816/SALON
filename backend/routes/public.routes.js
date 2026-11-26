@@ -239,18 +239,20 @@ function createPublicRouter(pool, options = {}) {
 
       const passwordHash = await bcrypt.hash(String(admin_password), 10);
 
+      const initialBranches = Math.max(3, Math.ceil((parseInt(basePlan.max_branches, 10) || 1) / 3) * 3);
       // Inserción de Tenant (Siempre status = 'pending')
       await conn.query(`
         INSERT INTO tenants (
           id, business_name, slug, email, phone, owner_name, owner_email, owner_phone,
-          rnc, address, plan_id, status, max_users, max_branches, modules_config
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, ?::jsonb)
+          rnc, address, plan_id, status, max_users, max_branches, licensed_branches, modules_config
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, ?, ?::jsonb)
       `, [
         tenantId, business_name, cleanSlug, owner_email.trim(), owner_phone || '',
         owner_name || 'Propietario', owner_email.trim(), owner_phone || '',
         rnc || '', address || '',
-        (parseInt(basePlan.max_branches, 10) || 1) * 3,
-        parseInt(basePlan.max_branches, 10) || 1,
+        initialBranches * 3,
+        initialBranches,
+        initialBranches,
         JSON.stringify(principalModules)
       ]);
 

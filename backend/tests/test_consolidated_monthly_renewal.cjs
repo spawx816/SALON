@@ -161,10 +161,10 @@ async function main() {
       assert.strictEqual(resDisabled.reason, 'RENEWAL_WORKER_DISABLED');
 
       const quote = await disabledWorker.calculateConsolidatedQuote({ tenantId: tId });
-      // (3*99 + 2*30 + 2*99) = 297 + 60 + 198 = 555 USD * 60.00 = 33,300.00 DOP (3330000 minor)
+      // (1 membresía de hasta 3 sucursales * 99 + 2*30 + 2*99) = 99 + 60 + 198 = 357 USD * 60.00 = 21,420.00 DOP (2142000 minor)
       assert.strictEqual(quote.currency, 'DOP');
-      assert.strictEqual(quote.subtotalUsdMinor, '55500');
-      assert.strictEqual(quote.totalDopMinor, '3330000');
+      assert.strictEqual(quote.subtotalUsdMinor, '35700');
+      assert.strictEqual(quote.totalDopMinor, '2142000');
       assert.strictEqual(quote.excludesOneTimeImplementation, true);
       console.log('  ✅ 3. Cotización consolidada (3 sucursales + 2 usuarios + 2 add-ons en DOP) y bloqueo por defecto del worker verificados.');
     }

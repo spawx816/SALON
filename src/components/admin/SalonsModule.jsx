@@ -650,16 +650,16 @@ const SalonsModule = () => {
                           <>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '12px' }}>
                               <div>
-                                <span style={{ color: '#64748b' }}>Incremento de sucursales:</span>{' '}
-                                <strong>{quote.currentBranches} actuales → {quote.newBranchesCount} tras contratar (+1 sede)</strong>
+                                <span style={{ color: '#64748b' }}>Capacidad adicional:</span>{' '}
+                                <strong>+1 membresía (+3 sucursales · total {Math.ceil((quote.currentBranches + 1) / 3) * 3} sedes)</strong>
                               </div>
                               <div>
-                                <span style={{ color: '#64748b' }}>Precio mensual licencia:</span>{' '}
+                                <span style={{ color: '#64748b' }}>Precio mensual membresía:</span>{' '}
                                 <strong>US$ {Number(quote.branchMonthlyUsd).toFixed(2)}/mes</strong>
                               </div>
                               <div>
                                 <span style={{ color: '#64748b' }}>Usuarios incluidos:</span>{' '}
-                                <strong>+3 usuarios facturables (+1 sucursal)</strong>
+                                <strong>+9 usuarios (3 por sucursal)</strong>
                               </div>
                               <div>
                                 <span style={{ color: '#64748b' }}>Prorrateo del ciclo:</span>{' '}
@@ -668,13 +668,13 @@ const SalonsModule = () => {
                             </div>
 
                             <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '10px 12px', fontSize: '11.5px', color: '#1e40af', lineHeight: 1.45 }}>
-                              <strong>Nota sobre Membresías B2C:</strong> El módulo adicional de Suscripciones y Membresías se gestiona y contrata exclusivamente desde <em>Mi suscripción → Add-on Suscripciones y Membresías</em> (por bloques de hasta 3 sucursales). Crear una sucursal aquí solo contrata la licencia del Plan Principal.
+                              <strong>Regla de Membresía:</strong> Cada membresía principal (US$99/mes) incluye hasta <strong>3 sucursales</strong>. Al superar tu cupo actual, adquirir una nueva membresía habilita 3 sucursales adicionales.
                             </div>
 
                             {/* Desglose Financiero */}
                             <div style={{ background: '#0f172a', color: 'white', borderRadius: '12px', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
-                                <span>Importe USD prorrateado (+1 sucursal):</span>
+                                <span>Importe USD prorrateado (+1 membresía / +3 sucursales):</span>
                                 <strong style={{ color: 'white' }}>US$ {(Number(quote.totalUsdMinor) / 100).toFixed(2)}</strong>
                               </div>
                               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
