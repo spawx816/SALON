@@ -1148,7 +1148,7 @@ function createPayrollRouter(pool) {
                  AND visit_id LIKE ?
                  AND created_at >= ? AND created_at <= ?
                  AND COALESCE(status, 'Pendiente') != 'Anulada'`,
-              [tenantId, empId, `EMP-${empId}`, empName, `BONO-META-${cr.id}-%`, `${start_date} 00:00:00`, `${end_date} 23:59:59`]
+              [tenantId, empId, `EMP-${empId}`, empName, `BONO-META-${cr.id}-%`, `${start_date} 00:00:00-04:00`, `${end_date} 23:59:59.999-04:00`]
             );
             if (Number(alreadyAwarded?.[0]?.cnt || 0) > 0) {
               continue; // Ya incluido automáticamente en la columna de comisiones
@@ -1163,7 +1163,7 @@ function createPayrollRouter(pool) {
                 AND visit_id NOT LIKE 'BONO-META-%'
                 AND created_at >= ? AND created_at <= ?
                 AND COALESCE(status, 'Pendiente') != 'Anulada'
-            `, [tenantId, empId, `EMP-${empId}`, empName, cr.service_name, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
+            `, [tenantId, empId, `EMP-${empId}`, empName, cr.service_name, `${start_date} 00:00:00-04:00`, `${end_date} 23:59:59.999-04:00`]);
 
             const totalPerformed = Number(performed[0]?.count || 0);
             const completedGoals = Math.floor(totalPerformed / targetCount);
@@ -1942,7 +1942,7 @@ function createPayrollRouter(pool) {
           ? `(employee_id::text IN (${empPlaceholders}) OR employee_id::text IN (${empPlaceholders}) OR employee_name IN (${namePlaceholders}))`
           : `(employee_id::text IN (${empPlaceholders}) OR employee_id::text IN (${empPlaceholders}))`;
         const commParams = [
-          tenantId, `${startDate} 00:00:00`, `${endDate} 23:59:59`,
+          tenantId, `${startDate} 00:00:00-04:00`, `${endDate} 23:59:59.999-04:00`,
           ...includedEmpIds, ...empPrefixedIds,
           ...(namePlaceholders ? empNames : []),
         ];
