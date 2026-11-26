@@ -15,7 +15,16 @@ import {
   Plus,
   Minus,
   Menu,
-  ChevronRight
+  ChevronRight,
+  ChevronDown,
+  Home,
+  UserCheck,
+  CreditCard,
+  Package,
+  Settings,
+  Bell,
+  User,
+  Coins
 } from 'lucide-react';
 import { validateName, cleanPhone } from '../utils/formUtils';
 import { useDocumentMetadata } from '../hooks/useDocumentMetadata';
@@ -873,54 +882,108 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
           </div>
         </section>
 
-        {/* 3. Modules Grid */}
-        <section id="integracion" className="et-section">
-          <div className="et-container">
-            <p className="et-eyebrow">EL VALOR ESTÁ EN LA CONEXIÓN</p>
-            <div className="et-section-header-split">
-              <h2 className="et-section-h2">
-                De tu operación
-                <br />a tus resultados.
-              </h2>
-              <p className="et-section-sub">
-                La información pasa de un módulo a otro. Tu equipo trabaja en un mismo lugar.
-              </p>
-            </div>
-
-            <div className="et-modules-grid">
-              {MODULES_LIST.map(({ kicker, title, desc, flow, Icon }) => (
-                <article key={kicker} className="et-module-item">
-                  <div className="et-module-icon" aria-hidden="true">
-                    <Icon size={18} />
-                  </div>
-                  <p className="et-module-kicker">{kicker}</p>
-                  <h3>{title}</h3>
-                  <p>{desc}</p>
-                  <span className="et-module-flow">{flow}</span>
-                </article>
-              ))}
-            </div>
-
-            <div className="et-accordion-bar">
-              <button
-                type="button"
-                className="et-accordion-btn"
-                aria-expanded={extraModulesOpen}
-                onClick={() => setExtraModulesOpen((v) => !v)}
-              >
-                <span>
-                  También incluido: clientes CRM en el Plan Principal, membresías B2C (add-on opcional)
-                  y gestión por sucursal
-                </span>
-                {extraModulesOpen ? <Minus size={16} /> : <Plus size={16} />}
-              </button>
-              {extraModulesOpen && (
-                <div className="et-accordion-panel">
-                  <span className="et-pill-item">Perfiles y CRM de clientes (Plan Principal)</span>
-                  <span className="et-pill-item">Membresías B2C y renovaciones (US$99/mes por bloque de hasta 3 sucursales + implementación)</span>
-                  <span className="et-pill-item">Gestión por sucursal</span>
+        {/* 3. Payroll & Operations Showcase */}
+        <section id="integracion" className="et-showcase-section" aria-label="Del ponche facial a la nómina">
+          <div className="et-showcase-top">
+            <div className="et-container">
+              <div className="et-showcase-grid">
+                <div className="et-showcase-copy">
+                  <h2>
+                    Del ponche facial a la nómina
+                  </h2>
+                  <p>
+                    Integra asistencia, horas extra y comisiones en tu nómina.
+                  </p>
                 </div>
-              )}
+
+                <div className="et-showcase-visual-wrap">
+                  <div className="et-mockup-window" aria-label="Vista ilustrativa del resumen de nómina">
+                    <aside className="et-mockup-sidebar">
+                      <div className="et-mockup-brand">
+                        <span className="et-mockup-bars" aria-hidden="true">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                        <span className="et-mockup-wordmark">
+                          etereas<span>.</span>
+                        </span>
+                      </div>
+                      <nav className="et-mockup-nav" aria-label="Menú ilustrativo">
+                        <div className="et-mockup-nav-item"><Home size={13} /><span>Inicio</span></div>
+                        <div className="et-mockup-nav-item"><UserCheck size={13} /><span>Asistencia</span></div>
+                        <div className="et-mockup-nav-item is-active"><CreditCard size={13} /><span>Nómina</span></div>
+                        <div className="et-mockup-nav-item"><Receipt size={13} /><span>Facturación</span></div>
+                        <div className="et-mockup-nav-item"><Package size={13} /><span>Inventario</span></div>
+                        <div className="et-mockup-nav-item"><BarChart3 size={13} /><span>Reportes</span></div>
+                        <div className="et-mockup-nav-item"><Settings size={13} /><span>Configuración</span></div>
+                      </nav>
+                    </aside>
+
+                    <div className="et-mockup-main">
+                      <div className="et-mockup-topbar">
+                        <Bell size={15} color="#475569" />
+                        <span className="et-mockup-avatar">
+                          <User size={13} color="#64748b" />
+                        </span>
+                      </div>
+                      <div className="et-mockup-body">
+                        <div className="et-mockup-title">Resumen de nómina</div>
+                        <div className="et-mockup-period-pill">
+                          <span>Período: Ene 2025</span>
+                          <ChevronDown size={13} color="#475569" />
+                        </div>
+                        <div className="et-mockup-metrics-card">
+                          <div className="et-mockup-metric-row">
+                            <div className="et-mockup-metric-left">
+                              <span className="et-mockup-metric-icon"><Clock size={14} color="#2563eb" /></span>
+                              <span>Tardanzas</span>
+                            </div>
+                            <strong>12</strong>
+                          </div>
+                          <div className="et-mockup-metric-row">
+                            <div className="et-mockup-metric-left">
+                              <span className="et-mockup-metric-icon"><Plus size={14} color="#2563eb" /></span>
+                              <span>Horas extra</span>
+                            </div>
+                            <strong>28.5 h</strong>
+                          </div>
+                          <div className="et-mockup-metric-row">
+                            <div className="et-mockup-metric-left">
+                              <span className="et-mockup-metric-icon"><Coins size={14} color="#2563eb" /></span>
+                              <span>Comisiones</span>
+                            </div>
+                            <strong>US$1,250.00</strong>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="et-showcase-caption">Vista ilustrativa del sistema</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="et-showcase-pillars-bar">
+            <div className="et-container">
+              <div className="et-showcase-pillars">
+                <div className="et-showcase-pillar">
+                  <div className="et-pillar-icon"><Receipt size={24} color="#1d4ed8" /></div>
+                  <h3>Vende y factura</h3>
+                  <p>POS, caja e inventario</p>
+                </div>
+                <div className="et-showcase-pillar">
+                  <div className="et-pillar-icon"><Users size={24} color="#1d4ed8" /></div>
+                  <h3>Gestiona tu equipo</h3>
+                  <p>RR. HH., asistencia, comisiones y nómina</p>
+                </div>
+                <div className="et-showcase-pillar">
+                  <div className="et-pillar-icon"><BarChart3 size={24} color="#1d4ed8" /></div>
+                  <h3>Revisa tus resultados</h3>
+                  <p>Contabilidad y reportes</p>
+                </div>
+              </div>
             </div>
           </div>
         </section>
