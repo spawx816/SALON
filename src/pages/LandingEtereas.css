@@ -1458,16 +1458,16 @@
 }
 
 .et-showcase-copy h2 {
-  font-size: 40px;
-  line-height: 1.08;
+  font-size: 28px;
+  line-height: 1.15;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.025em;
   color: #09090b;
-  margin: 0 0 16px;
+  margin: 0 0 12px;
 }
 
 .et-showcase-copy p {
-  font-size: 16.5px;
+  font-size: 15px;
   line-height: 1.55;
   color: #475569;
   margin: 0;
@@ -1704,7 +1704,7 @@
     gap: 28px;
   }
   .et-showcase-copy h2 {
-    font-size: 32px;
+    font-size: 24px;
   }
   .et-showcase-pillars {
     grid-template-columns: 1fr;

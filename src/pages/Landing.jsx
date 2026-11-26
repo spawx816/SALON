@@ -849,40 +849,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
           </div>
         </section>
 
-        {/* 2. People Band */}
-        <section className="et-people-section" aria-label="Tecnología que conecta personas">
-          <div className="et-container">
-            <div className="et-people-card">
-              <div className="et-people-media">
-                <img
-                  src="/landing_assets/equipo-etereas.png"
-                  alt="Equipo de trabajo colaborando frente a una computadora con la plataforma Etereas"
-                  width="1536"
-                  height="1024"
-                  loading="lazy"
-                  decoding="async"
-                />
-                <span className="et-media-caption">Imagen ilustrativa</span>
-              </div>
-              <div className="et-people-copy">
-                <p className="et-eyebrow">TECNOLOGÍA QUE CONECTA PERSONAS</p>
-                <h2>
-                  Tu equipo conectado.
-                  <br />
-                  Tu negocio en movimiento.
-                </h2>
-                <p>
-                  Una misma plataforma para quienes venden, gestionan el equipo y toman decisiones.
-                </p>
-                <a href="#integracion" className="et-text-link">
-                  Conoce todo lo que integra →
-                </a>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 3. Payroll & Operations Showcase */}
+        {/* 2. Payroll & Operations Showcase */}
         <section id="integracion" className="et-showcase-section" aria-label="Del ponche facial a la nómina">
           <div className="et-showcase-top">
             <div className="et-container">
@@ -988,95 +955,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
           </div>
         </section>
 
-        {/* 4. Sales Insight */}
-        <section className="et-section" aria-labelledby="insight-heading">
-          <div className="et-container et-insight-grid">
-            <div className="et-insight-copy">
-              <p className="et-eyebrow">TUS RESULTADOS, A LA VISTA</p>
-              <h2 id="insight-heading" className="et-section-h2">
-                Tu negocio,
-                <br />
-                en perspectiva.
-              </h2>
-              <p className="et-body">
-                Consulta tus ventas y compara períodos. La información de tu operación, lista para
-                tomar decisiones.
-              </p>
-              <a href="#planes" className="et-text-link">
-                Todo conectado en tu plan →
-              </a>
-            </div>
-
-            <div className="et-chart-card">
-              <div className="et-chart-top">
-                <div>
-                  <div className="et-chart-label">Resumen de ventas</div>
-                  <div className="et-chart-value">{activeChart.total}</div>
-                </div>
-                <div className="et-period-toggle" role="group" aria-label="Período del gráfico">
-                  <button
-                    type="button"
-                    className={`et-period-btn ${chartPeriod === 'week' ? 'active' : ''}`}
-                    aria-pressed={chartPeriod === 'week'}
-                    onClick={() => {
-                      setChartPeriod('week');
-                      setActiveBarIdx(null);
-                    }}
-                  >
-                    Semana
-                  </button>
-                  <button
-                    type="button"
-                    className={`et-period-btn ${chartPeriod === 'month' ? 'active' : ''}`}
-                    aria-pressed={chartPeriod === 'month'}
-                    onClick={() => {
-                      setChartPeriod('month');
-                      setActiveBarIdx(null);
-                    }}
-                  >
-                    Mes
-                  </button>
-                </div>
-              </div>
-
-              <div className="et-bars-wrap">
-                <div className="et-y-axis" aria-hidden="true">
-                  {activeChart.yLabels.map((lbl) => (
-                    <span key={lbl}>{lbl}</span>
-                  ))}
-                </div>
-                <div className="et-bars-grid">
-                  {activeChart.bars.map((bar, idx) => (
-                    <div key={bar.label} className="et-bar-col">
-                      <button
-                        type="button"
-                        className={`et-bar ${bar.peak || activeBarIdx === idx ? 'peak' : ''}`}
-                        style={{ height: `${bar.pct}%` }}
-                        aria-label={`${bar.label}: ${bar.value}`}
-                        onMouseEnter={() => setActiveBarIdx(idx)}
-                        onMouseLeave={() => setActiveBarIdx(null)}
-                        onFocus={() => setActiveBarIdx(idx)}
-                      />
-                      <span className="et-bar-day">{bar.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="et-chart-footer">
-                <span>
-                  <span className="et-legend-dot" />
-                  {activeBarIdx !== null
-                    ? `${activeChart.bars[activeBarIdx].label}: ${activeChart.bars[activeBarIdx].value}`
-                    : 'Ventas registradas'}
-                </span>
-                <span>Datos ilustrativos · Explora el gráfico</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 5. Pricing & Plan Configurator (BASE & PRO Canonical) */}
+        {/* 3. Pricing & Plan Configurator (BASE & PRO Canonical) */}
         <section id="planes" className="et-pricing-section" aria-labelledby="pricing-heading">
           <div className="et-container">
             <div className="et-pricing-head">
@@ -1420,6 +1299,94 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                   </button>
                   <p className="et-cta-sub">Revisa tu selección antes de continuar.</p>
                 </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 4. Sales Insight */}
+        <section className="et-section" aria-labelledby="insight-heading">
+          <div className="et-container et-insight-grid">
+            <div className="et-insight-copy">
+              <p className="et-eyebrow">TUS RESULTADOS, A LA VISTA</p>
+              <h2 id="insight-heading" className="et-section-h2">
+                Tu negocio,
+                <br />
+                en perspectiva.
+              </h2>
+              <p className="et-body">
+                Consulta tus ventas y compara períodos. La información de tu operación, lista para
+                tomar decisiones.
+              </p>
+              <a href="#planes" className="et-text-link">
+                Todo conectado en tu plan →
+              </a>
+            </div>
+
+            <div className="et-chart-card">
+              <div className="et-chart-top">
+                <div>
+                  <div className="et-chart-label">Resumen de ventas</div>
+                  <div className="et-chart-value">{activeChart.total}</div>
+                </div>
+                <div className="et-period-toggle" role="group" aria-label="Período del gráfico">
+                  <button
+                    type="button"
+                    className={`et-period-btn ${chartPeriod === 'week' ? 'active' : ''}`}
+                    aria-pressed={chartPeriod === 'week'}
+                    onClick={() => {
+                      setChartPeriod('week');
+                      setActiveBarIdx(null);
+                    }}
+                  >
+                    Semana
+                  </button>
+                  <button
+                    type="button"
+                    className={`et-period-btn ${chartPeriod === 'month' ? 'active' : ''}`}
+                    aria-pressed={chartPeriod === 'month'}
+                    onClick={() => {
+                      setChartPeriod('month');
+                      setActiveBarIdx(null);
+                    }}
+                  >
+                    Mes
+                  </button>
+                </div>
+              </div>
+
+              <div className="et-bars-wrap">
+                <div className="et-y-axis" aria-hidden="true">
+                  {activeChart.yLabels.map((lbl) => (
+                    <span key={lbl}>{lbl}</span>
+                  ))}
+                </div>
+                <div className="et-bars-grid">
+                  {activeChart.bars.map((bar, idx) => (
+                    <div key={bar.label} className="et-bar-col">
+                      <button
+                        type="button"
+                        className={`et-bar ${bar.peak || activeBarIdx === idx ? 'peak' : ''}`}
+                        style={{ height: `${bar.pct}%` }}
+                        aria-label={`${bar.label}: ${bar.value}`}
+                        onMouseEnter={() => setActiveBarIdx(idx)}
+                        onMouseLeave={() => setActiveBarIdx(null)}
+                        onFocus={() => setActiveBarIdx(idx)}
+                      />
+                      <span className="et-bar-day">{bar.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="et-chart-footer">
+                <span>
+                  <span className="et-legend-dot" />
+                  {activeBarIdx !== null
+                    ? `${activeChart.bars[activeBarIdx].label}: ${activeChart.bars[activeBarIdx].value}`
+                    : 'Ventas registradas'}
+                </span>
+                <span>Datos ilustrativos · Explora el gráfico</span>
               </div>
             </div>
           </div>
