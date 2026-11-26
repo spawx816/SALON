@@ -1316,7 +1316,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                       <>
                         <div className="et-subtotal-row" style={{ marginBottom: '6px' }}>
                           <span className="et-subtotal-label">
-                            Suscripciones y Membresías ({effectiveAddonBranches} {effectiveAddonBranches === 1 ? 'sucursal' : 'sucursales'} × US${addonUnitPrice})
+                            Suscripciones y Membresías ({addonBlocksCount} {addonBlocksCount === 1 ? 'bloque' : 'bloques'} · hasta {addonBlocksCount * 3} sucursales)
                           </span>
                           <span className="et-subtotal-val" style={{ color: '#2563eb' }}>
                             US${addonMonthlySubtotal}/mes
