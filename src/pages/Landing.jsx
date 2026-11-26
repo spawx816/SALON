@@ -948,7 +948,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                 <div className="et-showcase-pillar">
                   <div className="et-pillar-icon"><BarChart3 size={24} color="#1d4ed8" /></div>
                   <h3>Revisa tus resultados</h3>
-                  <p>Contabilidad y reportes</p>
+                  <p>Contabilidad e Inteligencia de negocios</p>
                 </div>
               </div>
             </div>
@@ -1023,6 +1023,10 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                     </span>
                   )}
                 </div>
+
+                <p style={{ fontSize: '12.5px', color: '#64748b', margin: '4px 0 14px' }}>
+                  Pago automático cada 30 días, por adelantado.
+                </p>
 
                 <p className="et-plan-desc" style={{ marginBottom: '18px' }}>
                   Todo lo que conecta tu operación.
@@ -1288,6 +1292,9 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                                 : 'A consultar'}
                       </span>
                     </div>
+                    <p style={{ fontSize: '12px', color: '#64748b', margin: '4px 0 0', textAlign: 'right' }}>
+                      Pago automático cada 30 días, por adelantado.
+                    </p>
                   </div>
 
                   <button
