@@ -124,16 +124,17 @@ function createVisitsRouter(pool, helpers = {}) {
               : (item.precio !== undefined ? item.precio : (item.price !== undefined ? item.price : (item.precioBase || 0)))
           ) || 0;
           const baseUnit = Number(item.precioBase !== undefined ? item.precioBase : appliedUnit) || appliedUnit;
-          const grossLine = Number((baseUnit * qty).toFixed(2));
+          const effectiveUnit = appliedUnit > baseUnit ? appliedUnit : baseUnit;
+          const grossLine = Number((effectiveUnit * qty).toFixed(2));
           let lineDisc = Number(item.descuento || 0);
           if (lineDisc <= 0 && Number(item.descuentoPercent) > 0) {
             lineDisc = Number((grossLine * (Number(item.descuentoPercent) / 100)).toFixed(2));
-          } else if (lineDisc <= 0 && appliedUnit < baseUnit) {
-            lineDisc = Number(((baseUnit - appliedUnit) * qty).toFixed(2));
+          } else if (lineDisc <= 0 && appliedUnit < effectiveUnit) {
+            lineDisc = Number(((effectiveUnit - appliedUnit) * qty).toFixed(2));
           }
           sumGross += grossLine;
           sumLineDiscounts += lineDisc;
-          return { item, qty, baseUnit, appliedUnit, grossLine, lineDisc };
+          return { item, qty, baseUnit: effectiveUnit, appliedUnit, grossLine, lineDisc };
         });
 
         const visitTotalDiscount = Number(v.descuento || 0);

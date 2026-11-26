@@ -55,12 +55,14 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
       const params = [tenantId];
 
       if (start_date) {
+        const sDate = String(start_date).trim().slice(0, 10);
         query += ' AND c.created_at >= ?';
-        params.push(`${start_date} 00:00:00`);
+        params.push(`${sDate} 00:00:00-04:00`);
       }
       if (end_date) {
+        const eDate = String(end_date).trim().slice(0, 10);
         query += ' AND c.created_at <= ?';
-        params.push(`${end_date} 23:59:59`);
+        params.push(`${eDate} 23:59:59.999-04:00`);
       }
       if (employee_id) {
         const cleanEmpId = String(employee_id).replace('EMP-', '').replace('COMM-', '').trim();

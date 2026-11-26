@@ -420,9 +420,30 @@ function apiRequest(baseUrl, method, urlPath, { body = null, jar = null, headers
       },
     });
     assert.strictEqual(coMeta3.status, 200);
-    commRes = await apiRequest(baseUrl, 'GET', `/api/commissions?employee_id=${empId}`, { jar: ownerJar });
+    commRes = await apiRequest(baseUrl, 'GET', `/api/commissions?employee_id=${empId}&start_date=${nowRD}&end_date=${nowRD}`, { jar: ownerJar });
     assert.strictEqual(commRes.json.commissions.filter((c) => c.tipo_comision === 'Bono_Meta').length, 1);
-    console.log('✅ [Punto 1] Bono en regla Contar (otorgamiento al cumplir meta, límite por período y reversión al anular) verificado');
+
+    // Verificar que un ítem con precioBase=500 editado en POS a precioAplicado=10000 genere comisión sobre 10,000 (15% fallback = 1,500) y aparezca en fecha RD
+    const vCustomPriceId = `TKT-${Date.now()}-10k`;
+    const co10k = await apiRequest(baseUrl, 'POST', `/api/visits/${vCustomPriceId}/checkout`, {
+      jar: ownerJar,
+      body: {
+        salon_id: branchAId,
+        cash_register_id: registerId,
+        subtotal: 10000,
+        total: 10000,
+        metodo_pago: 'Efectivo',
+        ncf_type: 'B02',
+        items_detail: [{ nombre: 'Servicio Variable QA', cantidad: 1, precioBase: 500, precio: 10000, precioAplicado: 10000, empleado_id: empId, empleado_nombre: 'María Estilista' }],
+      },
+    });
+    assert.strictEqual(co10k.status, 200);
+    commRes = await apiRequest(baseUrl, 'GET', `/api/commissions?employee_id=${empId}&start_date=${nowRD}&end_date=${nowRD}`, { jar: ownerJar });
+    const row10k = commRes.json.commissions.find((c) => c.visit_id === vCustomPriceId);
+    assert.ok(row10k, 'La comisión de 10,000 debe aparecer inmediatamente filtrando por fecha RD');
+    assert.strictEqual(Number(row10k.precio_servicio), 10000, 'precio_servicio debe usar precioAplicado (10,000)');
+    assert.strictEqual(Number(row10k.monto_comision), 1500, 'Comisión debe calcularse sobre 10,000 (1,500)');
+    console.log('✅ [Punto 1] Bono en regla Contar, precioAplicado=10,000 y filtro fecha RD (-04:00) verificados');
 
     // =========================================================================
     // PUNTO 7: Modo único de Ticket en Recepción según Plantilla (ticket_venta vs ticket_turno)

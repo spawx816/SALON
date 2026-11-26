@@ -334,6 +334,89 @@ function createPayrollRouter(pool) {
         periods[0].total_empleados = items.length;
       }
 
+      // Refrescar automáticamente las comisiones ganadas en períodos en borrador para que el Volante de Pago siempre refleje las ventas recientes
+      if (isDraftPeriod && items.length > 0 && startDate && endDate) {
+        let draftTotalsChanged = false;
+        const periodStartTz = `${startDate} 00:00:00-04:00`;
+        const periodEndTz = `${endDate} 23:59:59.999-04:00`;
+
+        for (const it of items) {
+          let detObj = {};
+          try {
+            detObj = typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {});
+          } catch { detObj = {}; }
+
+          if (detObj.manual_commissions_override === true) continue;
+
+          const empMatch = evalStaff.eligible.find((e) => String(e.id) === String(it.employee_id));
+          const tipoSal = String(empMatch?.tipo_salario || 'fijo_mas_comision').toLowerCase();
+          if (tipoSal === 'fijo_puro' || tipoSal === 'solo_fijo') continue;
+
+          const empIdStr = String(it.employee_id);
+          const empNameStr = String(it.employee_name || '');
+          const [liveCommRows] = await pool.query(
+            `SELECT COALESCE(SUM(monto_comision), 0) AS total_comm
+             FROM employee_commissions_log
+             WHERE tenant_id = ?
+               AND (employee_id::text = ? OR employee_id::text = ? OR employee_name = ?)
+               AND created_at >= ? AND created_at <= ?
+               AND COALESCE(status, 'Pendiente') NOT IN ('Anulada', 'Pagada', 'Pagado')
+               AND payout_id IS NULL`,
+            [tenantId, empIdStr, `EMP-${empIdStr}`, empNameStr, periodStartTz, periodEndTz]
+          );
+          const liveComm = Number(parseFloat(liveCommRows[0]?.total_comm || 0).toFixed(2));
+          const storedComm = Number(parseFloat(it.comisiones || 0).toFixed(2));
+
+          if (Math.abs(liveComm - storedComm) > 0.009) {
+            const newTotalIng = Number((
+              parseFloat(it.salario_fijo || 0) +
+              liveComm +
+              parseFloat(it.feriados || 0) +
+              parseFloat(it.horas_extras || 0) +
+              parseFloat(it.descanso || 0) +
+              parseFloat(it.otros_ingresos || 0)
+            ).toFixed(2));
+            const newNeto = Number((newTotalIng - parseFloat(it.total_descuentos || 0)).toFixed(2));
+
+            if (Array.isArray(detObj.conceptos_ingresos)) {
+              const c2 = detObj.conceptos_ingresos.find((c) => c && c.id === 'c2');
+              if (c2) c2.monto = liveComm;
+              else detObj.conceptos_ingresos.push({ id: 'c2', label: 'Comisiones', monto: liveComm });
+            }
+
+            it.comisiones = liveComm;
+            it.total_ingresos = newTotalIng;
+            it.neto_pagar = newNeto;
+            it.detalles_json = detObj;
+            draftTotalsChanged = true;
+
+            await pool.query(
+              `UPDATE payroll_items
+               SET comisiones = ?, total_ingresos = ?, neto_pagar = ?, detalles_json = ?
+               WHERE id = ? AND payroll_id = ? AND tenant_id = ?`,
+              [liveComm, newTotalIng, newNeto, JSON.stringify(detObj), it.id, id, tenantId]
+            );
+          }
+        }
+
+        if (draftTotalsChanged) {
+          let sumIng = 0, sumDesc = 0, sumNeto = 0;
+          for (const it of items) {
+            sumIng = Number((sumIng + Number(it.total_ingresos || 0)).toFixed(2));
+            sumDesc = Number((sumDesc + Number(it.total_descuentos || 0)).toFixed(2));
+            sumNeto = Number((sumNeto + Number(it.neto_pagar || 0)).toFixed(2));
+          }
+          await pool.query(
+            'UPDATE payroll_periods SET total_ingresos = ?, total_descuentos = ?, total_neto = ?, total_empleados = ? WHERE id = ? AND tenant_id = ?',
+            [sumIng, sumDesc, sumNeto, items.length, id, tenantId]
+          );
+          periods[0].total_ingresos = sumIng;
+          periods[0].total_descuentos = sumDesc;
+          periods[0].total_neto = sumNeto;
+          periods[0].total_empleados = items.length;
+        }
+      }
+
       const parsedItems = items.map(item => ({
         ...item,
         detalles_json: typeof item.detalles_json === 'string' ? JSON.parse(item.detalles_json || '{}') : (item.detalles_json || {})
@@ -735,7 +818,7 @@ function createPayrollRouter(pool) {
             AND created_at >= ? AND created_at <= ?
             AND COALESCE(status, 'Pendiente') NOT IN ('Anulada', 'Pagada', 'Pagado')
             AND payout_id IS NULL
-        `, [tenantId, empId, `EMP-${empId}`, empName, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
+        `, [tenantId, empId, `EMP-${empId}`, empName, `${start_date} 00:00:00-04:00`, `${end_date} 23:59:59.999-04:00`]);
         comisiones = Number(parseFloat(commRows[0]?.total_comm || 0).toFixed(2));
       } catch (e) {
         console.warn(`[COMMISSIONS CALC WARN for ${empName}]:`, e.message);
@@ -1605,6 +1688,11 @@ function createPayrollRouter(pool) {
           } catch (e) { }
         }
 
+        const nextDetJson = (it.detalles_json && typeof it.detalles_json === 'object') ? { ...it.detalles_json } : {};
+        if (oldItem && Math.abs(parseFloat(it.comisiones || 0) - parseFloat(oldItem.comisiones || 0)) > 0.009) {
+          nextDetJson.manual_commissions_override = true;
+        }
+
         await pool.query(`
           UPDATE payroll_items 
           SET salario_fijo = ?, comisiones = ?, feriados = ?, horas_extras = ?, otros_ingresos = ?, total_ingresos = ?,
@@ -1614,7 +1702,7 @@ function createPayrollRouter(pool) {
         `, [
           parseFloat(it.salario_fijo || 0), parseFloat(it.comisiones || 0), parseFloat(it.feriados || 0), parseFloat(it.horas_extras || 0), parseFloat(it.otros_ingresos || 0), totalIngresos,
           parseFloat(it.tss || 0), parseFloat(it.servicios || 0), parseFloat(it.prestamos || 0), parseFloat(it.ausencias || 0), parseFloat(it.tardanzas || 0), parseFloat(it.otros_descuentos || 0), totalDescuentos,
-          netoPagar, JSON.stringify(it.detalles_json || {}),
+          netoPagar, JSON.stringify(nextDetJson),
           it.id, payroll_id, tenantId
         ]);
       }
