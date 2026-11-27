@@ -136,8 +136,7 @@ const VisitRecorder = () => {
   const isSuperAdmin = userRoleLower === 'superadmin';
   const canSwitchBranch = Boolean(
     isSuperAdmin ||
-    ['owner', 'propietario', 'admin', 'administrador', 'gerente'].includes(userRoleLower) ||
-    currentUser?.branch_scope === 'all' ||
+    ['owner', 'propietario', 'admin', 'administrador'].includes(userRoleLower) ||
     !currentUser?.salon_id
   );
   const hasProPlan = Boolean(
