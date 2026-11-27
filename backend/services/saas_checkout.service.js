@@ -1749,10 +1749,9 @@ class SaasCheckoutService {
       throw err;
     }
 
-    const isTokenizationFlow = Boolean(
-      this.tokenizationProvider?.isConfigured?.() &&
-      (!this.cardnetProvider || !this.cardnetProvider.isConfigured?.())
-    );
+    const tokConfigured = Boolean(this.tokenizationProvider?.getConfigurationStatus?.()?.configured);
+    const hostedConfigured = Boolean(this.cardnetProvider?.getConfigurationStatus?.()?.configured);
+    const isTokenizationFlow = tokConfigured && !hostedConfigured;
 
     if (isTokenizationFlow) {
       if (cancelledByUser && [ORDER_STATUS.PENDING_PAYMENT, ORDER_STATUS.PROCESSING].includes(order.status)) {
