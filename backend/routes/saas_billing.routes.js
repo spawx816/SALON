@@ -662,7 +662,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
       const [uRows] = await pool.query(
         `SELECT COUNT(*) AS cnt FROM users
          WHERE tenant_id = ?
-           AND (is_active = TRUE OR is_active = 1 OR is_active IS NULL)
+           AND COALESCE(is_active, TRUE) = TRUE
            AND LOWER(COALESCE(role, '')) NOT IN ('kiosco', 'kiosk', 'superadmin')`,
         [tenantId]
       );
