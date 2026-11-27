@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ShieldCheck, AlertTriangle, ArrowLeft, Lock } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, ArrowLeft, Lock, Building2, Users, Sparkles, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import SaasCheckoutPanel from '../components/saas/SaasCheckoutPanel';
+import SaasCheckoutPanel, { formatOrderMoney } from '../components/saas/SaasCheckoutPanel';
+import '../components/saas/SaasBillingModule.css';
 
 export default function SaasPaymentLinkPage() {
   const { token } = useParams();
@@ -42,56 +43,280 @@ export default function SaasPaymentLinkPage() {
     loadPaymentLink();
   }, [loadPaymentLink]);
 
+  const fxSnapshot = order?.metadata?.fx_snapshot || null;
+  const usdTotal = fxSnapshot?.usd?.total_minor ? formatOrderMoney(fxSnapshot.usd.total_minor, 'USD') : null;
+  const primaryTotal = order
+    ? formatOrderMoney(
+        fxSnapshot?.usd?.total_minor ?? order.total_minor,
+        fxSnapshot?.usd ? 'USD' : (order.currency || 'DOP')
+      )
+    : null;
+  const dopTotal = order && String(order.currency || '').toUpperCase() === 'DOP'
+    ? formatOrderMoney(order.total_minor, 'DOP')
+    : null;
+
   return (
-    <div style={{ minHeight: '100vh', background: '#f8fafc', padding: '40px 16px' }}>
-      <div style={{ maxWidth: 680, margin: '0 auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h1 style={{ fontSize: 22, margin: 0, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ShieldCheck size={22} color="#2563eb" />
-            Pago de suscripción Etereas
-          </h1>
-          <button type="button" className="sb-btn-secondary" onClick={() => navigate(user ? '/mi-suscripcion' : '/login')}>
-            <ArrowLeft size={14} /> {user ? 'Mi Suscripción' : 'Iniciar sesión'}
+    <div
+      style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(180deg, #f8fafc 0%, #eff6ff 100%)',
+        padding: '32px 16px 56px',
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      }}
+    >
+      <div style={{ maxWidth: 660, margin: '0 auto' }}>
+        {/* Top Brand & Back Bar */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            marginBottom: 24,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span
+              aria-hidden="true"
+              style={{
+                display: 'inline-flex',
+                gap: 3,
+                transform: 'skewX(-18deg)',
+              }}
+            >
+              <i style={{ display: 'block', width: 4, height: 18, borderRadius: 2, background: '#2563eb' }} />
+              <i style={{ display: 'block', width: 4, height: 18, borderRadius: 2, background: '#2563eb' }} />
+              <i style={{ display: 'block', width: 4, height: 18, borderRadius: 2, background: '#2563eb' }} />
+            </span>
+            <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.03em', color: '#0f172a' }}>
+              etereas<span style={{ color: '#2563eb' }}>.</span>
+            </span>
+            <span
+              style={{
+                fontSize: 11.5,
+                fontWeight: 700,
+                color: '#1d4ed8',
+                background: '#dbeafe',
+                padding: '3px 9px',
+                borderRadius: 999,
+                letterSpacing: '0.02em',
+              }}
+            >
+              Pago seguro
+            </span>
+          </div>
+
+          <button
+            type="button"
+            className="sb-btn"
+            onClick={() => navigate(user ? '/mi-suscripcion' : '/login')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 14px',
+              borderRadius: 10,
+              background: '#ffffff',
+              border: '1px solid #cbd5e1',
+              color: '#334155',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            <ArrowLeft size={14} />
+            <span>{user ? 'Mi Suscripción' : 'Iniciar sesión'}</span>
           </button>
         </div>
 
-        {!user ? (
-          <div className="sb-card" style={{ padding: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#0f172a', marginBottom: 8 }}>
-              <Lock size={20} color="#2563eb" />
-              <h2 style={{ fontSize: 18, margin: 0 }}>Inicia sesión para completar el pago</h2>
+        {/* Main Checkout Container */}
+        <div
+          style={{
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: 20,
+            boxShadow: '0 20px 45px -20px rgba(15, 23, 42, 0.14)',
+            overflow: 'hidden',
+          }}
+        >
+          {/* Card Header */}
+          <div
+            style={{
+              padding: '22px 26px',
+              borderBottom: '1px solid #f1f5f9',
+              background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+              color: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 16,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 12,
+                  background: 'rgba(37, 99, 235, 0.25)',
+                  border: '1px solid rgba(96, 165, 250, 0.4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <ShieldCheck size={22} color="#60a5fa" />
+              </div>
+              <div>
+                <h1 style={{ fontSize: 19, fontWeight: 800, margin: 0, letterSpacing: '-0.02em', color: '#ffffff' }}>
+                  Pago de suscripción Etereas
+                </h1>
+                <p style={{ margin: '3px 0 0', fontSize: 13, color: '#cbd5e1' }}>
+                  Revisa los detalles de tu orden y completa el pago protegido con CardNet.
+                </p>
+              </div>
             </div>
-            <p style={{ color: '#475569', fontSize: 14, marginBottom: 16 }}>
-              Por seguridad, este enlace de pago está vinculado a tu empresa. Inicia sesión con tu cuenta de propietario para revisar el resumen y pagar de forma segura en CardNet.
-            </p>
-            <button
-              type="button"
-              className="sb-btn-primary"
-              onClick={() => navigate(`/login?redirect=${encodeURIComponent(`/pago-saas/${token}`)}`)}
-            >
-              Iniciar sesión para pagar
-            </button>
+
+            {order && primaryTotal && (
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#94a3b8' }}>
+                  Total a pagar
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
+                  {primaryTotal}
+                </div>
+                {usdTotal && dopTotal && (
+                  <div style={{ fontSize: 12, color: '#93c5fd', fontWeight: 600 }}>
+                    Cargo procesado: {dopTotal}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        ) : loading ? (
-          <div className="sb-card" style={{ padding: 24 }}>
-            Cargando detalles de la orden de pago...
+
+          {/* Card Body */}
+          <div style={{ padding: '24px 26px' }}>
+            {!user ? (
+              <div style={{ textAlign: 'center', padding: '16px 8px' }}>
+                <div
+                  style={{
+                    width: 52,
+                    height: 52,
+                    borderRadius: 14,
+                    background: '#eff6ff',
+                    border: '1px solid #bfdbfe',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 14,
+                  }}
+                >
+                  <Lock size={24} color="#2563eb" />
+                </div>
+                <h2 style={{ fontSize: 18, fontWeight: 800, margin: '0 0 8px', color: '#0f172a' }}>
+                  Inicia sesión para completar el pago
+                </h2>
+                <p style={{ color: '#475569', fontSize: 14, margin: '0 auto 20px', maxWidth: 460, lineHeight: 1.55 }}>
+                  Por seguridad, este enlace de pago está vinculado a tu empresa. Inicia sesión con tu cuenta de propietario para revisar el resumen y pagar de forma segura en CardNet.
+                </p>
+                <button
+                  type="button"
+                  className="sb-btn sb-btn-primary"
+                  style={{ padding: '11px 22px', fontSize: 14, fontWeight: 700 }}
+                  onClick={() => navigate(`/login?redirect=${encodeURIComponent(`/pago-saas/${token}`)}`)}
+                >
+                  Iniciar sesión para pagar
+                </button>
+              </div>
+            ) : loading ? (
+              <div style={{ padding: '28px 0', textAlign: 'center', color: '#64748b', fontSize: 14, fontWeight: 500 }}>
+                Cargando detalles de la orden de pago...
+              </div>
+            ) : error ? (
+              <div className="sb-alert sb-alert-danger" style={{ margin: 0 }}>
+                <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                <span>{error}</span>
+              </div>
+            ) : order ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                {/* Summary Pills */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                    gap: 10,
+                    padding: 14,
+                    borderRadius: 14,
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                    <Building2 size={16} color="#2563eb" />
+                    <div>
+                      <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Sucursales</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
+                        {Number(order.branches_count || 1)} {Number(order.branches_count || 1) === 1 ? 'sucursal' : 'sucursales'}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                    <Users size={16} color="#2563eb" />
+                    <div>
+                      <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Usuarios extra</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
+                        {Number(order.extra_users_count || 0)}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                    <Sparkles size={16} color={order.memberships_addon_enabled ? '#2563eb' : '#94a3b8'} />
+                    <div>
+                      <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Membresías B2C</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
+                        {order.memberships_addon_enabled ? 'Incluido' : 'No incluido'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CardNet Checkout Panel */}
+                <SaasCheckoutPanel
+                  orders={[order]}
+                  gatewayStatus={gateway}
+                  onOrderUpdated={loadPaymentLink}
+                  initiateEndpointBuilder={() => `/api/saas/billing/payment-links/${encodeURIComponent(token)}/initiate-cardnet`}
+                  verifyEndpointBuilder={(o) => `/api/saas/billing/checkout/orders/${encodeURIComponent(o.id)}/verify`}
+                />
+              </div>
+            ) : null}
           </div>
-        ) : error ? (
-          <div className="sb-card" style={{ padding: 24 }}>
-            <div className="sb-alert sb-alert-danger">
-              <AlertTriangle size={16} />
-              <span>{error}</span>
-            </div>
+
+          {/* Trust Footer */}
+          <div
+            style={{
+              padding: '14px 26px',
+              background: '#f8fafc',
+              borderTop: '1px solid #f1f5f9',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+              fontSize: 12,
+              color: '#64748b',
+            }}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <CheckCircle2 size={14} color="#16a34a" />
+              <span>Transacción cifrada 3D Secure vía CardNet</span>
+            </span>
+            <span>Etereas no almacena datos de tu tarjeta</span>
           </div>
-        ) : order ? (
-          <SaasCheckoutPanel
-            orders={[order]}
-            gatewayStatus={gateway}
-            onOrderUpdated={loadPaymentLink}
-            initiateEndpointBuilder={() => `/api/saas/billing/payment-links/${encodeURIComponent(token)}/initiate-cardnet`}
-            verifyEndpointBuilder={(o) => `/api/saas/billing/checkout/orders/${encodeURIComponent(o.id)}/verify`}
-          />
-        ) : null}
+        </div>
       </div>
     </div>
   );

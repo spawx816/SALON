@@ -448,7 +448,7 @@ export default function SaasCheckoutPanel({
                     return (
                       <button
                         type="button"
-                        className="sb-btn-primary"
+                        className="sb-btn sb-btn-primary"
                         disabled={isBusy || gatewayNotConfigured}
                         title={gatewayNotConfigured ? 'Los pagos con tarjeta están en proceso de habilitación. Contacta a soporte para activar tu orden.' : undefined}
                         onClick={() => handlePayWithCardnet(order)}
@@ -481,7 +481,7 @@ export default function SaasCheckoutPanel({
                   {canReconcile && (
                     <button
                       type="button"
-                      className="sb-btn-secondary"
+                      className="sb-btn"
                       disabled={isBusy}
                       onClick={() => handleReconcile(order)}
                     >
