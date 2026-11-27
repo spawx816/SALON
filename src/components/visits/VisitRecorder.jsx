@@ -132,14 +132,21 @@ const VisitRecorder = () => {
   const pendingDirectTicketIdRef = useRef(null);
 
   // `hasProPlan` = add-on de Suscripciones/Membresías B2C activo. Clientes/CRM está incluido en Plan Principal.
-  const isSuperAdmin = currentUser?.role?.toLowerCase() === 'superadmin';
+  const userRoleLower = String(currentUser?.role || currentUser?.rol || '').toLowerCase();
+  const isSuperAdmin = userRoleLower === 'superadmin';
+  const canSwitchBranch = Boolean(
+    isSuperAdmin ||
+    ['owner', 'propietario', 'admin', 'administrador', 'gerente'].includes(userRoleLower) ||
+    currentUser?.branch_scope === 'all' ||
+    !currentUser?.salon_id
+  );
   const hasProPlan = Boolean(
     isSuperAdmin ||
     hasMembershipsAddon ||
     hasFeature('memberships')
   );
 
-  const [salonId, setSalonId] = useState(currentUser?.salon_id || 1);
+  const [salonId, setSalonId] = useState(currentUser?.salon_id || '');
   const [salonsList, setSalonsList] = useState([]);
 
   // Load Salons list on mount
@@ -147,6 +154,12 @@ const VisitRecorder = () => {
     dataService.getSalons().then(list => {
       if (Array.isArray(list) && list.length > 0) {
         setSalonsList(list);
+        setSalonId(prev => {
+          if (prev !== '' && prev !== null && prev !== undefined && list.some(s => String(s.id) === String(prev))) {
+            return prev;
+          }
+          return list[0].id;
+        });
       }
     }).catch(err => console.error('Error cargando sucursales:', err));
   }, []);
@@ -3742,28 +3755,30 @@ const VisitRecorder = () => {
               Sucursal
             </span>
             <select
-              value={salonId}
+              value={String(salonId ?? '')}
               onChange={(e) => {
-                const newId = Number(e.target.value);
+                const selectedVal = e.target.value;
+                const matched = salonsList.find(s => String(s.id) === String(selectedVal));
+                const newId = matched ? matched.id : selectedVal;
                 setSalonId(newId);
                 setSelectedTicket(null);
                 setLineItems([]);
                 setClientFound(null);
               }}
-              disabled={currentUser?.rol !== 'admin' && currentUser?.rol !== 'Superadmin' && !!currentUser?.salon_id}
+              disabled={!canSwitchBranch}
               style={{
                 background: 'transparent',
                 border: 'none',
                 fontSize: '0.85rem',
                 fontWeight: 800,
                 color: '#0f172a',
-                cursor: (currentUser?.rol === 'admin' || currentUser?.rol === 'Superadmin' || !currentUser?.salon_id) ? 'pointer' : 'default',
+                cursor: canSwitchBranch ? 'pointer' : 'default',
                 outline: 'none',
                 padding: 0
               }}
             >
               {salonsList.map((s) => (
-                <option key={s.id} value={s.id}>
+                <option key={s.id} value={String(s.id)}>
                   {s.name}
                 </option>
               ))}
