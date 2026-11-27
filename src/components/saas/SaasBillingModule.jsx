@@ -2317,12 +2317,12 @@ export default function SaasBillingModule() {
           aria-labelledby="sb-cancel-seats-title"
           onClick={(e) => { if (e.target === e.currentTarget && !cancelingSeats) setShowCancelSeatsModal(false); }}
         >
-          <div className="sb-modal" style={{ maxWidth: 460 }}>
-            <div className="sb-modal-head">
-              <h3 id="sb-cancel-seats-title" className="sb-modal-title">Cancelar usuarios adicionales</h3>
+          <div className="sb-modal-card" style={{ maxWidth: 460 }}>
+            <div className="sb-modal-header">
+              <h3 id="sb-cancel-seats-title">Cancelar usuarios adicionales</h3>
               <button
                 type="button"
-                className="sb-icon-btn"
+                className="sb-modal-close"
                 disabled={cancelingSeats}
                 onClick={() => setShowCancelSeatsModal(false)}
                 aria-label="Cerrar"
@@ -2331,13 +2331,13 @@ export default function SaasBillingModule() {
               </button>
             </div>
 
-            <div className="sb-modal-body">
+            <div>
               <p className="sb-meta-text" style={{ marginTop: 0 }}>
                 Actualmente tienes <strong>{extraUsersCount}</strong> {extraUsersCount === 1 ? 'usuario adicional contratado' : 'usuarios adicionales contratados'} ({formatUsdClean(extraUserUnitUsd)}/mes c/u).
               </p>
 
-              <div style={{ marginTop: 12 }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>
+              <div style={{ marginTop: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>
                   Cantidad de usuarios adicionales a cancelar
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2349,7 +2349,7 @@ export default function SaasBillingModule() {
                   >
                     -
                   </button>
-                  <strong style={{ minWidth: 32, textAlign: 'center', fontSize: 16 }}>{seatsToCancel}</strong>
+                  <strong style={{ minWidth: 32, textAlign: 'center', fontSize: 16, color: '#0f172a' }}>{seatsToCancel}</strong>
                   <button
                     type="button"
                     className="sb-btn"
@@ -2370,7 +2370,7 @@ export default function SaasBillingModule() {
                     </button>
                   )}
                 </div>
-                <p className="sb-meta-text" style={{ marginTop: 8, fontSize: 12.5 }}>
+                <p className="sb-meta-text" style={{ marginTop: 10, fontSize: 12.5 }}>
                   Ahorro estimado en tu próxima renovación: <strong>{formatUsdClean(seatsToCancel * extraUserUnitUsd)}/mes</strong>.
                 </p>
               </div>
@@ -2434,12 +2434,12 @@ export default function SaasBillingModule() {
           aria-labelledby="sb-cancel-addon-title"
           onClick={(e) => { if (e.target === e.currentTarget && !cancelingAddon) setShowCancelAddonModal(false); }}
         >
-          <div className="sb-modal" style={{ maxWidth: 460 }}>
-            <div className="sb-modal-head">
-              <h3 id="sb-cancel-addon-title" className="sb-modal-title">Cancelar módulo de membresías</h3>
+          <div className="sb-modal-card" style={{ maxWidth: 460 }}>
+            <div className="sb-modal-header">
+              <h3 id="sb-cancel-addon-title">Cancelar módulo de membresías</h3>
               <button
                 type="button"
-                className="sb-icon-btn"
+                className="sb-modal-close"
                 disabled={cancelingAddon}
                 onClick={() => setShowCancelAddonModal(false)}
                 aria-label="Cerrar"
@@ -2448,7 +2448,7 @@ export default function SaasBillingModule() {
               </button>
             </div>
 
-            <div className="sb-modal-body">
+            <div>
               <p className="sb-meta-text" style={{ marginTop: 0 }}>
                 Al confirmar, el <strong>Módulo de Membresías B2C</strong> se desactivará para tus sucursales y dejará de cobrarse en tu próxima renovación mensual.
               </p>
