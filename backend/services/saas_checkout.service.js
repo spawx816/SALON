@@ -1725,6 +1725,28 @@ class SaasCheckoutService {
       throw err;
     }
 
+    const isTokenizationFlow = Boolean(
+      this.tokenizationProvider?.isConfigured?.() &&
+      (!this.cardnetProvider || !this.cardnetProvider.isConfigured?.())
+    );
+
+    if (isTokenizationFlow) {
+      if (cancelledByUser && [ORDER_STATUS.PENDING_PAYMENT, ORDER_STATUS.PROCESSING].includes(order.status)) {
+        await this.pool.query(
+          `UPDATE saas_checkout_orders SET status = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
+          [ORDER_STATUS.CANCELLED, order.id, tenantId]
+        );
+        const [cancelledRows] = await this.pool.query('SELECT * FROM saas_checkout_orders WHERE id = ? LIMIT 1', [order.id]);
+        return { order: sanitizeOrderForClient(cancelledRows[0]), activated: false, cancelled: true };
+      }
+      return {
+        order: sanitizeOrderForClient(order),
+        activated: false,
+        pending: true,
+        message: 'La orden aún está pendiente de completar el pago en la ventana de CardNet. Usa "Retomar pago CardNet" para continuar.',
+      };
+    }
+
     const verification = await this.cardnetProvider.verifySession({
       sessionId: order.cardnet_session_id,
       sessionKey: order.cardnet_session_key,
