@@ -2400,7 +2400,7 @@ export default function SaasBillingModule() {
                   setCancelingSeats(true);
                   setCancelSeatsError('');
                   try {
-                    const res = await fetch('/api/saas-billing/seats/cancel', {
+                    const res = await fetch('/api/saas/billing/seats/cancel', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       credentials: 'include',
@@ -2481,7 +2481,7 @@ export default function SaasBillingModule() {
                   setCancelingAddon(true);
                   setCancelAddonError('');
                   try {
-                    const res = await fetch('/api/saas-billing/addons/memberships/cancel', {
+                    const res = await fetch('/api/saas/billing/addons/memberships/cancel', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       credentials: 'include',
