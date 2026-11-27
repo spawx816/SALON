@@ -1471,14 +1471,6 @@ function createSaasRouter(pool, options = {}) {
   // =========================================================================
   // GESTIÓN DE VENDEDORES (SUPERADMIN) Y PORTAL DE VENTAS (ROL 'vendedor')
   // =========================================================================
-  const ensureTenantsCreatedByColumn = async () => {
-    try {
-      await pool.query('ALTER TABLE tenants ADD COLUMN IF NOT EXISTS created_by_user_id TEXT');
-    } catch (_) {
-      // ignore if already exists or unsupported
-    }
-  };
-
   const requireVendedorOrSuperAdmin = (req, res, next) => {
     const role = String(req.auth?.role || req.user?.role || '').trim().toLowerCase();
     if (req.auth?.isSuperAdmin || role === 'superadmin' || role === 'vendedor') {
@@ -1493,7 +1485,6 @@ function createSaasRouter(pool, options = {}) {
   // GET /api/saas/vendedores - Listar usuarios vendedores de la plataforma (Solo SuperAdmin)
   router.get('/vendedores', authenticate, requireSuperAdmin, async (req, res) => {
     try {
-      await ensureTenantsCreatedByColumn();
       const [rows] = await pool.query(`
         SELECT u.id, COALESCE(u.nombre, u.name) AS name, u.email, u.is_active, u.estado, u.created_at,
                (SELECT COUNT(*) FROM tenants t WHERE t.created_by_user_id = u.id::text) AS tenants_created,
@@ -1603,7 +1594,6 @@ function createSaasRouter(pool, options = {}) {
   // GET /api/saas/vendedor/tenants - Listar empresas creadas por el vendedor autenticado (con su último link de pago y tarjeta)
   router.get('/vendedor/tenants', authenticate, requireVendedorOrSuperAdmin, async (req, res) => {
     try {
-      await ensureTenantsCreatedByColumn();
       const actorId = String(req.auth?.userId || req.user?.id || '');
       const isSuperAdmin = Boolean(req.auth?.isSuperAdmin || String(req.auth?.role || '').toLowerCase() === 'superadmin');
 
@@ -1641,7 +1631,6 @@ function createSaasRouter(pool, options = {}) {
   // POST /api/saas/vendedor/tenants - Crear empresa (pendiente de pago) + generar link de pago inmediato con cobro automático
   router.post('/vendedor/tenants', authenticate, requireVendedorOrSuperAdmin, async (req, res) => {
     try {
-      await ensureTenantsCreatedByColumn();
       const saasCheckoutService = options.saasCheckoutService;
       if (!saasCheckoutService) {
         return res.status(503).json({ error: 'Servicio de checkout SaaS no disponible' });
@@ -1797,7 +1786,6 @@ function createSaasRouter(pool, options = {}) {
   // POST /api/saas/vendedor/tenants/:tenantId/payment-links - Regenerar enlace de pago para una empresa del vendedor
   router.post('/vendedor/tenants/:tenantId/payment-links', authenticate, requireVendedorOrSuperAdmin, async (req, res) => {
     try {
-      await ensureTenantsCreatedByColumn();
       const saasCheckoutService = options.saasCheckoutService;
       if (!saasCheckoutService) {
         return res.status(503).json({ error: 'Servicio de checkout SaaS no disponible' });
