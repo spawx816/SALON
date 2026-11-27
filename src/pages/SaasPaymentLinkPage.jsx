@@ -11,12 +11,13 @@ export default function SaasPaymentLinkPage() {
   const { user } = useAuth();
 
   const [order, setOrder] = useState(null);
+  const [tenantInfo, setTenantInfo] = useState(null);
   const [gateway, setGateway] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const loadPaymentLink = useCallback(async () => {
-    if (!user || !token) {
+    if (!token) {
       setLoading(false);
       return;
     }
@@ -31,13 +32,14 @@ export default function SaasPaymentLinkPage() {
         throw new Error(data.error || 'No se pudo cargar el enlace de pago.');
       }
       setOrder(data.order || null);
+      setTenantInfo(data.tenant || null);
       setGateway(data.gateway || null);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [user, token]);
+  }, [token]);
 
   useEffect(() => {
     loadPaymentLink();
@@ -172,7 +174,7 @@ export default function SaasPaymentLinkPage() {
               </div>
               <div>
                 <h1 style={{ fontSize: 19, fontWeight: 800, margin: 0, letterSpacing: '-0.02em', color: '#ffffff' }}>
-                  Pago de suscripción Etereas
+                  {tenantInfo?.businessName ? `Suscripción · ${tenantInfo.businessName}` : 'Pago de suscripción Etereas'}
                 </h1>
                 <p style={{ margin: '3px 0 0', fontSize: 13, color: '#cbd5e1' }}>
                   Revisa los detalles de tu orden y completa el pago protegido con CardNet.
@@ -199,39 +201,7 @@ export default function SaasPaymentLinkPage() {
 
           {/* Card Body */}
           <div style={{ padding: '24px 26px' }}>
-            {!user ? (
-              <div style={{ textAlign: 'center', padding: '16px 8px' }}>
-                <div
-                  style={{
-                    width: 52,
-                    height: 52,
-                    borderRadius: 14,
-                    background: '#eff6ff',
-                    border: '1px solid #bfdbfe',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginBottom: 14,
-                  }}
-                >
-                  <Lock size={24} color="#2563eb" />
-                </div>
-                <h2 style={{ fontSize: 18, fontWeight: 800, margin: '0 0 8px', color: '#0f172a' }}>
-                  Inicia sesión para completar el pago
-                </h2>
-                <p style={{ color: '#475569', fontSize: 14, margin: '0 auto 20px', maxWidth: 460, lineHeight: 1.55 }}>
-                  Por seguridad, este enlace de pago está vinculado a tu empresa. Inicia sesión con tu cuenta de propietario para revisar el resumen y pagar de forma segura en CardNet.
-                </p>
-                <button
-                  type="button"
-                  className="sb-btn sb-btn-primary"
-                  style={{ padding: '11px 22px', fontSize: 14, fontWeight: 700 }}
-                  onClick={() => navigate(`/login?redirect=${encodeURIComponent(`/pago-saas/${token}`)}`)}
-                >
-                  Iniciar sesión para pagar
-                </button>
-              </div>
-            ) : loading ? (
+            {loading ? (
               <div style={{ padding: '28px 0', textAlign: 'center', color: '#64748b', fontSize: 14, fontWeight: 500 }}>
                 Cargando detalles de la orden de pago...
               </div>
@@ -242,6 +212,37 @@ export default function SaasPaymentLinkPage() {
               </div>
             ) : order ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                {order.status === 'approved' && (
+                  <div
+                    style={{
+                      padding: '18px 20px',
+                      borderRadius: 14,
+                      background: '#f0fdf4',
+                      border: '1px solid #86efac',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#166534', fontWeight: 800, fontSize: 16 }}>
+                      <CheckCircle2 size={22} color="#16a34a" />
+                      <span>¡Pago aprobado y cuenta activada!</span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: 13.5, color: '#14532d', lineHeight: 1.5 }}>
+                      Tu empresa <strong>{tenantInfo?.businessName || 'en Etereas'}</strong> ya está activa y tu tarjeta quedó registrada de forma segura en CardNet para el cobro automático mensual.
+                    </p>
+                    <div>
+                      <button
+                        type="button"
+                        className="sb-btn sb-btn-primary"
+                        onClick={() => navigate(user ? '/' : '/login')}
+                      >
+                        {user ? 'Ir a mi panel →' : 'Iniciar sesión en Etereas →'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Summary Pills */}
                 <div
                   style={{
@@ -283,13 +284,37 @@ export default function SaasPaymentLinkPage() {
                   </div>
                 </div>
 
+                {order.status !== 'approved' && (
+                  <div
+                    style={{
+                      padding: '11px 14px',
+                      borderRadius: 12,
+                      background: '#eff6ff',
+                      border: '1px solid #bfdbfe',
+                      color: '#1e3a8a',
+                      fontSize: 12.5,
+                      lineHeight: 1.45,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <Lock size={15} color="#2563eb" style={{ flexShrink: 0 }} />
+                    <span>
+                      Al completar el pago, tu cuenta se activará automáticamente y tu tarjeta quedará registrada de forma segura en CardNet para el <strong>cobro automático cada 30 días, por adelantado</strong>.
+                    </span>
+                  </div>
+                )}
+
                 {/* CardNet Checkout Panel */}
                 <SaasCheckoutPanel
                   orders={[order]}
                   gatewayStatus={gateway}
                   onOrderUpdated={loadPaymentLink}
                   initiateEndpointBuilder={() => `/api/saas/billing/payment-links/${encodeURIComponent(token)}/initiate-cardnet`}
-                  verifyEndpointBuilder={(o) => `/api/saas/billing/checkout/orders/${encodeURIComponent(o.id)}/verify`}
+                  chargeEndpointBuilder={() => `/api/saas/billing/payment-links/${encodeURIComponent(token)}/charge-token`}
+                  verifyEndpointBuilder={() => `/api/saas/billing/payment-links/${encodeURIComponent(token)}/verify`}
+                  redirectOnActivated={false}
                 />
               </div>
             ) : null}

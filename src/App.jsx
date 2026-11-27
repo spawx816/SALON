@@ -50,6 +50,7 @@ const InventoryModule = lazyWithRetry(() => import('./components/inventory/Inven
 const SaasBillingModule = lazyWithRetry(() => import('./components/saas/SaasBillingModule'), 'SaasBillingModule');
 const SaasCheckoutReturnPage = lazyWithRetry(() => import('./pages/SaasCheckoutReturnPage'), 'SaasCheckoutReturnPage');
 const SaasPaymentLinkPage = lazyWithRetry(() => import('./pages/SaasPaymentLinkPage'), 'SaasPaymentLinkPage');
+const VendedorDashboard = lazyWithRetry(() => import('./pages/VendedorDashboard'), 'VendedorDashboard');
 const CommissionManagement = lazyWithRetry(() => import('./components/commissions/CommissionManagement'), 'CommissionManagement');
 const Payments = lazyWithRetry(() => import('./components/admin/Payments'), 'Payments');
 const PlansModule = lazyWithRetry(() => import('./components/admin/PlansModule'), 'PlansModule');
@@ -468,6 +469,21 @@ const AppContent = () => {
         <Routes>
           <Route path="/asistencia" element={<AttendanceKiosk />} />
           <Route path="*" element={<Navigate to="/asistencia" replace />} />
+        </Routes>
+      </Suspense>
+    );
+  }
+
+  // Rol de plataforma Vendedor: acceso exclusivo al Portal de Ventas (crear empresas y enviar enlaces de pago)
+  const isVendedorAccount =
+    String(user?.role || user?.rol || '').trim().toLowerCase() === 'vendedor';
+  if (isVendedorAccount) {
+    return (
+      <Suspense fallback={<WorkspaceSkeleton />}>
+        <Routes>
+          <Route path="/vendedor" element={<VendedorDashboard />} />
+          <Route path="/pago-saas/:token" element={<SaasPaymentLinkPage />} />
+          <Route path="*" element={<Navigate to="/vendedor" replace />} />
         </Routes>
       </Suspense>
     );

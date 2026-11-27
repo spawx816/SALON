@@ -126,6 +126,95 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
   const [emailSaving, setEmailSaving] = useState(false);
   const [emailTesting, setEmailTesting] = useState(false);
 
+  // Vendedores de Plataforma
+  const [vendedores, setVendedores] = useState([]);
+  const [vendedoresLoading, setVendedoresLoading] = useState(false);
+  const [newVendedor, setNewVendedor] = useState({ name: '', email: '', password: '' });
+  const [creatingVendedor, setCreatingVendedor] = useState(false);
+  const [vendedorError, setVendedorError] = useState('');
+
+  const loadVendedores = async () => {
+    setVendedoresLoading(true);
+    try {
+      const res = await fetch('/api/saas/vendedores', { credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.vendedores)) {
+        setVendedores(data.vendedores);
+      }
+    } catch (_) {
+      // ignore
+    } finally {
+      setVendedoresLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadVendedores();
+  }, []);
+
+  const handleCreateVendedor = async (e) => {
+    e.preventDefault();
+    setVendedorError('');
+    setCreatingVendedor(true);
+    try {
+      const res = await fetch('/api/saas/vendedores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(newVendedor),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo crear el vendedor.');
+      setNewVendedor({ name: '', email: '', password: '' });
+      showNotification(`Vendedor "${data.vendedor?.name || newVendedor.name}" creado exitosamente.`);
+      await loadVendedores();
+    } catch (err) {
+      setVendedorError(err.message);
+    } finally {
+      setCreatingVendedor(false);
+    }
+  };
+
+  const handleToggleVendedorStatus = async (v) => {
+    const nextActive = !Boolean(v.is_active);
+    try {
+      const res = await fetch(`/api/saas/vendedores/${v.id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ is_active: nextActive }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo actualizar el estado.');
+      showNotification(`Vendedor ${nextActive ? 'activado' : 'desactivado'} correctamente.`);
+      await loadVendedores();
+    } catch (err) {
+      showNotification(err.message, 'error');
+    }
+  };
+
+  const handleResetVendedorPassword = async (v) => {
+    const nextPwd = window.prompt(`Nueva contraseña para ${v.name} (${v.email}) (mínimo 6 caracteres):`);
+    if (!nextPwd) return;
+    if (nextPwd.length < 6) {
+      showNotification('La contraseña debe tener al menos 6 caracteres.', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/saas/vendedores/${v.id}/password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ password: nextPwd }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo cambiar la contraseña.');
+      showNotification(`Contraseña de ${v.name} actualizada correctamente.`);
+    } catch (err) {
+      showNotification(err.message, 'error');
+    }
+  };
+
   const fetchData = async () => {
     setLoading(true);
     setLoadError(null);
@@ -1092,6 +1181,28 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
         >
           <Mail size={17} />
           Correo del Sistema
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('vendedores');
+            loadVendedores();
+          }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.6rem 1.25rem',
+            borderRadius: '10px',
+            border: 'none',
+            fontSize: '0.9rem',
+            fontWeight: '800',
+            cursor: 'pointer',
+            background: activeTab === 'vendedores' ? '#0f172a' : 'transparent',
+            color: activeTab === 'vendedores' ? '#ffffff' : '#64748b'
+          }}
+        >
+          <Users size={17} />
+          Vendedores ({vendedores.length})
         </button>
       </div>
 
@@ -2200,6 +2311,183 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       {/* ========================================================================= */}
       {/* TAB: CORREO DEL SISTEMA (SMTP GLOBAL DE PLATAFORMA) */}
       {/* ========================================================================= */}
+      {/* ========================================================================= */}
+      {/* TAB VENDEDORES: CREACIÓN Y GESTIÓN DE USUARIOS VENDEDORES */}
+      {/* ========================================================================= */}
+      {activeTab === 'vendedores' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {/* Formulario crear vendedor */}
+          <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.5rem 1.75rem', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+            <h2 style={{ fontSize: '1.15rem', fontWeight: '800', margin: '0 0 0.35rem', color: '#0f172a' }}>
+              Crear Usuario Vendedor
+            </h2>
+            <p style={{ margin: '0 0 1.15rem', fontSize: '0.85rem', color: '#64748b' }}>
+              Los vendedores pueden iniciar sesión en el Portal de Ventas para crear nuevas empresas y enviarles un enlace de pago con CardNet (activación automática y tarjeta registrada para cobro recurrente).
+            </p>
+
+            {vendedorError && (
+              <div style={{ marginBottom: '1rem', padding: '0.7rem 0.95rem', borderRadius: '10px', background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: '0.83rem', fontWeight: 700 }}>
+                {vendedorError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateVendedor} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.85rem', alignItems: 'end' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#334155', marginBottom: '0.3rem' }}>
+                  Nombre completo *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Carlos Méndez"
+                  value={newVendedor.name}
+                  onChange={(e) => setNewVendedor({ ...newVendedor, name: e.target.value })}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.88rem', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#334155', marginBottom: '0.3rem' }}>
+                  Correo electrónico *
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="vendedor@etereasapp.com"
+                  value={newVendedor.email}
+                  onChange={(e) => setNewVendedor({ ...newVendedor, email: e.target.value })}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.88rem', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#334155', marginBottom: '0.3rem' }}>
+                  Contraseña inicial *
+                </label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  placeholder="Mínimo 6 caracteres"
+                  value={newVendedor.password}
+                  onChange={(e) => setNewVendedor({ ...newVendedor, password: e.target.value })}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.88rem', boxSizing: 'border-box' }}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={creatingVendedor}
+                style={{
+                  padding: '0.7rem 1.2rem',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: '#2563eb',
+                  color: '#ffffff',
+                  fontSize: '0.88rem',
+                  fontWeight: 800,
+                  cursor: creatingVendedor ? 'not-allowed' : 'pointer',
+                  height: '42px'
+                }}
+              >
+                {creatingVendedor ? 'Creando...' : '+ Crear Vendedor'}
+              </button>
+            </form>
+          </div>
+
+          {/* Listado de vendedores */}
+          <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+            <div style={{ padding: '1.25rem 1.75rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>
+                Equipo de Vendedores ({vendedores.length})
+              </h3>
+              <button
+                type="button"
+                onClick={loadVendedores}
+                style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', color: '#334155' }}
+              >
+                Actualizar
+              </button>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', color: '#475569', textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
+                    <th style={{ padding: '0.85rem 1.25rem' }}>Vendedor</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Correo</th>
+                    <th style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>Empresas Creadas</th>
+                    <th style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>Activas (Pagadas)</th>
+                    <th style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>Estado</th>
+                    <th style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vendedoresLoading ? (
+                    <tr>
+                      <td colSpan={6} style={{ padding: '1.5rem', textAlign: 'center', color: '#64748b' }}>
+                        Cargando vendedores...
+                      </td>
+                    </tr>
+                  ) : vendedores.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ padding: '1.75rem', textAlign: 'center', color: '#64748b' }}>
+                        No hay vendedores creados todavía. Crea el primero usando el formulario de arriba.
+                      </td>
+                    </tr>
+                  ) : (
+                    vendedores.map((v) => (
+                      <tr key={v.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '0.85rem 1.25rem', fontWeight: 700, color: '#0f172a' }}>{v.name}</td>
+                        <td style={{ padding: '0.85rem 1rem', color: '#334155' }}>{v.email}</td>
+                        <td style={{ padding: '0.85rem 1rem', textAlign: 'center', fontWeight: 800, color: '#0f172a' }}>{Number(v.tenants_created || 0)}</td>
+                        <td style={{ padding: '0.85rem 1rem', textAlign: 'center', fontWeight: 800, color: '#16a34a' }}>{Number(v.tenants_active || 0)}</td>
+                        <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '3px 10px',
+                            borderRadius: '999px',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            background: v.is_active ? '#dcfce7' : '#fee2e2',
+                            color: v.is_active ? '#166534' : '#991b1b',
+                          }}>
+                            {v.is_active ? 'Activo' : 'Inactivo'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>
+                          <div style={{ display: 'inline-flex', gap: '0.45rem' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleResetVendedorPassword(v)}
+                              style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              Cambiar clave
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleVendedorStatus(v)}
+                              style={{
+                                padding: '0.4rem 0.75rem',
+                                borderRadius: '8px',
+                                border: `1px solid ${v.is_active ? '#fecaca' : '#bbf7d0'}`,
+                                background: v.is_active ? '#fef2f2' : '#f0fdf4',
+                                color: v.is_active ? '#b91c1c' : '#166534',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {v.is_active ? 'Desactivar' : 'Activar'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'email' && (
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.75rem', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
           <div style={{ marginBottom: '1.5rem' }}>

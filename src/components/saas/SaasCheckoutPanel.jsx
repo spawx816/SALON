@@ -102,6 +102,7 @@ export async function executeCardnetCheckout({
   order = null,
   customerEmail = '',
   checkout,
+  chargeEndpoint = null,
   onCheckoutOpening,
   onVerifying,
   onCheckoutClosed,
@@ -150,7 +151,8 @@ export async function executeCardnetCheckout({
       }
 
       try {
-        const res = await fetch(`/api/saas/billing/checkout/orders/${encodeURIComponent(orderId)}/charge-token`, {
+        const targetChargeUrl = chargeEndpoint || `/api/saas/billing/checkout/orders/${encodeURIComponent(orderId)}/charge-token`;
+        const res = await fetch(targetChargeUrl, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -237,7 +239,9 @@ export default function SaasCheckoutPanel({
   onOrderUpdated,
   onViewInvoice,
   initiateEndpointBuilder,
+  chargeEndpointBuilder,
   verifyEndpointBuilder,
+  redirectOnActivated = true,
 }) {
   const [busyOrderId, setBusyOrderId] = useState(null);
   const [panelError, setPanelError] = useState(null);
@@ -273,11 +277,14 @@ export default function SaasCheckoutPanel({
         orderId: order.id,
         order: data.order || order,
         checkout: data.checkout,
+        chargeEndpoint: chargeEndpointBuilder ? chargeEndpointBuilder(order) : null,
         onActivated: async (activatedData) => {
           if (onOrderUpdated) {
             await onOrderUpdated(activatedData);
           }
-          window.location.href = '/';
+          if (redirectOnActivated) {
+            window.location.href = '/';
+          }
         },
         onError: async (msg) => {
           setPanelError(msg);

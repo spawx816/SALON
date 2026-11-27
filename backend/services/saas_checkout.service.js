@@ -1271,7 +1271,7 @@ class SaasCheckoutService {
         plan_code, branches_count, extra_users_count, memberships_addon_enabled, addon_branches_count,
         currency, subtotal_minor, tax_minor, total_minor, billing_cycle, status, gateway_provider,
         auto_renew_enabled, idempotency_key, expires_at, metadata, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'cardnet_hosted', FALSE, ?, ?, ?, NOW(), NOW())`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'cardnet_hosted', ?, ?, ?, ?, NOW(), NOW())`,
       [
         orderId,
         orderNumber,
@@ -1291,6 +1291,7 @@ class SaasCheckoutService {
         String(calc.totalMinor),
         calc.billingCycle,
         ORDER_STATUS.PENDING_PAYMENT,
+        source === 'superadmin_payment_link' ? true : false,
         effectiveIdempotencyKey,
         expiresAt,
         JSON.stringify(sanitizedMetadata),
@@ -1372,6 +1373,29 @@ class SaasCheckoutService {
       [token, tenantId]
     );
     return rows.length > 0 ? sanitizeOrderForClient(rows[0]) : null;
+  }
+
+  async getOrderByTokenPublic(token) {
+    if (!token || String(token).trim().length < 24) return null;
+    const [rows] = await this.pool.query(
+      `SELECT o.*, t.business_name AS tenant_business_name, t.owner_name AS tenant_owner_name,
+              t.owner_email AS tenant_owner_email, t.status AS tenant_status
+       FROM saas_checkout_orders o
+       LEFT JOIN tenants t ON t.id = o.tenant_id
+       WHERE o.payment_link_token = ?
+       LIMIT 1`,
+      [String(token).trim()]
+    );
+    if (!rows || rows.length === 0) return null;
+    const row = rows[0];
+    const sanitized = sanitizeOrderForClient(row);
+    return {
+      ...sanitized,
+      tenant_business_name: row.tenant_business_name || null,
+      tenant_owner_name: row.tenant_owner_name || null,
+      tenant_owner_email: row.tenant_owner_email || null,
+      tenant_status: row.tenant_status || null,
+    };
   }
 
   async initiateCardnetCheckout({ orderId, tenantId, clientIp = null, returnBaseUrl = null, actorEmail = null }) {
@@ -1985,7 +2009,21 @@ class SaasCheckoutService {
       }
 
       // 3. Conciliar método de pago, factura comercial SaaS y registro de pago (idempotente, usando snapshot de la orden)
-      await this._syncOrderFinancialRecords(order, actorUserId);
+      const financial = await this._syncOrderFinancialRecords(order, actorUserId);
+
+      // 3b. Si el pago provino de un enlace de pago con renovación automática o se guardó tarjeta, habilitar cobro recurrente automático
+      if (order.auto_renew_enabled || order.source === 'superadmin_payment_link' || financial?.paymentMethod) {
+        await this.pool.query(
+          `UPDATE tenant_subscriptions
+           SET auto_renew = TRUE,
+               cancel_at_period_end = FALSE,
+               recurring_consent_at = COALESCE(recurring_consent_at, NOW()),
+               recurring_consent_version = COALESCE(recurring_consent_version, 'v2026.1'),
+               updated_at = NOW()
+           WHERE tenant_id = ?`,
+          [order.tenant_id]
+        ).catch(() => {});
+      }
 
       await this.pool.query(
         `UPDATE saas_checkout_orders

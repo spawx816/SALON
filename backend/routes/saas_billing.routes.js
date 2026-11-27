@@ -1461,17 +1461,27 @@ table{width:100%;border-collapse:collapse;margin:16px 0} td,th{padding:10px 8px;
     }
   });
 
-  // Enlace de pago generado por SuperAdmin (aislado al tenant propietario)
+  // Enlace de pago generado por SuperAdmin o Vendedor (público mediante token criptográfico, aislado estrictamente a la orden)
   router.get('/payment-links/:token', async (req, res) => {
     try {
-      const tenantId = req.tenantId;
-      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
-      const order = await checkoutService.getOrderByTokenForTenant(req.params.token, tenantId);
-      if (!order) return res.status(404).json({ error: 'Enlace de pago no encontrado o no pertenece a tu cuenta', code: 'PAYMENT_LINK_NOT_FOUND' });
+      const order = await checkoutService.getOrderByTokenPublic(req.params.token);
+      if (!order) return res.status(404).json({ error: 'Enlace de pago no encontrado o expirado.', code: 'PAYMENT_LINK_NOT_FOUND' });
+      if (req.tenantId && String(order.tenant_id) !== String(req.tenantId) && !req.auth?.isSuperAdmin) {
+        return res.status(404).json({ error: 'Enlace de pago no encontrado o no pertenece a tu cuenta.', code: 'PAYMENT_LINK_NOT_FOUND' });
+      }
       const gateway = checkoutService?.getGatewayStatus
         ? checkoutService.getGatewayStatus()
         : (cardnetCheckoutProvider ? cardnetCheckoutProvider.getConfigurationStatus() : { configured: false });
-      res.json({ order, gateway });
+      res.json({
+        order,
+        gateway,
+        tenant: {
+          businessName: order.tenant_business_name || '',
+          ownerName: order.tenant_owner_name || '',
+          ownerEmail: order.tenant_owner_email || '',
+          status: order.tenant_status || '',
+        },
+      });
     } catch (err) {
       res.status(err.statusCode || 500).json({ error: err.message, code: err.code || 'INTERNAL_ERROR' });
     }
@@ -1479,16 +1489,15 @@ table{width:100%;border-collapse:collapse;margin:16px 0} td,th{padding:10px 8px;
 
   router.post('/payment-links/:token/initiate-cardnet', async (req, res) => {
     try {
-      const tenantId = req.tenantId;
-      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
-      const order = await checkoutService.getOrderByTokenForTenant(req.params.token, tenantId);
-      if (!order) return res.status(404).json({ error: 'Enlace de pago no encontrado', code: 'PAYMENT_LINK_NOT_FOUND' });
+      const order = await checkoutService.getOrderByTokenPublic(req.params.token);
+      if (!order) return res.status(404).json({ error: 'Enlace de pago no encontrado.', code: 'PAYMENT_LINK_NOT_FOUND' });
       const origin = req.headers.origin || (req.headers.host ? `${req.protocol}://${req.headers.host}` : null);
       const result = await checkoutService.initiateCardnetCheckout({
         orderId: order.id,
-        tenantId,
+        tenantId: order.tenant_id,
         clientIp: req.ip,
         returnBaseUrl: origin,
+        actorEmail: order.tenant_owner_email || null,
       });
       res.json(result);
     } catch (err) {
@@ -1497,6 +1506,47 @@ table{width:100%;border-collapse:collapse;margin:16px 0} td,th{padding:10px 8px;
         code: err.code || 'CARDNET_INITIATE_FAILED',
         requirements: err.requirements || undefined,
       });
+    }
+  });
+
+  router.post('/payment-links/:token/charge-token', async (req, res) => {
+    try {
+      const order = await checkoutService.getOrderByTokenPublic(req.params.token);
+      if (!order) return res.status(404).json({ error: 'Enlace de pago no encontrado.', code: 'PAYMENT_LINK_NOT_FOUND' });
+      const trxToken = req.body?.trxToken || req.body?.PWToken || req.body?.token;
+      if (!trxToken) {
+        return res.status(400).json({ error: 'Token de transacción CardNet requerido.', code: 'MISSING_TRX_TOKEN' });
+      }
+      const result = await checkoutService.chargeOrderWithToken({
+        orderId: order.id,
+        tenantId: order.tenant_id,
+        trxToken,
+        clientIp: req.ip,
+        actorUserId: req.auth?.userId || order.created_by_user_id || 'payment_link_checkout',
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.statusCode || 400).json({
+        error: err.message,
+        code: err.code || 'CARDNET_CHARGE_FAILED',
+      });
+    }
+  });
+
+  router.post('/payment-links/:token/verify', async (req, res) => {
+    try {
+      const order = await checkoutService.getOrderByTokenPublic(req.params.token);
+      if (!order) return res.status(404).json({ error: 'Enlace de pago no encontrado.', code: 'PAYMENT_LINK_NOT_FOUND' });
+      const cancelledByUser = Boolean(req.body?.cancelled);
+      const result = await checkoutService.verifyAndFinalizeOrder({
+        orderId: order.id,
+        tenantId: order.tenant_id,
+        cancelledByUser,
+        actorUserId: req.auth?.userId || order.created_by_user_id || 'payment_link_checkout',
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.statusCode || 400).json({ error: err.message, code: err.code || 'CARDNET_VERIFY_FAILED' });
     }
   });
 

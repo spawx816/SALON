@@ -497,7 +497,9 @@ function createAuthMiddleware(pool) {
           }
         }
 
-        if (!isSuperAdmin) {
+        const isPlatformVendedor = effectiveRole === 'vendedor' && !userTenantId;
+
+        if (!isSuperAdmin && !isPlatformVendedor) {
           if (!userTenantId) {
             return res.status(403).json({
               error: 'El usuario no tiene una empresa (Tenant) asignado en base de datos.',

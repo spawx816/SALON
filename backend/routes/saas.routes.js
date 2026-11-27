@@ -1468,6 +1468,387 @@ function createSaasRouter(pool, options = {}) {
     }
   });
 
+  // =========================================================================
+  // GESTIÓN DE VENDEDORES (SUPERADMIN) Y PORTAL DE VENTAS (ROL 'vendedor')
+  // =========================================================================
+  const ensureTenantsCreatedByColumn = async () => {
+    try {
+      await pool.query('ALTER TABLE tenants ADD COLUMN IF NOT EXISTS created_by_user_id TEXT');
+    } catch (_) {
+      // ignore if already exists or unsupported
+    }
+  };
+
+  const requireVendedorOrSuperAdmin = (req, res, next) => {
+    const role = String(req.auth?.role || req.user?.role || '').trim().toLowerCase();
+    if (req.auth?.isSuperAdmin || role === 'superadmin' || role === 'vendedor') {
+      return next();
+    }
+    return res.status(403).json({
+      error: 'Acceso denegado: se requiere rol de Vendedor o SuperAdmin.',
+      code: 'VENDEDOR_ROLE_REQUIRED',
+    });
+  };
+
+  // GET /api/saas/vendedores - Listar usuarios vendedores de la plataforma (Solo SuperAdmin)
+  router.get('/vendedores', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      await ensureTenantsCreatedByColumn();
+      const [rows] = await pool.query(`
+        SELECT u.id, COALESCE(u.nombre, u.name) AS name, u.email, u.is_active, u.estado, u.created_at,
+               (SELECT COUNT(*) FROM tenants t WHERE t.created_by_user_id = u.id::text) AS tenants_created,
+               (SELECT COUNT(*) FROM tenants t WHERE t.created_by_user_id = u.id::text AND t.status = 'active') AS tenants_active
+        FROM users u
+        WHERE LOWER(COALESCE(u.role, '')) = 'vendedor' AND u.tenant_id IS NULL
+        ORDER BY u.created_at DESC
+      `);
+      res.json({ vendedores: rows || [] });
+    } catch (error) {
+      console.error('[SUPERADMIN VENDEDORES GET ERROR]:', error.message);
+      res.status(500).json({ error: 'No se pudo cargar la lista de vendedores.' });
+    }
+  });
+
+  // POST /api/saas/vendedores - Crear nuevo usuario vendedor (Solo SuperAdmin)
+  router.post('/vendedores', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const { name, email, password } = req.body || {};
+      const cleanName = String(name || '').trim();
+      const cleanEmail = String(email || '').trim().toLowerCase();
+      const cleanPassword = String(password || '');
+
+      if (!cleanName || !cleanEmail || cleanPassword.length < 6) {
+        return res.status(400).json({ error: 'Nombre, correo electrónico y contraseña (mínimo 6 caracteres) son obligatorios.' });
+      }
+
+      const [existing] = await pool.query('SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1', [cleanEmail]);
+      if (existing && existing.length > 0) {
+        return res.status(409).json({ error: 'Ya existe un usuario registrado con ese correo electrónico.' });
+      }
+
+      const userId = crypto.randomUUID();
+      const passwordHash = await bcrypt.hash(cleanPassword, 12);
+
+      await pool.query(
+        `INSERT INTO users (id, tenant_id, branch_id, name, nombre, email, password_hash, role, is_active, estado)
+         VALUES (?, NULL, NULL, ?, ?, ?, ?, 'vendedor', TRUE, 'Activo')`,
+        [userId, cleanName, cleanName, cleanEmail, passwordHash]
+      );
+
+      res.status(201).json({
+        success: true,
+        message: 'Vendedor creado exitosamente.',
+        vendedor: {
+          id: userId,
+          name: cleanName,
+          email: cleanEmail,
+          role: 'vendedor',
+          is_active: true,
+          estado: 'Activo',
+          tenants_created: 0,
+          tenants_active: 0,
+        },
+      });
+    } catch (error) {
+      console.error('[SUPERADMIN VENDEDORES CREATE ERROR]:', error.message);
+      res.status(500).json({ error: error.message || 'No se pudo crear el vendedor.' });
+    }
+  });
+
+  // PUT /api/saas/vendedores/:id/status - Activar/Desactivar vendedor (Solo SuperAdmin)
+  router.put('/vendedores/:id/status', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const isActive = Boolean(req.body?.is_active);
+      const estado = isActive ? 'Activo' : 'Inactivo';
+      const [result] = await pool.query(
+        `UPDATE users SET is_active = ?, estado = ?, updated_at = NOW()
+         WHERE id::text = ? AND LOWER(COALESCE(role, '')) = 'vendedor' AND tenant_id IS NULL`,
+        [isActive, estado, String(id)]
+      );
+      if (!result?.affectedRows) {
+        return res.status(404).json({ error: 'Vendedor no encontrado.' });
+      }
+      res.json({ success: true, is_active: isActive, estado });
+    } catch (error) {
+      console.error('[SUPERADMIN VENDEDORES STATUS ERROR]:', error.message);
+      res.status(500).json({ error: 'No se pudo actualizar el estado del vendedor.' });
+    }
+  });
+
+  // PUT /api/saas/vendedores/:id/password - Restablecer contraseña de vendedor (Solo SuperAdmin)
+  router.put('/vendedores/:id/password', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const newPassword = String(req.body?.password || '');
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres.' });
+      }
+      const passwordHash = await bcrypt.hash(newPassword, 12);
+      const [result] = await pool.query(
+        `UPDATE users SET password_hash = ?, updated_at = NOW()
+         WHERE id::text = ? AND LOWER(COALESCE(role, '')) = 'vendedor' AND tenant_id IS NULL`,
+        [passwordHash, String(id)]
+      );
+      if (!result?.affectedRows) {
+        return res.status(404).json({ error: 'Vendedor no encontrado.' });
+      }
+      res.json({ success: true, message: 'Contraseña actualizada correctamente.' });
+    } catch (error) {
+      console.error('[SUPERADMIN VENDEDORES PASSWORD ERROR]:', error.message);
+      res.status(500).json({ error: 'No se pudo actualizar la contraseña del vendedor.' });
+    }
+  });
+
+  // GET /api/saas/vendedor/tenants - Listar empresas creadas por el vendedor autenticado (con su último link de pago y tarjeta)
+  router.get('/vendedor/tenants', authenticate, requireVendedorOrSuperAdmin, async (req, res) => {
+    try {
+      await ensureTenantsCreatedByColumn();
+      const actorId = String(req.auth?.userId || req.user?.id || '');
+      const isSuperAdmin = Boolean(req.auth?.isSuperAdmin || String(req.auth?.role || '').toLowerCase() === 'superadmin');
+
+      const whereClause = isSuperAdmin ? 'WHERE t.created_by_user_id IS NOT NULL' : 'WHERE t.created_by_user_id = ?';
+      const params = isSuperAdmin ? [] : [actorId];
+
+      const [rows] = await pool.query(`
+        SELECT t.id, t.business_name, t.slug, t.owner_name, t.owner_email, t.owner_phone,
+               t.status, t.licensed_branches, t.extra_user_seats, t.has_memberships, t.created_at,
+               ts.status AS subscription_status, ts.auto_renew,
+               (SELECT COUNT(*) FROM tenant_payment_methods pm WHERE pm.tenant_id = t.id AND pm.is_active = TRUE) AS saved_cards_count,
+               lo.id AS latest_order_id, lo.order_number AS latest_order_number, lo.status AS latest_order_status,
+               lo.payment_link_token AS latest_payment_link_token, lo.total_minor AS latest_order_total_minor,
+               lo.currency AS latest_order_currency, lo.expires_at AS latest_order_expires_at,
+               lo.activated_at AS latest_order_activated_at, lo.metadata AS latest_order_metadata
+        FROM tenants t
+        LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = t.id
+        LEFT JOIN LATERAL (
+          SELECT * FROM saas_checkout_orders o
+          WHERE o.tenant_id = t.id AND o.payment_link_token IS NOT NULL
+          ORDER BY o.created_at DESC
+          LIMIT 1
+        ) lo ON TRUE
+        ${whereClause}
+        ORDER BY t.created_at DESC
+      `, params);
+
+      res.json({ tenants: rows || [] });
+    } catch (error) {
+      console.error('[VENDEDOR TENANTS GET ERROR]:', error.message);
+      res.status(500).json({ error: 'No se pudieron cargar tus empresas.' });
+    }
+  });
+
+  // POST /api/saas/vendedor/tenants - Crear empresa (pendiente de pago) + generar link de pago inmediato con cobro automático
+  router.post('/vendedor/tenants', authenticate, requireVendedorOrSuperAdmin, async (req, res) => {
+    try {
+      await ensureTenantsCreatedByColumn();
+      const saasCheckoutService = options.saasCheckoutService;
+      if (!saasCheckoutService) {
+        return res.status(503).json({ error: 'Servicio de checkout SaaS no disponible' });
+      }
+
+      const {
+        business_name,
+        owner_name,
+        owner_email,
+        owner_phone = '',
+        rnc = '',
+        address = '',
+        admin_password,
+        branches_count = 1,
+        extra_users_count = 0,
+        wants_memberships_addon = false,
+        addon_branches_count = 0,
+        note = '',
+      } = req.body || {};
+
+      if (!business_name || !owner_email || !admin_password) {
+        return res.status(400).json({ error: 'Nombre de empresa, correo del propietario y contraseña inicial son obligatorios.' });
+      }
+      if (String(admin_password).length < 6) {
+        return res.status(400).json({ error: 'La contraseña inicial debe tener al menos 6 caracteres.' });
+      }
+
+      const branchesNum = Math.max(1, parseInt(branches_count, 10) || 1);
+      const extraSeatsNum = Math.max(0, parseInt(extra_users_count, 10) || 0);
+      const wantsAddon = Boolean(wants_memberships_addon);
+      const addonBranchesNum = wantsAddon ? Math.min(branchesNum, Math.max(1, parseInt(addon_branches_count, 10) || branchesNum)) : 0;
+
+      const cleanBusinessName = String(business_name).trim();
+      const cleanEmail = String(owner_email).trim().toLowerCase();
+      const cleanOwnerName = String(owner_name || 'Propietario').trim();
+      const baseSlug = cleanBusinessName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'empresa';
+      const cleanSlug = `${baseSlug}-${crypto.randomBytes(3).toString('hex')}`;
+
+      const conn = await pool.getConnection();
+      let tenantId, branchId, userId, subscriptionId;
+      try {
+        const [existingEmail] = await conn.query('SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1', [cleanEmail]);
+        if (existingEmail.length > 0) {
+          return res.status(409).json({ error: 'Ese correo electrónico ya está registrado en la plataforma.' });
+        }
+
+        const [planRows] = await conn.query("SELECT * FROM saas_plans WHERE UPPER(code) = 'PRINCIPAL' LIMIT 1");
+        const principalPlan = planRows[0] || { id: 3, users_per_branch: 3 };
+        const usersPerBranch = Number(principalPlan.users_per_branch) || 3;
+        const finalMaxUsers = (branchesNum * usersPerBranch) + extraSeatsNum;
+        const finalModules = { ...CANONICAL_PLAN_FEATURES.PRINCIPAL, memberships: false };
+
+        tenantId = crypto.randomUUID();
+        branchId = crypto.randomUUID();
+        userId = crypto.randomUUID();
+        subscriptionId = crypto.randomUUID();
+        const passwordHash = await bcrypt.hash(String(admin_password), 12);
+        const actorId = String(req.auth?.userId || req.user?.id || 'vendedor');
+
+        await conn.beginTransaction();
+        try {
+          await conn.query(`
+            INSERT INTO tenants (
+              id, business_name, slug, email, phone, owner_name, owner_email, owner_phone,
+              rnc, address, plan_id, status, licensed_branches, max_branches, extra_user_seats, max_users,
+              has_memberships, modules_config, created_by_user_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, false, ?::jsonb, ?)
+          `, [
+            tenantId, cleanBusinessName, cleanSlug, cleanEmail, owner_phone || '',
+            cleanOwnerName, cleanEmail, owner_phone || '',
+            rnc || '', address || '', principalPlan.id,
+            branchesNum, branchesNum, extraSeatsNum, finalMaxUsers, JSON.stringify(finalModules), actorId
+          ]);
+
+          await conn.query(`
+            INSERT INTO branches (id, tenant_id, name, address, phone, is_main, is_active)
+            VALUES (?, ?, ?, ?, ?, true, true)
+          `, [branchId, tenantId, `${cleanBusinessName} - Principal`, address || 'Sucursal Principal', owner_phone || '']);
+
+          await conn.query(`
+            INSERT INTO salons (id, name, address, phone, status, tenant_id)
+            VALUES (?, ?, ?, ?, 'Active', ?)
+          `, [branchId, `${cleanBusinessName} - Principal`, address || 'Sucursal Principal', owner_phone || '', tenantId]);
+
+          await conn.query(`
+            INSERT INTO users (id, tenant_id, branch_id, name, nombre, email, password_hash, role, is_active, estado)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'owner', true, 'Activo')
+          `, [userId, tenantId, branchId, cleanOwnerName, cleanOwnerName, cleanEmail, passwordHash]);
+
+          const { installPredefinedRolesForTenant } = require('../services/role_templates.service');
+          await installPredefinedRolesForTenant(conn, tenantId, { explicitInstall: false });
+
+          const { computeNextPeriodEnd } = require('../services/calendar_billing.utils');
+          const subStart = new Date();
+          const anchorDay = subStart.getUTCDate();
+          const subEnd = computeNextPeriodEnd({ periodStart: subStart, periodicityMode: 'calendar_month', anchorDay });
+
+          await conn.query(`
+            INSERT INTO tenant_subscriptions (
+              id, tenant_id, saas_plan_id, plan_code, status, billing_cycle, currency,
+              periodicity_mode, billing_anchor_day, auto_renew, extra_users_count, started_at, current_period_start, current_period_end
+            )
+            VALUES (?, ?, ?, 'PRINCIPAL', 'pending', 'monthly', 'DOP', 'calendar_month', ?, TRUE, ?, ?, ?, ?)
+          `, [subscriptionId, tenantId, principalPlan.id, anchorDay, extraSeatsNum, subStart.toISOString(), subStart.toISOString(), subEnd.toISOString()]);
+
+          await conn.query(`
+            INSERT INTO tenant_subscription_events (
+              tenant_id, previous_plan, new_plan, previous_status, new_status, reason, actor_id
+            )
+            VALUES (?, NULL, 'PRINCIPAL', NULL, 'pending', ?, ?)
+          `, [tenantId, 'Alta de empresa desde Portal de Vendedores (pendiente de pago por enlace)', actorId]);
+
+          await conn.commit();
+        } catch (txErr) {
+          await conn.rollback();
+          throw txErr;
+        }
+      } finally {
+        conn.release();
+      }
+
+      const linkResult = await saasCheckoutService.createSuperAdminPaymentLink({
+        tenantId,
+        actorUserId: String(req.auth?.userId || req.user?.id || 'vendedor'),
+        branchesCount: branchesNum,
+        extraUsersCount: extraSeatsNum,
+        wantsMembershipsAddon: wantsAddon,
+        addonBranchesCount: addonBranchesNum,
+        note: note || `Enlace de pago generado por vendedor (${req.auth?.email || 'vendedor'})`,
+      });
+
+      res.status(201).json({
+        success: true,
+        message: 'Empresa creada y enlace de pago generado exitosamente.',
+        tenant: {
+          id: tenantId,
+          business_name: cleanBusinessName,
+          owner_name: cleanOwnerName,
+          owner_email: cleanEmail,
+          status: 'pending',
+          licensed_branches: branchesNum,
+          extra_user_seats: extraSeatsNum,
+        },
+        ...linkResult,
+      });
+    } catch (error) {
+      console.error('[VENDEDOR CREATE TENANT ERROR]:', error.message);
+      res.status(error.statusCode || 500).json({ error: error.message || 'No se pudo crear la empresa.' });
+    }
+  });
+
+  // POST /api/saas/vendedor/tenants/:tenantId/payment-links - Regenerar enlace de pago para una empresa del vendedor
+  router.post('/vendedor/tenants/:tenantId/payment-links', authenticate, requireVendedorOrSuperAdmin, async (req, res) => {
+    try {
+      await ensureTenantsCreatedByColumn();
+      const saasCheckoutService = options.saasCheckoutService;
+      if (!saasCheckoutService) {
+        return res.status(503).json({ error: 'Servicio de checkout SaaS no disponible' });
+      }
+      const { tenantId } = req.params;
+      const actorId = String(req.auth?.userId || req.user?.id || '');
+      const isSuperAdmin = Boolean(req.auth?.isSuperAdmin || String(req.auth?.role || '').toLowerCase() === 'superadmin');
+
+      const [tRows] = await pool.query(
+        'SELECT id, business_name, owner_email, licensed_branches, extra_user_seats, has_memberships, created_by_user_id FROM tenants WHERE id::text = ? LIMIT 1',
+        [String(tenantId)]
+      );
+      if (!tRows || tRows.length === 0) {
+        return res.status(404).json({ error: 'Empresa no encontrada.' });
+      }
+      const tenant = tRows[0];
+      if (!isSuperAdmin && String(tenant.created_by_user_id || '') !== actorId) {
+        return res.status(403).json({ error: 'No tienes permiso para generar enlaces de pago para esta empresa.' });
+      }
+
+      const branchesCount = Math.max(1, parseInt(req.body?.branchesCount ?? tenant.licensed_branches, 10) || 1);
+      const extraUsersCount = Math.max(0, parseInt(req.body?.extraUsersCount ?? tenant.extra_user_seats, 10) || 0);
+      const wantsMembershipsAddon = req.body?.wantsMembershipsAddon !== undefined
+        ? Boolean(req.body.wantsMembershipsAddon)
+        : Boolean(tenant.has_memberships);
+      const addonBranchesCount = wantsMembershipsAddon
+        ? Math.min(branchesCount, Math.max(1, parseInt(req.body?.addonBranchesCount, 10) || branchesCount))
+        : 0;
+
+      const result = await saasCheckoutService.createSuperAdminPaymentLink({
+        tenantId: tenant.id,
+        actorUserId: actorId,
+        branchesCount,
+        extraUsersCount,
+        wantsMembershipsAddon,
+        addonBranchesCount,
+        note: req.body?.note || `Enlace de pago generado por vendedor (${req.auth?.email || 'vendedor'})`,
+      });
+
+      res.status(201).json({
+        success: true,
+        tenantName: tenant.business_name,
+        ownerEmail: tenant.owner_email || null,
+        ...result,
+      });
+    } catch (error) {
+      console.error('[VENDEDOR PAYMENT LINK ERROR]:', error.message);
+      res.status(error.statusCode || 400).json({ error: error.message || 'No se pudo generar el enlace de pago.' });
+    }
+  });
+
   return router;
 }
 

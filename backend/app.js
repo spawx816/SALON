@@ -456,8 +456,11 @@ function createApp(dependencies = {}) {
     if (method === 'GET' && pathUrl.startsWith('/api/public/terms')) return true;
     if (method === 'GET' && pathUrl.startsWith('/api/public/branding')) return true;
 
-    // 6. Public SaaS billing webhooks (HMAC authenticated)
+    // 6. Public SaaS billing webhooks (HMAC authenticated) & cryptographic Payment Links
     if (pathUrl.startsWith('/api/saas/billing/webhooks')) return true;
+    if (/^\/api\/saas\/billing\/payment-links\/[a-f0-9]{24,}(\/(initiate-cardnet|charge-token|verify))?$/i.test(pathUrl)) {
+      return true;
+    }
 
     // 7. Public Contact messages (REM-P1-04: Only POST /api/contact is public)
     if (method === 'POST' && pathUrl === '/api/contact') return true;
@@ -537,6 +540,29 @@ function createApp(dependencies = {}) {
           return res.status(403).json({
             error: 'Acceso denegado: esta cuenta Kiosco de Asistencia no tiene permisos para acceder a módulos operativos o administrativos.',
             code: 'KIOSK_ACCOUNT_RESTRICTED',
+          });
+        }
+      }
+
+      // Guard fail-closed para rol de plataforma 'vendedor':
+      // Solo permite sesión propia, logout, cambio de contraseña, consulta de planes y endpoints /api/saas/vendedor/*
+      if (String(req.auth?.role || '').trim().toLowerCase() === 'vendedor') {
+        const pathUrl = (req.originalUrl || req.url || '').split('?')[0];
+        const allowedForVendedor =
+          pathUrl === '/api/auth/me' ||
+          pathUrl === '/api/auth/session' ||
+          pathUrl === '/api/auth/session-status' ||
+          pathUrl === '/api/session-status' ||
+          pathUrl === '/api/auth/logout' ||
+          pathUrl === '/api/logout' ||
+          pathUrl === '/api/auth/change-password' ||
+          pathUrl === '/api/demo/status' ||
+          pathUrl === '/api/saas/plans' ||
+          pathUrl.startsWith('/api/saas/vendedor');
+        if (!allowedForVendedor) {
+          return res.status(403).json({
+            error: 'Acceso denegado: tu cuenta de Vendedor solo tiene acceso al portal de ventas.',
+            code: 'VENDEDOR_ACCOUNT_RESTRICTED',
           });
         }
       }
