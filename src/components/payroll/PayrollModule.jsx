@@ -794,6 +794,98 @@ export default function PayrollModule({ initialTab }) {
     setEditingItem(copy);
   };
 
+  // Eliminar / exonerar una deducción individual de asistencia desde el detalle superior del volante
+  const handleRemoveAttendanceDeduction = (rowIndex) => {
+    if (!editingItem) return;
+    if (currentPeriod?.status === 'Aprobada' || currentPeriod?.status === 'Pagada') {
+      showNotification('Esta nómina ya está aprobada o pagada y no puede modificarse.', 'warning');
+      return;
+    }
+
+    const copy = JSON.parse(JSON.stringify(editingItem));
+    let det = copy.detalles_json || {};
+    if (typeof det === 'string') {
+      try { det = JSON.parse(det); } catch { det = {}; }
+    }
+
+    const isWrapped = Boolean(det.attendance_deductions_breakdown && Array.isArray(det.attendance_deductions_breakdown.events));
+    const events = isWrapped
+      ? det.attendance_deductions_breakdown.events
+      : (Array.isArray(det.attendance_deductions_breakdown) ? det.attendance_deductions_breakdown : null);
+
+    if (!events || rowIndex < 0 || rowIndex >= events.length) return;
+
+    const [removed] = events.splice(rowIndex, 1);
+    if (!removed) return;
+
+    det.waived_attendance_deductions = Array.isArray(det.waived_attendance_deductions)
+      ? det.waived_attendance_deductions
+      : [];
+    det.waived_attendance_deductions.push({
+      ...removed,
+      waived_at: new Date().toISOString()
+    });
+
+    const amt = Number(parseFloat(removed.amount || 0).toFixed(2));
+    const typeLabel = String(removed.type || removed.event || '').toLowerCase();
+
+    if (typeLabel.includes('tardanza') || typeLabel.includes('late')) {
+      copy.tardanzas = Number(Math.max(0, parseFloat(copy.tardanzas || 0) - amt).toFixed(2));
+      if (det.desglose_descuentos?.tardanzas) {
+        det.desglose_descuentos.tardanzas.total_monto = copy.tardanzas;
+        if (removed.minutes) {
+          det.desglose_descuentos.tardanzas.total_minutos = Math.max(
+            0,
+            Number(det.desglose_descuentos.tardanzas.total_minutos || 0) - Number(removed.minutes || 0)
+          );
+        }
+        if (copy.tardanzas === 0) {
+          det.desglose_descuentos.tardanzas.items = [];
+          det.desglose_descuentos.tardanzas.total_minutos = 0;
+        }
+      }
+    } else if (typeLabel.includes('ausencia') || typeLabel.includes('absence') || typeLabel.includes('falta')) {
+      copy.ausencias = Number(Math.max(0, parseFloat(copy.ausencias || 0) - amt).toFixed(2));
+      if (det.desglose_descuentos?.ausencias) {
+        det.desglose_descuentos.ausencias.total_monto = copy.ausencias;
+        if (copy.ausencias === 0) {
+          det.desglose_descuentos.ausencias.items = [];
+        }
+      }
+    } else {
+      copy.otros_descuentos = Number(Math.max(0, parseFloat(copy.otros_descuentos || 0) - amt).toFixed(2));
+    }
+
+    const totalIng = (
+      parseFloat(copy.salario_fijo || 0) +
+      parseFloat(copy.comisiones || 0) +
+      parseFloat(copy.feriados || 0) +
+      parseFloat(copy.horas_extras || 0) +
+      parseFloat(copy.descanso || 0) +
+      parseFloat(copy.otros_ingresos || 0)
+    );
+    const totalDesc = (
+      parseFloat(copy.tss || 0) +
+      parseFloat(copy.servicios || 0) +
+      parseFloat(copy.prestamos || 0) +
+      parseFloat(copy.ausencias || 0) +
+      parseFloat(copy.tardanzas || 0) +
+      parseFloat(copy.otros_descuentos || 0)
+    );
+
+    copy.total_ingresos = Number(totalIng.toFixed(2));
+    copy.total_descuentos = Number(totalDesc.toFixed(2));
+    copy.neto_pagar = Number((totalIng - totalDesc).toFixed(2));
+    copy.detalles_json = det;
+
+    syncItemDetalles(copy);
+    setEditingItem(copy);
+    showNotification(
+      `Descuento "${removed.type || removed.event || 'Asistencia'}" (RD$ ${amt.toLocaleString('en-US', { minimumFractionDigits: 2 })}) eliminado. Guarda los cambios del volante para confirmar.`,
+      'success'
+    );
+  };
+
   // Eliminar un concepto personalizado de un empleado
   const handleDeleteCustomConcept = (conceptId, type) => {
     if (!editingItem) return;
@@ -3031,6 +3123,9 @@ export default function PayrollModule({ initialTab }) {
                                 <th style={{ padding: '6px 8px' }}>Regla aplicada</th>
                                 <th style={{ padding: '6px 8px', textAlign: 'right' }}>Base / Unidad</th>
                                 <th style={{ padding: '6px 8px', textAlign: 'right' }}>Importe</th>
+                                {currentPeriod?.status !== 'Aprobada' && currentPeriod?.status !== 'Pagada' && (
+                                  <th style={{ padding: '6px 8px', textAlign: 'center', width: '90px' }}>Acción</th>
+                                )}
                               </tr>
                             </thead>
                             <tbody>
@@ -3047,6 +3142,31 @@ export default function PayrollModule({ initialTab }) {
                                   <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 800, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>
                                     RD$ {Number(row.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                   </td>
+                                  {currentPeriod?.status !== 'Aprobada' && currentPeriod?.status !== 'Pagada' && (
+                                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                                      <button
+                                        type="button"
+                                        title="Exonerar / eliminar este descuento"
+                                        onClick={() => handleRemoveAttendanceDeduction(idx)}
+                                        style={{
+                                          background: '#fef2f2',
+                                          border: '1px solid #fecaca',
+                                          color: '#dc2626',
+                                          padding: '4px 8px',
+                                          borderRadius: '7px',
+                                          fontSize: '0.72rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '4px'
+                                        }}
+                                      >
+                                        <Trash2 size={12} />
+                                        <span>Eliminar</span>
+                                      </button>
+                                    </td>
+                                  )}
                                 </tr>
                               ))}
                             </tbody>

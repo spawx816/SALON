@@ -266,8 +266,19 @@ const ServiceManagement = () => {
       return;
     }
 
+    const defaultCategory = activeCommissionCategories[0]?.nombre || 'General';
     const lines = text.split('\n').filter(l => l.trim() !== '');
     const items = [];
+
+    const parseItbisFlag = (val) => {
+      const normalized = String(val || '').trim().toLowerCase();
+      return normalized === '1' || normalized === 'si' || normalized === 'sí' || normalized === 'true' ? 1 : 0;
+    };
+
+    const isItbisToken = (val) => {
+      const normalized = String(val || '').trim().toLowerCase();
+      return ['0', '1', 'si', 'sí', 'no', 'true', 'false'].includes(normalized);
+    };
 
     lines.forEach((line, index) => {
       // Ignore header line if present
@@ -283,20 +294,32 @@ const ServiceManagement = () => {
 
       if (cols.length >= 2) {
         const nombre = cols[0].trim();
-        const categoria = cols[1] ? cols[1].trim() : 'General';
+        const categoria = cols[1] && cols[1].trim() ? cols[1].trim() : defaultCategory;
         const precio = parseFloat(cols[2]) || 0;
-        const comision = cols[3] ? parseFloat(cols[3]) : 15;
-        const aplicaItbis = cols[4] ? (cols[4].trim() === '1' || cols[4].toLowerCase().includes('si') ? 1 : 0) : 0;
+
+        let tipoItem = 'Servicio';
+        let aplicaItbis = 0;
+
+        if (cols[3] !== undefined && cols[3].trim() !== '') {
+          const col3 = cols[3].trim();
+          if (cols[4] === undefined && isItbisToken(col3)) {
+            aplicaItbis = parseItbisFlag(col3);
+          } else {
+            tipoItem = col3.toLowerCase().startsWith('prod') ? 'Producto' : 'Servicio';
+            if (cols[4] !== undefined && cols[4].trim() !== '') {
+              aplicaItbis = parseItbisFlag(cols[4]);
+            }
+          }
+        }
 
         if (nombre) {
           items.push({
             nombre,
             categoria,
             precio,
-            comision_valor: comision,
-            tipo_comision: 'Porcentaje',
+            tipo_item: tipoItem,
+            item_type: tipoItem === 'Producto' ? 'PRODUCTO' : 'SERVICIO',
             aplica_itbis: aplicaItbis,
-            genera_comision: 1,
             activo: 1
           });
         }
@@ -319,14 +342,14 @@ const ServiceManagement = () => {
   };
 
   const handleLoadSampleBulkData = () => {
-    const sample = `Nombre,Categoría,Precio,Comisión %,Aplica ITBIS
-Corte de Dama Profesional,Peluquería,1200,15,0
-Secado con Estilizado Avanzado,Peluquería,750,15,0
-Manicura Rusa Spa,Uñas,850,20,0
-Pedicura Spa Rejuvenecedora,Uñas,1150,20,0
-Tinte Balayage Completo,Coloración,3800,18,0
-Tratamiento de Botulinica Capilar,Tratamientos,2500,15,0
-Depilación Facial Completa,Estética,600,20,0`;
+    const cat1 = activeCommissionCategories[0]?.nombre || 'Peluquería';
+    const cat2 = activeCommissionCategories[1]?.nombre || cat1;
+    const cat3 = activeCommissionCategories[2]?.nombre || cat1;
+    const sample = `Nombre,Categoría,Precio,Tipo,Aplica ITBIS
+Corte de Dama Profesional,${cat1},1200,Servicio,No
+Secado con Estilizado Avanzado,${cat1},750,Servicio,No
+Manicura Rusa Spa,${cat2},850,Servicio,No
+Shampoo Hidratante 500ml,${cat3},1450,Producto,Si`;
     handleParseBulkText(sample);
   };
 
@@ -1241,9 +1264,14 @@ Depilación Facial Completa,Estética,600,20,0`;
               </button>
             </div>
 
-            <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '12px', padding: '0.875rem 1rem', marginBottom: '1.25rem', fontSize: '0.8rem', color: '#0369a1', lineHeight: 1.4 }}>
-              <strong>💡 Formato Admitido:</strong> Puedes copiar y pegar directamente desde <strong>Excel</strong> o pegar contenido CSV con el formato: <br />
-              <code>Nombre, Categoría, Precio, % Comisión, Aplica ITBIS</code>
+            <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '12px', padding: '0.875rem 1rem', marginBottom: '1.25rem', fontSize: '0.8rem', color: '#0369a1', lineHeight: 1.45 }}>
+              <strong>💡 Formato Admitido (mismos campos que el formulario manual):</strong> Puedes copiar y pegar desde <strong>Excel</strong> o CSV con las columnas: <br />
+              <code>Nombre, Categoría, Precio, Tipo (opcional: Servicio/Producto), Aplica ITBIS (opcional: Si/No)</code>
+              {activeCommissionCategories.length > 0 && (
+                <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: '#0c4a6e' }}>
+                  <strong>Categorías activas:</strong> {activeCommissionCategories.map(c => c.nombre).join(', ')}
+                </div>
+              )}
             </div>
 
             {/* ACTION TOOLBAR INSIDE BULK MODAL */}
@@ -1271,7 +1299,7 @@ Depilación Facial Completa,Estética,600,20,0`;
               </label>
               <textarea
                 rows={6}
-                placeholder="Nombre, Categoría, Precio, Comisión %, Aplica ITBIS&#10;Corte de Dama, Peluquería, 1200, 15, 0&#10;Secado Avanzado, Peluquería, 750, 15, 0"
+                placeholder="Nombre, Categoría, Precio, Tipo, Aplica ITBIS&#10;Corte de Dama, Peluquería, 1200, Servicio, No&#10;Shampoo 500ml, Productos, 1450, Producto, Si"
                 value={bulkText}
                 onChange={(e) => handleParseBulkText(e.target.value)}
                 style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontFamily: 'monospace', fontSize: '0.85rem', fontWeight: 600 }}
@@ -1294,7 +1322,8 @@ Depilación Facial Completa,Estética,600,20,0`;
                         <th style={{ padding: '6px 10px' }}>Nombre</th>
                         <th style={{ padding: '6px 10px' }}>Categoría</th>
                         <th style={{ padding: '6px 10px', textAlign: 'right' }}>Precio</th>
-                        <th style={{ padding: '6px 10px', textAlign: 'center' }}>Comisión %</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'center' }}>Tipo</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'center' }}>ITBIS</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1303,7 +1332,8 @@ Depilación Facial Completa,Estética,600,20,0`;
                           <td style={{ padding: '6px 10px', fontWeight: 700, color: '#0f172a' }}>{item.nombre}</td>
                           <td style={{ padding: '6px 10px', color: '#64748b' }}>{item.categoria}</td>
                           <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 800 }}>RD$ {item.precio}</td>
-                          <td style={{ padding: '6px 10px', textAlign: 'center', color: '#be185d', fontWeight: 700 }}>{item.comision_valor}%</td>
+                          <td style={{ padding: '6px 10px', textAlign: 'center', color: item.tipo_item === 'Producto' ? '#7e22ce' : '#be185d', fontWeight: 700 }}>{item.tipo_item || 'Servicio'}</td>
+                          <td style={{ padding: '6px 10px', textAlign: 'center', color: item.aplica_itbis ? '#0369a1' : '#64748b', fontWeight: 700 }}>{item.aplica_itbis ? 'Sí (18%)' : 'No'}</td>
                         </tr>
                       ))}
                     </tbody>

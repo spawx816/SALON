@@ -222,6 +222,8 @@ const VisitRecorder = () => {
   const [allClients, setAllClients] = useState([]);
   const [clientSearchTerm, setClientSearchTerm] = useState('');
   const [modalClientSearchTerm, setModalClientSearchTerm] = useState('');
+  const [modalClientSearchResults, setModalClientSearchResults] = useState([]);
+  const [modalClientSearching, setModalClientSearching] = useState(false);
   const [selectedClientForTicket, setSelectedClientForTicket] = useState(null);
   const [ticketClientMembership, setTicketClientMembership] = useState(null);
   const [loadingTicketMembership, setLoadingTicketMembership] = useState(false);
@@ -409,7 +411,7 @@ const VisitRecorder = () => {
 
   // Cargar rápidamente el estado de membresía y lavados disponibles del cliente en modal de ticket (sincronizado con ClientProfile)
   const loadTicketClientMembership = async (client) => {
-    if (!client) {
+    if (!client || !hasProPlan) {
       setTicketClientMembership(null);
       return;
     }
@@ -1250,17 +1252,64 @@ const VisitRecorder = () => {
     }
 
     try {
-      const res = await fetch('/api/clients');
+      const res = await fetch('/api/clients?limit=100', { credentials: 'include' });
       if (res.ok) {
         const fallbackData = await res.json();
         if (Array.isArray(fallbackData)) {
           setAllClients(fallbackData);
+        } else if (Array.isArray(fallbackData?.items)) {
+          setAllClients(fallbackData.items);
         }
       }
     } catch (err2) {
       console.error('Error in fetchClients fallback:', err2);
     }
   };
+
+  // Refrescar lista de clientes al abrir el modal de nuevo ticket y buscar en vivo contra /api/clients/search
+  useEffect(() => {
+    if (showNewTicketModal) {
+      fetchClients();
+    } else {
+      setModalClientSearchResults([]);
+      setModalClientSearching(false);
+    }
+  }, [showNewTicketModal]);
+
+  useEffect(() => {
+    if (!showNewTicketModal || ticketType !== 'plan_beauty' || selectedClientForTicket) {
+      setModalClientSearchResults([]);
+      setModalClientSearching(false);
+      return;
+    }
+    const term = modalClientSearchTerm.trim();
+    if (term.length < 2) {
+      setModalClientSearchResults([]);
+      setModalClientSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setModalClientSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/clients/search?q=${encodeURIComponent(term)}&limit=15`, {
+          credentials: 'include'
+        });
+        if (!res.ok) throw new Error('Search failed');
+        const data = await res.json();
+        const items = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []);
+        if (!cancelled) setModalClientSearchResults(items);
+      } catch {
+        if (!cancelled) setModalClientSearchResults([]);
+      } finally {
+        if (!cancelled) setModalClientSearching(false);
+      }
+    }, 180);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [showNewTicketModal, ticketType, modalClientSearchTerm, selectedClientForTicket]);
 
   const fetchPendingTickets = async () => {
     try {
@@ -1386,11 +1435,11 @@ const VisitRecorder = () => {
 
       // Detect if client has active Membresía or Birthday
       const isClientBday = checkClientBirthday(selectedClientForTicket);
-      let isPlanActive = ticketType === 'plan_beauty' || (currentMembership?.hasContract && (currentMembership?.status === 'Active' || currentMembership?.status === 'Activo'));
+      let isPlanActive = Boolean(hasProPlan && currentMembership?.hasContract && (currentMembership?.status === 'Active' || currentMembership?.status === 'Activo'));
       let washesAvailable = currentMembership?.washesAvailable !== undefined
         ? String(currentMembership.washesAvailable)
         : '____';
-      if (selectedClientForTicket?.id && washesAvailable === '____') {
+      if (hasProPlan && selectedClientForTicket?.id && washesAvailable === '____') {
         try {
           const contracts = await dataService.getContractByClient(selectedClientForTicket.id);
           const activeC = (Array.isArray(contracts) ? contracts : []).filter(c => c.status === 'Active' || c.status === 'Activo');
@@ -5411,7 +5460,7 @@ const VisitRecorder = () => {
                 <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 800, color: '#64748b', marginBottom: '0.5rem', letterSpacing: '0.5px' }}>
                   TIPO DE TICKET
                 </label>
-                <div style={{ display: 'grid', gridTemplateColumns: hasProPlan ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)', gap: '0.65rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.65rem' }}>
 
                   {/* TAB 1: CLIENTE GENERAL */}
                   <div
@@ -5442,34 +5491,32 @@ const VisitRecorder = () => {
                     </div>
                   </div>
 
-                  {/* TAB 2: MEMBRESÍA (SOLO EN PLAN PRO) */}
-                  {hasProPlan && (
-                    <div
-                      onClick={() => {
-                        setTicketType('plan_beauty');
-                        setSelectedEmployeeForTicket(null);
-                      }}
-                      style={{
-                        padding: '0.85rem 0.6rem', borderRadius: '14px', cursor: 'pointer',
-                        border: ticketType === 'plan_beauty' ? '2px solid #ec4899' : '1.5px solid #e2e8f0',
-                        background: ticketType === 'plan_beauty' ? '#fff5f8' : '#ffffff',
-                        boxShadow: ticketType === 'plan_beauty' ? '0 4px 12px rgba(236,72,153,0.12)' : 'none',
-                        transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', gap: '0.5rem'
-                      }}
-                    >
-                      <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: ticketType === 'plan_beauty' ? '#fbcfe8' : '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>
-                        💎
-                      </div>
-                      <div style={{ overflow: 'hidden' }}>
-                        <strong style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: ticketType === 'plan_beauty' ? '#be185d' : '#0f172a', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                          Membresía
-                        </strong>
-                        <span style={{ fontSize: '0.68rem', color: '#64748b', whiteSpace: 'nowrap' }}>
-                          Cliente registrado
-                        </span>
-                      </div>
+                  {/* TAB 2: CLIENTE REGISTRADO / MEMBRESÍA (DISPONIBLE EN TODOS LOS PLANES) */}
+                  <div
+                    onClick={() => {
+                      setTicketType('plan_beauty');
+                      setSelectedEmployeeForTicket(null);
+                    }}
+                    style={{
+                      padding: '0.85rem 0.6rem', borderRadius: '14px', cursor: 'pointer',
+                      border: ticketType === 'plan_beauty' ? '2px solid #ec4899' : '1.5px solid #e2e8f0',
+                      background: ticketType === 'plan_beauty' ? '#fff5f8' : '#ffffff',
+                      boxShadow: ticketType === 'plan_beauty' ? '0 4px 12px rgba(236,72,153,0.12)' : 'none',
+                      transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', gap: '0.5rem'
+                    }}
+                  >
+                    <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: ticketType === 'plan_beauty' ? '#fbcfe8' : '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>
+                      {hasProPlan ? '💎' : '🪪'}
                     </div>
-                  )}
+                    <div style={{ overflow: 'hidden' }}>
+                      <strong style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: ticketType === 'plan_beauty' ? '#be185d' : '#0f172a', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                        {hasProPlan ? 'Cliente / Membresía' : 'Cliente registrado'}
+                      </strong>
+                      <span style={{ fontSize: '0.68rem', color: '#64748b', whiteSpace: 'nowrap' }}>
+                        Buscar perfil
+                      </span>
+                    </div>
+                  </div>
 
                   {/* TAB 3: EMPLEADO */}
                   <div
@@ -5548,13 +5595,13 @@ const VisitRecorder = () => {
                   <div>
                     <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
                       <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: '#faf5ff', border: '1px solid #e9d5ff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.5rem', fontSize: '1.4rem' }}>
-                        💎
+                        {hasProPlan ? '💎' : '🪪'}
                       </div>
                       <h4 style={{ margin: '0 0 0.2rem', fontSize: '1.05rem', fontWeight: 900, color: '#0f172a' }}>
-                        Membresía
+                        {hasProPlan ? 'Cliente registrado / Membresía' : 'Cliente registrado'}
                       </h4>
                       <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                        Busca un cliente registrado con membresía Membresía.
+                        Busca un perfil de cliente registrado por nombre, cédula o teléfono.
                       </p>
                     </div>
 
@@ -5578,38 +5625,56 @@ const VisitRecorder = () => {
                           style={{ width: '100%', padding: '0.75rem 1rem 0.75rem 2.6rem', borderRadius: '12px', border: '2px solid #a855f7', fontSize: '0.9rem', fontWeight: 600, color: '#0f172a', outline: 'none', background: '#ffffff' }}
                         />
 
-                        {modalClientSearchTerm.trim().length > 0 && !selectedClientForTicket && (
-                          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '12px', maxHeight: '180px', overflowY: 'auto', zIndex: 10, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', marginTop: '4px' }}>
-                            {allClients
-                              .filter(c => {
-                                const term = modalClientSearchTerm.toLowerCase();
-                                const n = (c.nombre || c.name || '').toLowerCase();
-                                const cd = (c.cedula || '').toLowerCase();
-                                const ph = (c.telefono || c.phone || '').toLowerCase();
-                                return n.includes(term) || cd.includes(term) || ph.includes(term);
-                              })
-                              .slice(0, 5)
-                              .map((cli) => (
-                                <div
-                                  key={cli.id}
-                                  onClick={() => {
-                                    setSelectedClientForTicket(cli);
-                                    setModalClientSearchTerm(cli.nombre || cli.name);
-                                    setNewTicketClientName(cli.nombre || cli.name);
-                                    setNewTicketCedula(cli.cedula || '');
-                                    loadTicketClientMembership(cli);
-                                  }}
-                                  style={{ padding: '0.6rem 0.8rem', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: '0.85rem' }}
-                                  className="hover-lift"
-                                >
-                                  <strong style={{ color: '#0f172a' }}>{cli.nombre || cli.name}</strong>
-                                  <span style={{ color: '#64748b', fontSize: '0.75rem', marginLeft: '0.5rem' }}>
-                                    {cli.cedula ? `Cédula: ${cli.cedula}` : ''} {cli.telefono ? `Tel: ${cli.telefono}` : ''}
-                                  </span>
+                        {modalClientSearchTerm.trim().length > 0 && !selectedClientForTicket && (() => {
+                          const term = modalClientSearchTerm.trim().toLowerCase();
+                          const localMatches = allClients.filter(c => {
+                            const n = (c.nombre || c.name || '').toLowerCase();
+                            const cd = (c.cedula || '').toLowerCase();
+                            const ph = (c.telefono || c.phone || '').toLowerCase();
+                            return n.includes(term) || cd.includes(term) || ph.includes(term);
+                          });
+                          const mergedMap = new Map();
+                          [...modalClientSearchResults, ...localMatches].forEach(c => {
+                            if (c && c.id && !mergedMap.has(String(c.id))) {
+                              mergedMap.set(String(c.id), c);
+                            }
+                          });
+                          const matches = Array.from(mergedMap.values()).slice(0, 10);
+
+                          return (
+                            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '12px', maxHeight: '210px', overflowY: 'auto', zIndex: 10, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', marginTop: '4px' }}>
+                              {modalClientSearching && matches.length === 0 ? (
+                                <div style={{ padding: '0.75rem 0.85rem', fontSize: '0.82rem', color: '#64748b' }}>
+                                  Buscando clientes...
                                 </div>
-                              ))}
-                          </div>
-                        )}
+                              ) : matches.length === 0 ? (
+                                <div style={{ padding: '0.75rem 0.85rem', fontSize: '0.82rem', color: '#64748b' }}>
+                                  No se encontraron clientes registrados con ese criterio.
+                                </div>
+                              ) : (
+                                matches.map((cli) => (
+                                  <div
+                                    key={cli.id}
+                                    onClick={() => {
+                                      setSelectedClientForTicket(cli);
+                                      setModalClientSearchTerm(cli.nombre || cli.name);
+                                      setNewTicketClientName(cli.nombre || cli.name);
+                                      setNewTicketCedula(cli.cedula || '');
+                                      if (hasProPlan) loadTicketClientMembership(cli);
+                                    }}
+                                    style={{ padding: '0.6rem 0.8rem', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: '0.85rem' }}
+                                    className="hover-lift"
+                                  >
+                                    <strong style={{ color: '#0f172a' }}>{cli.nombre || cli.name}</strong>
+                                    <span style={{ color: '#64748b', fontSize: '0.75rem', marginLeft: '0.5rem' }}>
+                                      {cli.cedula ? `Cédula: ${cli.cedula}` : ''} {(cli.telefono || cli.phone) ? `Tel: ${cli.telefono || cli.phone}` : ''}
+                                    </span>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
 

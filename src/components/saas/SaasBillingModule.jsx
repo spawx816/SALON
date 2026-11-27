@@ -128,6 +128,15 @@ export default function SaasBillingModule() {
   const [seatsPaymentChoice, setSeatsPaymentChoice] = useState('saved_card');
   const [contractingSeats, setContractingSeats] = useState(false);
 
+  const [showCancelSeatsModal, setShowCancelSeatsModal] = useState(false);
+  const [seatsToCancel, setSeatsToCancel] = useState(1);
+  const [cancelingSeats, setCancelingSeats] = useState(false);
+  const [cancelSeatsError, setCancelSeatsError] = useState('');
+
+  const [showCancelAddonModal, setShowCancelAddonModal] = useState(false);
+  const [cancelingAddon, setCancelingAddon] = useState(false);
+  const [cancelAddonError, setCancelAddonError] = useState('');
+
   const [showAddCardModal, setShowAddCardModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelError, setCancelError] = useState('');
@@ -1160,6 +1169,20 @@ export default function SaasBillingModule() {
             >
               <span>+ Contratar usuarios adicionales</span>
             </button>
+            {extraUsersCount > 0 && (
+              <button
+                type="button"
+                className="sb-btn"
+                style={{ color: '#b91c1c', borderColor: '#fecaca', background: '#fef2f2' }}
+                onClick={() => {
+                  setCancelSeatsError('');
+                  setSeatsToCancel(1);
+                  setShowCancelSeatsModal(true);
+                }}
+              >
+                <span>Cancelar usuarios adicionales</span>
+              </button>
+            )}
           </div>
         </section>
 
@@ -1311,6 +1334,17 @@ export default function SaasBillingModule() {
                 onClick={() => navigate('/planes')}
               >
                 Configurar módulo
+              </button>
+              <button
+                type="button"
+                className="sb-btn"
+                style={{ color: '#b91c1c', borderColor: '#fecaca', background: '#fef2f2' }}
+                onClick={() => {
+                  setCancelAddonError('');
+                  setShowCancelAddonModal(true);
+                }}
+              >
+                Cancelar membresías
               </button>
             </>
           ) : (
@@ -2268,6 +2302,203 @@ export default function SaasBillingModule() {
                 onClick={() => setSelectedInvoice(null)}
               >
                 Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Cancelar Usuarios Adicionales */}
+      {showCancelSeatsModal && (
+        <div
+          className="sb-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sb-cancel-seats-title"
+          onClick={(e) => { if (e.target === e.currentTarget && !cancelingSeats) setShowCancelSeatsModal(false); }}
+        >
+          <div className="sb-modal" style={{ maxWidth: 460 }}>
+            <div className="sb-modal-head">
+              <h3 id="sb-cancel-seats-title" className="sb-modal-title">Cancelar usuarios adicionales</h3>
+              <button
+                type="button"
+                className="sb-icon-btn"
+                disabled={cancelingSeats}
+                onClick={() => setShowCancelSeatsModal(false)}
+                aria-label="Cerrar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="sb-modal-body">
+              <p className="sb-meta-text" style={{ marginTop: 0 }}>
+                Actualmente tienes <strong>{extraUsersCount}</strong> {extraUsersCount === 1 ? 'usuario adicional contratado' : 'usuarios adicionales contratados'} ({formatUsdClean(extraUserUnitUsd)}/mes c/u).
+              </p>
+
+              <div style={{ marginTop: 12 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>
+                  Cantidad de usuarios adicionales a cancelar
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button
+                    type="button"
+                    className="sb-btn"
+                    disabled={cancelingSeats || seatsToCancel <= 1}
+                    onClick={() => setSeatsToCancel((n) => Math.max(1, n - 1))}
+                  >
+                    -
+                  </button>
+                  <strong style={{ minWidth: 32, textAlign: 'center', fontSize: 16 }}>{seatsToCancel}</strong>
+                  <button
+                    type="button"
+                    className="sb-btn"
+                    disabled={cancelingSeats || seatsToCancel >= extraUsersCount}
+                    onClick={() => setSeatsToCancel((n) => Math.min(extraUsersCount, n + 1))}
+                  >
+                    +
+                  </button>
+                  {extraUsersCount > 1 && (
+                    <button
+                      type="button"
+                      className="sb-btn"
+                      style={{ marginLeft: 'auto', fontSize: 12 }}
+                      disabled={cancelingSeats}
+                      onClick={() => setSeatsToCancel(extraUsersCount)}
+                    >
+                      Todos ({extraUsersCount})
+                    </button>
+                  )}
+                </div>
+                <p className="sb-meta-text" style={{ marginTop: 8, fontSize: 12.5 }}>
+                  Ahorro estimado en tu próxima renovación: <strong>{formatUsdClean(seatsToCancel * extraUserUnitUsd)}/mes</strong>.
+                </p>
+              </div>
+
+              {cancelSeatsError && (
+                <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: 12.5, fontWeight: 600 }}>
+                  {cancelSeatsError}
+                </div>
+              )}
+            </div>
+
+            <div className="sb-modal-footer">
+              <button
+                type="button"
+                className="sb-btn"
+                disabled={cancelingSeats}
+                onClick={() => setShowCancelSeatsModal(false)}
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                className="sb-btn"
+                disabled={cancelingSeats}
+                style={{ background: '#dc2626', color: '#ffffff', borderColor: '#dc2626' }}
+                onClick={async () => {
+                  setCancelingSeats(true);
+                  setCancelSeatsError('');
+                  try {
+                    const res = await fetch('/api/saas-billing/seats/cancel', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      credentials: 'include',
+                      body: JSON.stringify({ seatsToRemove: seatsToCancel }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || 'No se pudieron cancelar los usuarios adicionales.');
+                    setShowCancelSeatsModal(false);
+                    setSuccessMsg(data.message || 'Usuarios adicionales cancelados correctamente.');
+                    await Promise.all([loadBillingData(), refetchEntitlements()]);
+                  } catch (err) {
+                    setCancelSeatsError(err.message);
+                  } finally {
+                    setCancelingSeats(false);
+                  }
+                }}
+              >
+                {cancelingSeats ? 'Cancelando...' : `Confirmar cancelación (${seatsToCancel})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Cancelar Módulo de Membresías B2C */}
+      {showCancelAddonModal && (
+        <div
+          className="sb-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sb-cancel-addon-title"
+          onClick={(e) => { if (e.target === e.currentTarget && !cancelingAddon) setShowCancelAddonModal(false); }}
+        >
+          <div className="sb-modal" style={{ maxWidth: 460 }}>
+            <div className="sb-modal-head">
+              <h3 id="sb-cancel-addon-title" className="sb-modal-title">Cancelar módulo de membresías</h3>
+              <button
+                type="button"
+                className="sb-icon-btn"
+                disabled={cancelingAddon}
+                onClick={() => setShowCancelAddonModal(false)}
+                aria-label="Cerrar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="sb-modal-body">
+              <p className="sb-meta-text" style={{ marginTop: 0 }}>
+                Al confirmar, el <strong>Módulo de Membresías B2C</strong> se desactivará para tus sucursales y dejará de cobrarse en tu próxima renovación mensual.
+              </p>
+              <p className="sb-meta-text" style={{ fontSize: 12.5 }}>
+                Tus clientes CRM y el historial de ventas se conservan intactos en tu Plan Principal.
+              </p>
+
+              {cancelAddonError && (
+                <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: 12.5, fontWeight: 600 }}>
+                  {cancelAddonError}
+                </div>
+              )}
+            </div>
+
+            <div className="sb-modal-footer">
+              <button
+                type="button"
+                className="sb-btn"
+                disabled={cancelingAddon}
+                onClick={() => setShowCancelAddonModal(false)}
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                className="sb-btn"
+                disabled={cancelingAddon}
+                style={{ background: '#dc2626', color: '#ffffff', borderColor: '#dc2626' }}
+                onClick={async () => {
+                  setCancelingAddon(true);
+                  setCancelAddonError('');
+                  try {
+                    const res = await fetch('/api/saas-billing/addons/memberships/cancel', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      credentials: 'include',
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || 'No se pudo cancelar el módulo de membresías.');
+                    setShowCancelAddonModal(false);
+                    setSuccessMsg(data.message || 'Módulo de membresías cancelado correctamente.');
+                    await Promise.all([loadBillingData(), refetchEntitlements()]);
+                  } catch (err) {
+                    setCancelAddonError(err.message);
+                  } finally {
+                    setCancelingAddon(false);
+                  }
+                }}
+              >
+                {cancelingAddon ? 'Cancelando...' : 'Sí, cancelar membresías'}
               </button>
             </div>
           </div>

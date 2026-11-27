@@ -365,6 +365,10 @@ function createServicesRouter(pool) {
         const subcategoria = String(item.subcategoria || 'General').trim();
         const duracion = parseInt(item.duracion ?? item.duration) || 30;
         const activo = item.activo !== undefined ? (item.activo ? 1 : 0) : 1;
+        const rawType = String(item.item_type || item.tipo_item || 'SERVICIO').trim().toUpperCase();
+        const canonicalType = rawType === 'PRODUCTO' || rawType === 'PRODUCT' ? 'PRODUCTO' : 'SERVICIO';
+        const tipoItemLabel = canonicalType === 'PRODUCTO' ? 'Producto' : 'Servicio';
+        const aplicaItbis = (item.aplica_itbis === 1 || item.aplica_itbis === true || String(item.aplica_itbis || '').toLowerCase() === 'si' || String(item.aplica_itbis || '').toLowerCase() === 'sí') ? 1 : 0;
 
         const [existing] = await pool.query(
           'SELECT id FROM services WHERE LOWER(COALESCE(nombre, name)) = LOWER(?) AND tenant_id = ? LIMIT 1',
@@ -384,14 +388,14 @@ function createServicesRouter(pool) {
 
         if (existing.length > 0) {
           await pool.query(
-            'UPDATE services SET name = ?, categoria = ?, category = ?, commission_category_id = ?, subcategoria = ?, precio = ?, price = ?, costo = ?, duracion = ?, duration_minutes = ?, sku = COALESCE(?, sku), activo = ?, is_active = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?',
-            [nombre, catResolution.nombre, catResolution.nombre, catResolution.id, subcategoria, precio, precio, costo, duracion, duracion, cleanSku, activo, Boolean(activo), existing[0].id, tenantId]
+            'UPDATE services SET name = ?, categoria = ?, category = ?, commission_category_id = ?, subcategoria = ?, precio = ?, price = ?, costo = ?, duracion = ?, duration_minutes = ?, item_type = ?, tipo_item = ?, aplica_itbis = ?, sku = COALESCE(?, sku), activo = ?, is_active = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?',
+            [nombre, catResolution.nombre, catResolution.nombre, catResolution.id, subcategoria, precio, precio, costo, duracion, duracion, canonicalType, tipoItemLabel, aplicaItbis, cleanSku, activo, Boolean(activo), existing[0].id, tenantId]
           );
           updated++;
         } else {
           await pool.query(
-            'INSERT INTO services (tenant_id, name, nombre, categoria, category, commission_category_id, subcategoria, precio, price, costo, duracion, duration_minutes, sku, activo, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [tenantId, nombre, nombre, catResolution.nombre, catResolution.nombre, catResolution.id, subcategoria, precio, precio, costo, duracion, duracion, cleanSku, activo, Boolean(activo)]
+            'INSERT INTO services (tenant_id, name, nombre, categoria, category, commission_category_id, subcategoria, precio, price, costo, duracion, duration_minutes, item_type, tipo_item, aplica_itbis, sku, activo, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [tenantId, nombre, nombre, catResolution.nombre, catResolution.nombre, catResolution.id, subcategoria, precio, precio, costo, duracion, duracion, canonicalType, tipoItemLabel, aplicaItbis, cleanSku, activo, Boolean(activo)]
           );
           imported++;
         }

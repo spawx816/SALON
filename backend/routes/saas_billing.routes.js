@@ -503,6 +503,54 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
     }
   });
 
+  // 1d-bis. Cancelar Add-on de Membresías B2C
+  router.post('/addons/:addonCode/cancel', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
+      const { addonCode } = req.params;
+      if (addonCode !== SAAS_ADDONS.MEMBERSHIPS) {
+        return res.status(400).json({ error: 'Add-on no reconocido', code: 'INVALID_ADDON_CODE' });
+      }
+      const entSvc = checkoutService?.entitlementsService;
+      if (entSvc && typeof entSvc.setAddonStatus === 'function') {
+        await entSvc.setAddonStatus(tenantId, SAAS_ADDONS.MEMBERSHIPS, {
+          enabled: false,
+          branchIds: [],
+          acquiredBlocks: 0,
+        });
+      } else {
+        await pool.query(
+          `UPDATE tenant_addons SET status = 'cancelled', enabled = FALSE, acquired_blocks = 0, updated_at = NOW() WHERE tenant_id = ? AND addon_code = ?`,
+          [tenantId, SAAS_ADDONS.MEMBERSHIPS]
+        ).catch(() => {});
+        await pool.query(
+          `UPDATE tenant_addon_branches SET enabled = FALSE, updated_at = NOW() WHERE tenant_id = ? AND addon_code = ?`,
+          [tenantId, SAAS_ADDONS.MEMBERSHIPS]
+        ).catch(() => {});
+      }
+      await pool.query(
+        `UPDATE tenant_subscriptions SET memberships_addon_enabled = FALSE, addon_branches_count = 0, updated_at = NOW() WHERE tenant_id = ?`,
+        [tenantId]
+      ).catch(() => {});
+      if (entSvc && typeof entSvc.invalidateTenantCache === 'function') {
+        entSvc.invalidateTenantCache(tenantId);
+      }
+      res.json({
+        success: true,
+        addonCode,
+        message: 'Módulo de membresías cancelado correctamente. No se incluirá en tu próxima renovación.',
+      });
+    } catch (err) {
+      console.error('[SAAS BILLING ERROR] Error cancelando add-on:', err);
+      res.status(err.statusCode || 500).json({
+        success: false,
+        error: err.message || 'No se pudo cancelar el módulo de membresías.',
+        code: err.code || 'ADDON_CANCEL_FAILED',
+      });
+    }
+  });
+
   // 1e. Cotizar y contratar asientos de usuarios adicionales (+US$30/mes por asiento)
   router.post('/seats/quote', async (req, res) => {
     try {
@@ -561,6 +609,109 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
         error: err.message,
         code: err.code || 'SEATS_CONTRACT_FAILED',
         requiresAlternativePayment: err.statusCode === 402,
+      });
+    }
+  });
+
+  // 1e-bis. Cancelar / reducir asientos de usuarios adicionales
+  router.post('/seats/cancel', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
+
+      const [tRows] = await pool.query(
+        'SELECT licensed_branches, max_branches, extra_user_seats, max_users FROM tenants WHERE id = ? LIMIT 1',
+        [tenantId]
+      );
+      if (!tRows || tRows.length === 0) {
+        return res.status(404).json({ error: 'Empresa no encontrada', code: 'TENANT_NOT_FOUND' });
+      }
+      const tenantRow = tRows[0];
+      const [sRows] = await pool.query(
+        'SELECT extra_users_count FROM tenant_subscriptions WHERE tenant_id = ? LIMIT 1',
+        [tenantId]
+      ).catch(() => [[]]);
+      const subRow = sRows && sRows[0] ? sRows[0] : null;
+
+      const currentExtra = Math.max(
+        Number(tenantRow.extra_user_seats || 0),
+        Number(subRow?.extra_users_count || 0)
+      );
+      if (currentExtra <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'No tienes usuarios adicionales contratados para cancelar.',
+          code: 'NO_EXTRA_SEATS',
+        });
+      }
+
+      const requestedRemove = req.body?.seatsToRemove !== undefined ? parseInt(req.body.seatsToRemove, 10) : currentExtra;
+      if (!Number.isFinite(requestedRemove) || requestedRemove < 1) {
+        return res.status(400).json({
+          success: false,
+          error: 'Debes indicar al menos 1 usuario adicional para cancelar.',
+          code: 'INVALID_SEATS_COUNT',
+        });
+      }
+      const removeCount = Math.min(currentExtra, requestedRemove);
+      const newExtra = currentExtra - removeCount;
+      const licensedBranches = Math.max(1, Number(tenantRow.licensed_branches || tenantRow.max_branches || 1));
+      const newMaxUsers = (licensedBranches * 3) + newExtra;
+
+      // Verificar usuarios activos con licencia para no dejar la cuenta por encima del límite
+      const [uRows] = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM users
+         WHERE tenant_id = ?
+           AND (is_active = TRUE OR is_active = 1 OR is_active IS NULL)
+           AND LOWER(COALESCE(role, '')) NOT IN ('kiosco', 'kiosk', 'superadmin')`,
+        [tenantId]
+      );
+      const activeLicensedUsers = Number(uRows?.[0]?.cnt || 0);
+      if (activeLicensedUsers > newMaxUsers) {
+        const excess = activeLicensedUsers - newMaxUsers;
+        return res.status(409).json({
+          success: false,
+          error: `Actualmente tienes ${activeLicensedUsers} usuarios activos y el nuevo límite sería ${newMaxUsers}. Desactiva al menos ${excess} usuario(s) en Seguridad > Usuarios antes de cancelar estos cupos adicionales.`,
+          code: 'ACTIVE_USERS_EXCEED_NEW_LIMIT',
+          activeLicensedUsers,
+          newMaxUsers,
+        });
+      }
+
+      await pool.query(
+        `UPDATE tenants
+         SET extra_user_seats = ?,
+             max_users = ?,
+             updated_at = NOW()
+         WHERE id = ?`,
+        [newExtra, newMaxUsers, tenantId]
+      );
+      await pool.query(
+        `UPDATE tenant_subscriptions
+         SET extra_users_count = ?,
+             updated_at = NOW()
+         WHERE tenant_id = ?`,
+        [newExtra, tenantId]
+      ).catch(() => {});
+
+      const entSvc = checkoutService?.entitlementsService;
+      if (entSvc && typeof entSvc.invalidateTenantCache === 'function') {
+        entSvc.invalidateTenantCache(tenantId);
+      }
+
+      res.json({
+        success: true,
+        removedSeats: removeCount,
+        extraUsersCount: newExtra,
+        maxUsers: newMaxUsers,
+        message: `Se ${removeCount === 1 ? 'canceló 1 usuario adicional' : `cancelaron ${removeCount} usuarios adicionales`}. Tu próxima renovación reflejará el ajuste.`,
+      });
+    } catch (err) {
+      console.error('[SAAS BILLING ERROR] Error cancelando usuarios adicionales:', err);
+      res.status(err.statusCode || 500).json({
+        success: false,
+        error: err.message || 'No se pudieron cancelar los usuarios adicionales.',
+        code: err.code || 'SEATS_CANCEL_FAILED',
       });
     }
   });
