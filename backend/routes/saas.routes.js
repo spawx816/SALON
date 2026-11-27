@@ -1332,7 +1332,7 @@ function createSaasRouter(pool, options = {}) {
       } = req.body || {};
 
       const [tenantRows] = await pool.query(
-        'SELECT id, business_name, name, owner_email FROM tenants WHERE id::text = ? LIMIT 1',
+        'SELECT id, business_name, legal_name, owner_email FROM tenants WHERE id::text = ? LIMIT 1',
         [String(tenantId)]
       );
       if (!tenantRows || tenantRows.length === 0) {
@@ -1351,7 +1351,7 @@ function createSaasRouter(pool, options = {}) {
 
       res.status(201).json({
         success: true,
-        tenantName: tenantRows[0].business_name || tenantRows[0].name,
+        tenantName: tenantRows[0].business_name || tenantRows[0].legal_name || '',
         ownerEmail: tenantRows[0].owner_email || null,
         ...result,
       });
