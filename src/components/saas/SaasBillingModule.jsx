@@ -377,10 +377,10 @@ export default function SaasBillingModule() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           source: 'self_service',
-          branchesCount: Math.max(1, branches.length || 1),
-          extraUsersCount: 0,
+          branchesCount: Math.max(1, Number(entitlements?.limits?.branches || branches.length || 1)),
+          extraUsersCount: Math.max(0, Number(subscription?.extra_users_count || 0)),
           wantsMembershipsAddon: Boolean(hasMembershipsAddon),
-          addonBranchesCount: hasMembershipsAddon ? Math.max(1, branches.length || 1) : 0,
+          addonBranchesCount: hasMembershipsAddon ? Math.max(1, Number(entitlements?.limits?.branches || branches.length || 1)) : 0,
         }),
       });
       const data = await res.json().catch(() => ({}));

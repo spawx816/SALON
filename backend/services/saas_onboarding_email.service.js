@@ -12,7 +12,7 @@ function pickRandomChar(alphabet) {
 
 /**
  * Genera una contraseña temporal segura y fácil de leer (sin caracteres ambiguos 0/O/1/I/l).
- * Formato: Etr-XXXX-XXXX (ej. Etr-8Kp4-Rm7W)
+ * Formato: Etr-XXXX-XXXX
  */
 function generateSecureTempPassword() {
   const block1 = [
@@ -80,8 +80,9 @@ function formatDopFromMinor(minorValue) {
 }
 
 /**
- * Envía el correo de bienvenida a la nueva empresa con sus credenciales generadas,
- * el resumen de su suscripción y el botón/enlace directo de pago CardNet.
+ * Envía el correo de bienvenida (o recordatorio de pago) al cliente con el enlace de acceso
+ * a la plataforma (/login), su correo, su clave temporal y las instrucciones para iniciar sesión
+ * y completar el pago dentro de la aplicación.
  */
 async function sendTenantWelcomeAndPaymentEmail(pool, params = {}) {
   const {
@@ -131,84 +132,94 @@ async function sendTenantWelcomeAndPaymentEmail(pool, params = {}) {
     const dopFormatted =
       String(currency || '').toUpperCase() === 'DOP' ? formatDopFromMinor(totalMinor) : null;
 
+    const cleanBaseLoginUrl = String(loginUrl || 'https://etereasapp.com/login').split('?')[0];
+    const directLoginWithEmailUrl = `${cleanBaseLoginUrl}?email=${encodeURIComponent(targetEmail)}`;
+
     const safeBusiness = escapeHtml(businessName);
     const safeOwner = escapeHtml(ownerName || 'Propietario');
     const safeEmail = escapeHtml(targetEmail);
     const safeTempPass = temporaryPassword ? escapeHtml(temporaryPassword) : null;
-    const safePaymentUrl = paymentUrl ? escapeHtml(paymentUrl) : null;
-    const safeLoginUrl = escapeHtml(loginUrl);
+    const safeCleanLoginUrl = escapeHtml(cleanBaseLoginUrl);
+    const safeDirectLoginUrl = escapeHtml(directLoginWithEmailUrl);
     const safeOrderNo = orderNumber ? escapeHtml(orderNumber) : null;
+    const isPendingPayment = Boolean(paymentUrl || orderNumber || isLinkResendOnly);
 
     const subject = isLinkResendOnly
-      ? `Enlace directo de pago — ${businessName} | Etereas`
-      : paymentUrl
-        ? `¡Bienvenido a Etereas! Tus accesos y enlace de pago para activar ${businessName}`
-        : `¡Bienvenido a Etereas! Tus credenciales de acceso para ${businessName}`;
+      ? `Recordatorio de activación — ${businessName} | Etereas`
+      : `¡Bienvenido a Etereas! Tus accesos para activar ${businessName}`;
 
-    const introText = isLinkResendOnly
-      ? `Hemos generado un enlace directo y seguro para completar el pago y activar la suscripción de <strong>${safeBusiness}</strong> en <strong>Etereas</strong>.`
-      : `Tu empresa <strong>${safeBusiness}</strong> ya fue registrada en <strong>Etereas</strong>. A continuación encontrarás toda la información de tu cuenta, tus credenciales de acceso y el enlace directo para activar tu suscripción.`;
-
-    const paymentSectionHtml = safePaymentUrl
+    const statusBannerHtml = isPendingPayment
       ? `
-        <div style="margin: 24px 0; padding: 22px; border-radius: 14px; background: #eff6ff; border: 1px solid #bfdbfe; text-align: center;">
-          <div style="font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #1d4ed8; margin-bottom: 6px;">
-            Activación inmediata con CardNet (3D Secure)
-          </div>
-          <div style="font-size: 24px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">
-            US$${computedUsd.toFixed(2)} <span style="font-size: 14px; font-weight: 600; color: #475569;">/ mes</span>
-          </div>
-          ${dopFormatted ? `<div style="font-size: 13px; color: #475569; margin-bottom: 14px;">Cargo en pasarela local: <strong>${escapeHtml(dopFormatted)}</strong>${safeOrderNo ? ` · Orden #${safeOrderNo}` : ''}</div>` : `<div style="margin-bottom: 14px;"></div>`}
-          <a href="${safePaymentUrl}" target="_blank" rel="noopener noreferrer"
-             style="display: inline-block; padding: 14px 28px; border-radius: 10px; background: #2563eb; color: #ffffff; font-size: 15px; font-weight: 800; text-decoration: none;">
-            Realizar Pago y Activar mi Cuenta &rarr;
-          </a>
-          <p style="margin: 14px 0 0; font-size: 12.5px; color: #334155; line-height: 1.5;">
-            Al completar el pago, tu cuenta se activará automáticamente y tu tarjeta quedará registrada de forma segura en CardNet para el cobro automático mensual.
-          </p>
-          <p style="margin: 10px 0 0; font-size: 11.5px; color: #64748b; word-break: break-all;">
-            Enlace directo: <a href="${safePaymentUrl}" style="color: #2563eb;">${safePaymentUrl}</a>
-          </p>
+        <div style="margin: 18px 0; padding: 14px 16px; border-radius: 12px; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; font-size: 13.5px; line-height: 1.5;">
+          <strong>Estado de tu cuenta: Pendiente de pago.</strong><br />
+          Inicia sesión con tus credenciales abajo para completar el pago seguro en CardNet y activar tu plataforma de inmediato.
         </div>
       `
       : `
-        <div style="margin: 22px 0; padding: 18px 20px; border-radius: 12px; background: #f0fdf4; border: 1px solid #bbf7d0; text-align: center;">
-          <div style="font-size: 14px; font-weight: 700; color: #166534; margin-bottom: 12px;">
-            ✓ Tu cuenta se encuentra activa y lista para operar.
-          </div>
-          <a href="${safeLoginUrl}" target="_blank" rel="noopener noreferrer"
-             style="display: inline-block; padding: 12px 24px; border-radius: 10px; background: #0f172a; color: #ffffff; font-size: 14px; font-weight: 700; text-decoration: none;">
-            Iniciar Sesión en Etereas &rarr;
-          </a>
+        <div style="margin: 18px 0; padding: 14px 16px; border-radius: 12px; background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; font-size: 13.5px; line-height: 1.5;">
+          <strong>✓ Estado de tu cuenta: Activa.</strong> Ya puedes iniciar sesión con tus credenciales y comenzar a operar.
         </div>
       `;
 
     const credentialsHtml = safeTempPass
       ? `
-        <div style="margin: 20px 0; padding: 18px 20px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0;">
-          <h3 style="margin: 0 0 12px; font-size: 15px; color: #0f172a;">Tus Credenciales de Acceso</h3>
+        <div style="margin: 20px 0; padding: 20px; border-radius: 14px; background: #f8fafc; border: 1.5px solid #cbd5e1;">
+          <h3 style="margin: 0 0 12px; font-size: 15.5px; color: #0f172a;">Tus Datos para Iniciar Sesión</h3>
           <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #334155;">
             <tr>
-              <td style="padding: 6px 0; color: #64748b; width: 42%;">Portal web:</td>
-              <td style="padding: 6px 0; font-weight: 700;"><a href="${safeLoginUrl}" style="color: #2563eb; text-decoration: none;">${safeLoginUrl}</a></td>
+              <td style="padding: 7px 0; color: #64748b; width: 42%;">Página de acceso:</td>
+              <td style="padding: 7px 0; font-weight: 700;">
+                <a href="${safeDirectLoginUrl}" style="color: #2563eb; text-decoration: none;">${safeCleanLoginUrl}</a>
+              </td>
             </tr>
             <tr>
-              <td style="padding: 6px 0; color: #64748b;">Usuario (Correo):</td>
-              <td style="padding: 6px 0; font-weight: 700; color: #0f172a;">${safeEmail}</td>
+              <td style="padding: 7px 0; color: #64748b;">Correo electrónico:</td>
+              <td style="padding: 7px 0; font-weight: 800; color: #0f172a;">${safeEmail}</td>
             </tr>
             <tr>
-              <td style="padding: 6px 0; color: #64748b;">Contraseña temporal:</td>
-              <td style="padding: 6px 0;">
-                <code style="display: inline-block; padding: 4px 10px; border-radius: 6px; background: #ffffff; border: 1px solid #cbd5e1; font-size: 14px; font-weight: 800; color: #0f172a; letter-spacing: 0.04em;">${safeTempPass}</code>
+              <td style="padding: 7px 0; color: #64748b;">Clave temporal:</td>
+              <td style="padding: 7px 0;">
+                <code style="display: inline-block; padding: 5px 12px; border-radius: 8px; background: #ffffff; border: 1.5px solid #94a3b8; font-size: 15px; font-weight: 800; color: #0f172a; letter-spacing: 0.04em;">${safeTempPass}</code>
               </td>
             </tr>
           </table>
-          <p style="margin: 12px 0 0; font-size: 12px; color: #64748b; line-height: 1.45;">
-            Por tu seguridad, te recomendamos cambiar esta contraseña temporal desde el menú <strong>Cambiar contraseña</strong> al iniciar sesión por primera vez.
-          </p>
+          <div style="margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: #eff6ff; border: 1px solid #bfdbfe; font-size: 12.5px; color: #1e3a8a; line-height: 1.45;">
+            🔐 <strong>Importante:</strong> Esta es una clave temporal para tu primer ingreso. Recuerda cambiarla por tu propia contraseña tan pronto entres al sistema (menú <strong>Cambiar contraseña</strong>).
+          </div>
         </div>
       `
-      : '';
+      : `
+        <div style="margin: 20px 0; padding: 16px 20px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0; font-size: 14px; color: #334155;">
+          <strong>Tu correo de acceso:</strong> ${safeEmail}<br />
+          <span style="font-size: 12.5px; color: #64748b;">Ingresa con la contraseña que recibiste en tu correo de bienvenida (o usa "¿Olvidaste tu contraseña?" en la pantalla de acceso).</span>
+        </div>
+      `;
+
+    const actionCtaHtml = `
+      <div style="margin: 24px 0; padding: 24px 20px; border-radius: 14px; background: #eff6ff; border: 1px solid #bfdbfe; text-align: center;">
+        ${isPendingPayment ? `
+          <div style="font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #1d4ed8; margin-bottom: 6px;">
+            Paso final para activar tu suscripción
+          </div>
+          <div style="font-size: 24px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">
+            US$${computedUsd.toFixed(2)} <span style="font-size: 14px; font-weight: 600; color: #475569;">/ mes</span>
+          </div>
+          ${dopFormatted ? `<div style="font-size: 13px; color: #475569; margin-bottom: 16px;">Equivalente en pasarela local: <strong>${escapeHtml(dopFormatted)}</strong>${safeOrderNo ? ` · Orden #${safeOrderNo}` : ''}</div>` : `<div style="margin-bottom: 16px;"></div>`}
+        ` : ''}
+        <a href="${safeDirectLoginUrl}" target="_blank" rel="noopener noreferrer"
+           style="display: inline-block; padding: 14px 28px; border-radius: 10px; background: #2563eb; color: #ffffff; font-size: 15px; font-weight: 800; text-decoration: none;">
+          ${isPendingPayment ? 'Iniciar Sesión y Realizar Pago &rarr;' : 'Iniciar Sesión en Etereas &rarr;'}
+        </a>
+        <p style="margin: 14px 0 0; font-size: 12.5px; color: #334155; line-height: 1.5;">
+          ${isPendingPayment
+            ? 'Al iniciar sesión en la plataforma podrás completar el pago seguro con tu tarjeta en CardNet; tu cuenta quedará activa automáticamente y suscrita al cobro mensual.'
+            : 'Haz clic en el botón para entrar a tu espacio de trabajo en Etereas.'}
+        </p>
+        <p style="margin: 10px 0 0; font-size: 12px; color: #64748b; word-break: break-all;">
+          Enlace de la página: <a href="${safeDirectLoginUrl}" style="color: #2563eb; font-weight: 600;">${safeCleanLoginUrl}</a>
+        </p>
+      </div>
+    `;
 
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; color: #0f172a;">
@@ -217,17 +228,20 @@ async function sendTenantWelcomeAndPaymentEmail(pool, params = {}) {
         </div>
         <div style="padding: 26px;">
           <h1 style="margin: 0 0 10px; font-size: 21px; font-weight: 800; color: #0f172a;">
-            Hola, ${safeOwner}
+            ¡Bienvenido a Etereas, ${safeOwner}!
           </h1>
-          <p style="margin: 0 0 16px; font-size: 14.5px; color: #475569; line-height: 1.6;">
-            ${introText}
+          <p style="margin: 0; font-size: 14.5px; color: #475569; line-height: 1.6;">
+            ${isLinkResendOnly
+              ? `Te recordamos que tu empresa <strong>${safeBusiness}</strong> está lista en <strong>Etereas</strong> para completar su pago de activación.`
+              : `Hemos creado el perfil de tu empresa <strong>${safeBusiness}</strong> en <strong>Etereas</strong>. Aquí tienes tus accesos para ingresar a la plataforma y completar tu activación.`}
           </p>
 
-          ${paymentSectionHtml}
+          ${statusBannerHtml}
           ${credentialsHtml}
+          ${actionCtaHtml}
 
           <div style="margin: 20px 0 0; padding: 16px 20px; border-radius: 12px; background: #ffffff; border: 1px solid #e2e8f0;">
-            <h3 style="margin: 0 0 10px; font-size: 14.5px; color: #0f172a;">Detalle de tu Plan Contratado</h3>
+            <h3 style="margin: 0 0 10px; font-size: 14.5px; color: #0f172a;">Resumen de tu Plan</h3>
             <table style="width: 100%; border-collapse: collapse; font-size: 13.5px; color: #334155;">
               <tr>
                 <td style="padding: 5px 0; color: #64748b;">Empresa:</td>
@@ -258,25 +272,27 @@ async function sendTenantWelcomeAndPaymentEmail(pool, params = {}) {
 
           <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0 16px;" />
           <p style="margin: 0; font-size: 12px; color: #94a3b8; text-align: center; line-height: 1.5;">
-            Etereas — Plataforma integral de gestión para salones y negocios de belleza.<br />
-            Si necesitas asistencia, responde a este correo o contáctanos desde tu panel.
+            Etereas — Plataforma integral de gestión empresarial.<br />
+            Si necesitas asistencia, responde a este correo o escríbenos por soporte.
           </p>
         </div>
       </div>
     `;
 
     const textLines = [
-      `Hola ${ownerName || 'Propietario'},`,
+      `¡Bienvenido a Etereas, ${ownerName || 'Propietario'}!`,
       '',
-      isLinkResendOnly
-        ? `Aquí tienes tu enlace directo de pago para activar ${businessName} en Etereas:`
-        : `Bienvenido a Etereas. Tu empresa ${businessName} ha sido registrada.`,
+      isPendingPayment
+        ? `Tu empresa ${businessName} fue registrada y se encuentra PENDIENTE DE PAGO.`
+        : `Tu empresa ${businessName} fue registrada y se encuentra ACTIVA.`,
       '',
-      paymentUrl ? `ENLACE DIRECTO DE PAGO (CardNet): ${paymentUrl}` : null,
-      temporaryPassword ? `PORTAL DE ACCESO: ${loginUrl}` : null,
-      temporaryPassword ? `USUARIO: ${targetEmail}` : null,
-      temporaryPassword ? `CONTRASEÑA TEMPORAL: ${temporaryPassword}` : null,
+      `PÁGINA PARA INICIAR SESIÓN: ${directLoginWithEmailUrl}`,
+      `CORREO ELECTRÓNICO: ${targetEmail}`,
+      temporaryPassword ? `CLAVE TEMPORAL: ${temporaryPassword} (recuerda cambiarla desde que entres)` : null,
       '',
+      isPendingPayment
+        ? 'Ingresa con tu correo y tu clave temporal para realizar el pago seguro con CardNet dentro de la aplicación y activar tu cuenta automáticamente.'
+        : null,
       `Resumen del plan: ${branches} sucursal(es), ${extraUsers} usuario(s) extra, Membresías B2C: ${wantsMembershipsAddon ? 'Sí' : 'No'} — Total: US$${computedUsd.toFixed(2)}/mes${dopFormatted ? ` (${dopFormatted})` : ''}.`,
     ].filter((l) => l !== null);
 

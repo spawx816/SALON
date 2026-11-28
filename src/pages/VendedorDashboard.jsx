@@ -20,6 +20,14 @@ import {
 import { useAuth } from '../context/AuthContext';
 import ChangePasswordModal from '../components/common/ChangePasswordModal';
 
+function makeReadableTempPassword() {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghjkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const pick = (chars) => chars[Math.floor(Math.random() * chars.length)];
+  return `Etr-${pick(digits)}${pick(upper)}${pick(lower)}${pick(digits)}-${pick(upper)}${pick(lower)}${pick(digits)}${pick(upper)}`;
+}
+
 export default function VendedorDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -35,16 +43,17 @@ export default function VendedorDashboard() {
   // Create Tenant Form
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => ({
     business_name: '',
     owner_name: '',
     owner_email: '',
     owner_phone: '',
     address: '',
+    admin_password: makeReadableTempPassword(),
     branches_count: 1,
     extra_users_count: 0,
     wants_memberships_addon: false,
-  });
+  }));
 
   const loadTenants = useCallback(async () => {
     setLoading(true);
@@ -65,36 +74,35 @@ export default function VendedorDashboard() {
     loadTenants();
   }, [loadTenants]);
 
-  const buildFullPaymentUrl = (tokenOrPath) => {
-    if (!tokenOrPath) return '';
-    const path = tokenOrPath.startsWith('/') ? tokenOrPath : `/pago-saas/${tokenOrPath}`;
-    return `${window.location.origin}${path}`;
+  const buildLoginAccessUrl = (ownerEmail = '') => {
+    const base = `${window.location.origin}/login`;
+    return ownerEmail ? `${base}?email=${encodeURIComponent(ownerEmail)}` : base;
   };
 
-  const handleCopyLink = async (tokenOrPath) => {
-    const url = buildFullPaymentUrl(tokenOrPath);
-    if (!url) return;
+  const handleCopyText = async (textToCopy, keyId) => {
+    if (!textToCopy) return;
     try {
-      await navigator.clipboard.writeText(url);
-      setCopiedToken(tokenOrPath);
+      await navigator.clipboard.writeText(textToCopy);
+      setCopiedToken(keyId);
       setTimeout(() => setCopiedToken(''), 2200);
     } catch {
-      window.prompt('Copia el enlace de pago:', url);
+      window.prompt('Copia la información:', textToCopy);
     }
   };
 
-  const handleOpenWhatsApp = (tenantName, phone, tokenOrPath, credentials = null) => {
-    const url = buildFullPaymentUrl(tokenOrPath);
+  const handleOpenWhatsApp = (tenantName, phone, ownerEmail, tempPassword = null) => {
+    const cleanLoginUrl = `${window.location.origin}/login`;
+    const directUrl = buildLoginAccessUrl(ownerEmail);
     let digits = String(phone || '').replace(/\D/g, '');
     if (/^(809|829|849)\d{7}$/.test(digits)) {
       digits = `1${digits}`;
     }
-    const credsBlock = credentials?.email && credentials?.password
-      ? `\n\n*Tus credenciales de acceso:*\n• Portal: ${window.location.origin}/login\n• Usuario: ${credentials.email}\n• Contraseña temporal: ${credentials.password}`
-      : '';
-    const text = encodeURIComponent(
-      `Hola, ¡bienvenido a *Etereas*! Aquí tienes tu enlace directo y seguro de pago para activar *${tenantName}*:\n\n${url}${credsBlock}\n\nAl completar el pago con tu tarjeta en CardNet, tu cuenta se activará automáticamente y quedará configurada para el cobro mensual automático.`
-    );
+
+    const message = tempPassword
+      ? `¡Hola! Bienvenido a *Etereas*. Ya creamos el perfil de *${tenantName}* (pendiente de pago).\n\n*Tus datos de acceso:*\n• Página: ${cleanLoginUrl}\n• Correo: ${ownerEmail}\n• Clave temporal: ${tempPassword}\n\nIngresa aquí para iniciar sesión y completar tu pago seguro con CardNet:\n${directUrl}\n\n_(Recuerda cambiar tu clave temporal desde que entres a tu cuenta)._`
+      : `¡Hola! Te compartimos el enlace de acceso a *Etereas* para iniciar sesión con tu correo (${ownerEmail}) y completar la activación de *${tenantName}*:\n\n${directUrl}`;
+
+    const text = encodeURIComponent(message);
     const waUrl = digits ? `https://wa.me/${digits}?text=${text}` : `https://wa.me/?text=${text}`;
     window.open(waUrl, '_blank', 'noopener,noreferrer');
   };
@@ -106,12 +114,18 @@ export default function VendedorDashboard() {
     try {
       const clampedBranches = Math.min(50, Math.max(1, Number(form.branches_count) || 1));
       const clampedExtraUsers = Math.min(500, Math.max(0, Number(form.extra_users_count) || 0));
+      const trimmedPwd = String(form.admin_password || '').trim();
+      if (trimmedPwd && trimmedPwd.length < 6) {
+        throw new Error('La clave temporal debe tener al menos 6 caracteres.');
+      }
+
       const res = await fetch('/api/saas/vendedor/tenants', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           ...form,
+          admin_password: trimmedPwd || undefined,
           branches_count: clampedBranches,
           extra_users_count: clampedExtraUsers,
           addon_branches_count: form.wants_memberships_addon ? clampedBranches : 0,
@@ -124,9 +138,8 @@ export default function VendedorDashboard() {
         businessName: data.tenant?.business_name || form.business_name,
         ownerEmail: data.tenant?.owner_email || form.owner_email,
         ownerPhone: form.owner_phone,
-        paymentPath: data.paymentPath,
         orderNumber: data.order?.order_number,
-        generatedPassword: data.generatedPassword || null,
+        generatedPassword: data.generatedPassword || trimmedPwd || null,
         emailSent: Boolean(data.emailSent),
         emailError: data.emailError || null,
       });
@@ -136,6 +149,7 @@ export default function VendedorDashboard() {
         owner_email: '',
         owner_phone: '',
         address: '',
+        admin_password: makeReadableTempPassword(),
         branches_count: 1,
         extra_users_count: 0,
         wants_memberships_addon: false,
@@ -148,7 +162,7 @@ export default function VendedorDashboard() {
     }
   };
 
-  const handleRegenerateLink = async (tenant) => {
+  const handleSendReminderEmail = async (tenant) => {
     setRegeneratingId(tenant.id);
     setError('');
     try {
@@ -169,12 +183,11 @@ export default function VendedorDashboard() {
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'No se pudo generar el nuevo enlace de pago.');
+      if (!res.ok) throw new Error(data.error || 'No se pudo enviar el recordatorio.');
       setSuccessBanner({
         businessName: tenant.business_name,
         ownerEmail: tenant.owner_email,
         ownerPhone: tenant.owner_phone,
-        paymentPath: data.paymentPath,
         orderNumber: data.order?.order_number,
         generatedPassword: null,
         emailSent: Boolean(data.emailSent),
@@ -191,7 +204,7 @@ export default function VendedorDashboard() {
   const branchesNum = Math.min(50, Math.max(1, Number(form.branches_count) || 1));
   const extraNum = Math.min(500, Math.max(0, Number(form.extra_users_count) || 0));
   const addonBlocks = form.wants_memberships_addon ? Math.ceil(branchesNum / 3) : 0;
-  const estimatedUsd = (branchesNum * 99) + (extraNum * 30) + (addonBlocks * 99);
+  const estimatedUsd = branchesNum * 99 + extraNum * 30 + addonBlocks * 99;
 
   const activeCount = tenants.filter((t) => t.status === 'active').length;
   const pendingCount = tenants.filter((t) => t.status === 'pending').length;
@@ -299,7 +312,7 @@ export default function VendedorDashboard() {
           {[
             { label: 'Empresas Creadas', value: tenants.length, icon: Building2, color: '#2563eb', bg: '#eff6ff' },
             { label: 'Activas (Pagadas)', value: activeCount, icon: CheckCircle2, color: '#16a34a', bg: '#f0fdf4' },
-            { label: 'Pendientes de Pago', value: pendingCount, icon: Clock, color: '#d97706', bg: '#fffbeb' },
+            { label: 'Pendientes de Pago', value: pendingCount, icon: Clock, color: '#d97776'.replace('#d97776', '#d97706'), bg: '#fffbeb' },
             { label: 'Con Cobro Automático', value: savedCardsCount, icon: CreditCard, color: '#7c3aed', bg: '#f5f3ff' },
           ].map(({ label, value, icon: Icon, color, bg }) => (
             <div
@@ -325,7 +338,7 @@ export default function VendedorDashboard() {
           ))}
         </div>
 
-        {/* Success Banner with Generated Payment Link */}
+        {/* Success Banner with Credentials + Login Access Link */}
         {successBanner && (
           <div
             style={{
@@ -342,7 +355,7 @@ export default function VendedorDashboard() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#166534', fontWeight: 800, fontSize: 15 }}>
                 <CheckCircle2 size={20} color="#16a34a" />
                 <span>
-                  Enlace de pago listo para {successBanner.businessName}
+                  Perfil listo para {successBanner.businessName}
                   {successBanner.orderNumber ? ` (Orden #${successBanner.orderNumber})` : ''}
                 </span>
               </div>
@@ -372,131 +385,102 @@ export default function VendedorDashboard() {
               <Mail size={15} />
               <span>
                 {successBanner.emailSent
-                  ? `Correo de bienvenida enviado automáticamente a ${successBanner.ownerEmail} con su información, credenciales y link directo de pago.`
-                  : `No se pudo enviar el correo automático${successBanner.emailError ? ` (${successBanner.emailError})` : ''}. Comparte el link y credenciales por WhatsApp o cópialos abajo.`}
+                  ? `Correo de bienvenida enviado a ${successBanner.ownerEmail} con su usuario, clave temporal y el enlace de inicio de sesión para completar el pago.`
+                  : `No se pudo enviar el correo automático${successBanner.emailError ? ` (${successBanner.emailError})` : ''}. Comparte los accesos por WhatsApp o cópialos abajo.`}
               </span>
             </div>
-
-            {successBanner.generatedPassword && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 10,
-                  flexWrap: 'wrap',
-                  background: '#ffffff',
-                  border: '1px solid #bbf7d0',
-                  borderRadius: 10,
-                  padding: '9px 12px',
-                  fontSize: 13,
-                }}
-              >
-                <div>
-                  <span style={{ color: '#64748b', fontWeight: 600 }}>Usuario: </span>
-                  <strong style={{ color: '#0f172a' }}>{successBanner.ownerEmail}</strong>
-                  <span style={{ margin: '0 8px', color: '#cbd5e1' }}>|</span>
-                  <span style={{ color: '#64748b', fontWeight: 600 }}>Contraseña generada: </span>
-                  <code style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: 6, fontWeight: 800, color: '#0f172a' }}>
-                    {successBanner.generatedPassword}
-                  </code>
-                </div>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const summary = `Empresa: ${successBanner.businessName}\nPortal: ${window.location.origin}/login\nUsuario: ${successBanner.ownerEmail}\nContraseña temporal: ${successBanner.generatedPassword}\nLink de pago: ${buildFullPaymentUrl(successBanner.paymentPath)}`;
-                    try {
-                      await navigator.clipboard.writeText(summary);
-                      setCopiedToken('CREDENTIALS_SUMMARY');
-                      setTimeout(() => setCopiedToken(''), 2200);
-                    } catch {
-                      window.prompt('Copia los accesos:', summary);
-                    }
-                  }}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 5,
-                    padding: '6px 11px',
-                    borderRadius: 8,
-                    border: '1px solid #cbd5e1',
-                    background: '#f8fafc',
-                    color: '#0f172a',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {copiedToken === 'CREDENTIALS_SUMMARY' ? <Check size={13} color="#16a34a" /> : <Copy size={13} />}
-                  <span>{copiedToken === 'CREDENTIALS_SUMMARY' ? 'Accesos copiados' : 'Copiar todo'}</span>
-                </button>
-              </div>
-            )}
 
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
+                justifyContent: 'space-between',
+                gap: 10,
                 flexWrap: 'wrap',
                 background: '#ffffff',
                 border: '1px solid #bbf7d0',
                 borderRadius: 10,
-                padding: '10px 12px',
+                padding: '10px 14px',
+                fontSize: 13,
               }}
             >
-              <code style={{ flex: 1, fontSize: 13, color: '#0f172a', wordBreak: 'break-all' }}>
-                {buildFullPaymentUrl(successBanner.paymentPath)}
-              </code>
-              <button
-                type="button"
-                onClick={() => handleCopyLink(successBanner.paymentPath)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '8px 14px',
-                  borderRadius: 8,
-                  border: 'none',
-                  background: '#0f172a',
-                  color: '#ffffff',
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                {copiedToken === successBanner.paymentPath ? <Check size={14} /> : <Copy size={14} />}
-                <span>{copiedToken === successBanner.paymentPath ? 'Copiado' : 'Copiar link'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  handleOpenWhatsApp(
-                    successBanner.businessName,
-                    successBanner.ownerPhone,
-                    successBanner.paymentPath,
-                    successBanner.generatedPassword
-                      ? { email: successBanner.ownerEmail, password: successBanner.generatedPassword }
-                      : null
-                  )
-                }
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '8px 14px',
-                  borderRadius: 8,
-                  border: 'none',
-                  background: '#16a34a',
-                  color: '#ffffff',
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                <MessageCircle size={14} />
-                <span>Enviar por WhatsApp</span>
-              </button>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+                <span>
+                  <span style={{ color: '#64748b', fontWeight: 600 }}>Página: </span>
+                  <code style={{ color: '#2563eb', fontWeight: 700 }}>{`${window.location.origin}/login`}</code>
+                </span>
+                <span style={{ color: '#cbd5e1' }}>|</span>
+                <span>
+                  <span style={{ color: '#64748b', fontWeight: 600 }}>Correo: </span>
+                  <strong style={{ color: '#0f172a' }}>{successBanner.ownerEmail}</strong>
+                </span>
+                {successBanner.generatedPassword && (
+                  <>
+                    <span style={{ color: '#cbd5e1' }}>|</span>
+                    <span>
+                      <span style={{ color: '#64748b', fontWeight: 600 }}>Clave temporal: </span>
+                      <code style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: 6, fontWeight: 800, color: '#0f172a' }}>
+                        {successBanner.generatedPassword}
+                      </code>
+                    </span>
+                  </>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const summary = successBanner.generatedPassword
+                      ? `Empresa: ${successBanner.businessName}\nIniciar sesión: ${buildLoginAccessUrl(successBanner.ownerEmail)}\nCorreo: ${successBanner.ownerEmail}\nClave temporal: ${successBanner.generatedPassword}`
+                      : `Empresa: ${successBanner.businessName}\nIniciar sesión: ${buildLoginAccessUrl(successBanner.ownerEmail)}\nCorreo: ${successBanner.ownerEmail}`;
+                    handleCopyText(summary, 'BANNER_ACCESS');
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '8px 14px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: '#0f172a',
+                    color: '#ffffff',
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {copiedToken === 'BANNER_ACCESS' ? <Check size={14} /> : <Copy size={14} />}
+                  <span>{copiedToken === 'BANNER_ACCESS' ? 'Copiado' : 'Copiar accesos'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleOpenWhatsApp(
+                      successBanner.businessName,
+                      successBanner.ownerPhone,
+                      successBanner.ownerEmail,
+                      successBanner.generatedPassword
+                    )
+                  }
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '8px 14px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: '#16a34a',
+                    color: '#ffffff',
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <MessageCircle size={14} />
+                  <span>Enviar por WhatsApp</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -507,15 +491,15 @@ export default function VendedorDashboard() {
           </div>
         )}
 
-        {/* Create Company + Payment Link Form */}
+        {/* Create Company Form */}
         <section style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 18, padding: '22px 24px', boxShadow: '0 6px 24px -12px rgba(15,23,42,0.08)' }}>
           <div style={{ marginBottom: 16 }}>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Plus size={19} color="#2563eb" />
-              <span>Registrar nueva empresa y generar link de pago</span>
+              <span>Registrar nueva empresa</span>
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
-              La contraseña del dueño se genera automáticamente y el cliente recibe un correo de bienvenida con sus credenciales, el resumen de su plan y el botón directo de pago en CardNet.
+              Al crear el perfil, el cliente recibe automáticamente un correo de bienvenida con su usuario, su clave temporal y el enlace para iniciar sesión en Etereas y realizar el pago con CardNet.
             </p>
           </div>
 
@@ -561,6 +545,27 @@ export default function VendedorDashboard() {
                 />
               </div>
               <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                  <label style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>Clave temporal *</label>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, admin_password: makeReadableTempPassword() })}
+                    style={{ background: 'transparent', border: 'none', color: '#2563eb', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                  >
+                    ↻ Generar otra
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  required
+                  minLength={6}
+                  placeholder="Mínimo 6 caracteres"
+                  value={form.admin_password}
+                  onChange={(e) => setForm({ ...form, admin_password: e.target.value })}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13.5, fontWeight: 700, fontFamily: 'monospace', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
                 <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#334155', marginBottom: 5 }}>WhatsApp / Teléfono</label>
                 <input
                   type="tel"
@@ -579,27 +584,6 @@ export default function VendedorDashboard() {
                   onChange={(e) => setForm({ ...form, address: e.target.value })}
                   style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13.5, boxSizing: 'border-box' }}
                 />
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '9px 12px',
-                  borderRadius: 10,
-                  background: '#eff6ff',
-                  border: '1px solid #bfdbfe',
-                  color: '#1e3a8a',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  lineHeight: 1.35,
-                  alignSelf: 'end',
-                  minHeight: 39,
-                  boxSizing: 'border-box',
-                }}
-              >
-                <Mail size={15} color="#2563eb" style={{ flexShrink: 0 }} />
-                <span>Clave autogenerada + envío automático por correo con link directo de pago</span>
               </div>
             </div>
 
@@ -675,7 +659,7 @@ export default function VendedorDashboard() {
                     cursor: submitting ? 'not-allowed' : 'pointer',
                   }}
                 >
-                  {submitting ? 'Generando...' : 'Crear empresa y generar link →'}
+                  {submitting ? 'Creando y enviando correo...' : 'Crear empresa y enviar bienvenida →'}
                 </button>
               </div>
             </div>
@@ -686,7 +670,7 @@ export default function VendedorDashboard() {
         <section style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 18, overflow: 'hidden' }}>
           <div style={{ padding: '16px 22px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
-              Mis Empresas y Enlaces de Pago ({tenants.length})
+              Mis Empresas Registradas ({tenants.length})
             </h3>
             <button
               type="button"
@@ -706,7 +690,7 @@ export default function VendedorDashboard() {
                   <th style={{ padding: '12px 14px' }}>Configuración</th>
                   <th style={{ padding: '12px 14px', textAlign: 'center' }}>Estado</th>
                   <th style={{ padding: '12px 14px', textAlign: 'center' }}>Cobro Automático</th>
-                  <th style={{ padding: '12px 18px', textAlign: 'right' }}>Enlace de Pago</th>
+                  <th style={{ padding: '12px 18px', textAlign: 'right' }}>Seguimiento y Accesos</th>
                 </tr>
               </thead>
               <tbody>
@@ -719,7 +703,7 @@ export default function VendedorDashboard() {
                 ) : tenants.length === 0 ? (
                   <tr>
                     <td colSpan={5} style={{ padding: 28, textAlign: 'center', color: '#64748b' }}>
-                      Aún no has registrado ninguna empresa. Usa el formulario de arriba para crear la primera y enviar su link de pago.
+                      Aún no has registrado ninguna empresa. Usa el formulario de arriba para crear la primera y enviar su correo de bienvenida.
                     </td>
                   </tr>
                 ) : (
@@ -728,15 +712,8 @@ export default function VendedorDashboard() {
                     const isActive = st === 'active';
                     const isSuspendedOrCancelled = st === 'suspended' || st === 'cancelled';
                     const hasCard = Number(t.saved_cards_count || 0) > 0;
-                    const token = t.latest_payment_link_token;
                     const includesMemberships = Boolean(t.has_memberships || t.latest_order_memberships_addon);
-                    const latestOrderStatus = String(t.latest_order_status || '').toLowerCase();
-                    const isLinkDead = Boolean(
-                      token && (
-                        ['expired', 'declined', 'cancelled', 'error'].includes(latestOrderStatus) ||
-                        (t.latest_order_expires_at && new Date(t.latest_order_expires_at).getTime() <= Date.now())
-                      )
-                    );
+                    const loginLinkForRow = buildLoginAccessUrl(t.owner_email);
                     const statusBadge = isActive
                       ? { label: 'Activa', bg: '#dcfce7', color: '#166534' }
                       : st === 'suspended'
@@ -788,49 +765,34 @@ export default function VendedorDashboard() {
                         </td>
                         <td style={{ padding: '12px 18px', textAlign: 'right' }}>
                           <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
-                            {token && !isActive && !isSuspendedOrCancelled && !isLinkDead && (
+                            {!isActive && !isSuspendedOrCancelled && (
                               <>
                                 <button
                                   type="button"
-                                  onClick={() => handleCopyLink(token)}
+                                  onClick={() => handleCopyText(loginLinkForRow, t.id)}
                                   style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#ffffff', fontSize: 12, fontWeight: 700, cursor: 'pointer', color: '#0f172a' }}
                                 >
-                                  {copiedToken === token ? <Check size={13} color="#16a34a" /> : <Copy size={13} />}
-                                  <span>{copiedToken === token ? 'Copiado' : 'Copiar link'}</span>
+                                  {copiedToken === t.id ? <Check size={13} color="#16a34a" /> : <Copy size={13} />}
+                                  <span>{copiedToken === t.id ? 'Copiado' : 'Copiar link login'}</span>
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleOpenWhatsApp(t.business_name, t.owner_phone, token)}
+                                  onClick={() => handleOpenWhatsApp(t.business_name, t.owner_phone, t.owner_email, null)}
                                   style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 8, border: 'none', background: '#16a34a', fontSize: 12, fontWeight: 700, cursor: 'pointer', color: '#ffffff' }}
                                 >
                                   <MessageCircle size={13} />
                                   <span>WhatsApp</span>
                                 </button>
-                                <a
-                                  href={buildFullPaymentUrl(token)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', fontSize: 12, fontWeight: 700, color: '#1d4ed8', textDecoration: 'none' }}
+                                <button
+                                  type="button"
+                                  disabled={regeneratingId === t.id}
+                                  onClick={() => handleSendReminderEmail(t)}
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', fontSize: 12, fontWeight: 700, cursor: 'pointer', color: '#1d4ed8' }}
                                 >
-                                  <ExternalLink size={13} />
-                                  <span>Abrir</span>
-                                </a>
+                                  <Mail size={13} />
+                                  <span>{regeneratingId === t.id ? 'Enviando...' : 'Reenviar correo'}</span>
+                                </button>
                               </>
-                            )}
-                            {token && !isActive && isLinkDead && (
-                              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '4px 8px', borderRadius: 6 }}>
-                                Link expirado
-                              </span>
-                            )}
-                            {!isActive && !isSuspendedOrCancelled && (
-                              <button
-                                type="button"
-                                disabled={regeneratingId === t.id}
-                                onClick={() => handleRegenerateLink(t)}
-                                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: isLinkDead ? '#eff6ff' : '#f8fafc', fontSize: 12, fontWeight: 700, cursor: 'pointer', color: isLinkDead ? '#1d4ed8' : '#334155' }}
-                              >
-                                {regeneratingId === t.id ? 'Generando...' : 'Nuevo link'}
-                              </button>
                             )}
                             {isActive && (
                               <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 700 }}>

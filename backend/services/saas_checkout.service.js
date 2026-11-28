@@ -1251,7 +1251,9 @@ class SaasCheckoutService {
 
     const orderId = crypto.randomUUID();
     const orderNumber = generateOrderNumber();
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // Ventana oficial de 30 minutos de sesión CardNet
+    const expiresAt = source === 'superadmin_payment_link'
+      ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 días para que el cliente inicie sesión y pague su orden inicial
+      : new Date(Date.now() + 30 * 60 * 1000); // Ventana oficial de 30 minutos de sesión CardNet
     const paymentLinkToken =
       source === 'superadmin_payment_link' ? crypto.randomBytes(24).toString('hex') : null;
     const sanitizedMetadata = { ...(metadata || {}) };
@@ -2041,7 +2043,7 @@ class SaasCheckoutService {
                updated_at = NOW()
            WHERE tenant_id = ?`,
           [order.tenant_id]
-        ).catch(() => {});
+        ).catch(() => { });
       }
 
       await this.pool.query(

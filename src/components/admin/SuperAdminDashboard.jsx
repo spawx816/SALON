@@ -380,10 +380,13 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       if (!res.ok) {
         throw new Error(data.error || 'No se pudo generar el enlace de pago');
       }
-      const fullUrl = `${window.location.origin}${data.paymentPath}`;
+      const targetOwnerEmail = data.ownerEmail || tenant.owner_email || tenant.email || '';
+      const fullUrl = targetOwnerEmail
+        ? `${window.location.origin}/login?email=${encodeURIComponent(targetOwnerEmail)}`
+        : `${window.location.origin}/login`;
       setGeneratedPaymentLink({
         tenantName: data.tenantName || tenant.business_name,
-        ownerEmail: data.ownerEmail || tenant.owner_email,
+        ownerEmail: targetOwnerEmail,
         orderNumber: data.order?.order_number,
         totalMinor: data.order?.total_minor,
         currency: data.order?.currency || 'USD',
@@ -644,7 +647,9 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
           orderNumber: created?.order?.order_number || null,
           totalMinor: created?.order?.total_minor || null,
           currency: created?.order?.currency || 'DOP',
-          url: created?.paymentPath ? `${window.location.origin}${created.paymentPath}` : `${window.location.origin}/login`,
+          url: tenantFormData.email
+            ? `${window.location.origin}/login?email=${encodeURIComponent(tenantFormData.email)}`
+            : `${window.location.origin}/login`,
           generatedPassword: created?.generated_password || null,
           emailSent: Boolean(created?.emailSent),
         });
@@ -771,7 +776,9 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       t.slug?.toLowerCase().includes(q) ||
       t.email?.toLowerCase().includes(q) ||
       t.owner_email?.toLowerCase().includes(q) ||
-      t.owner_name?.toLowerCase().includes(q)
+      t.owner_name?.toLowerCase().includes(q) ||
+      t.vendedor_name?.toLowerCase().includes(q) ||
+      t.vendedor_email?.toLowerCase().includes(q)
     );
   });
 
@@ -1295,7 +1302,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
               <Search size={17} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
               <input
                 type="text"
-                placeholder="Buscar por nombre, slug o correo..."
+                placeholder="Buscar por empresa, correo o vendedor..."
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setTenantPage(1); }}
                 style={{
@@ -1318,6 +1325,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0', color: '#475569', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   <th style={{ padding: '1rem 1.25rem', fontWeight: '800' }}>Empresa / Inquilino</th>
+                  <th style={{ padding: '1rem 1rem', fontWeight: '800' }}>Vendedor</th>
                   <th style={{ padding: '1rem 1rem', fontWeight: '800' }}>Plan Contratado</th>
                   <th style={{ padding: '1rem 1rem', fontWeight: '800' }}>Sedes Licenciadas</th>
                   <th style={{ padding: '1rem 1rem', fontWeight: '800' }}>Asientos de Usuarios</th>
@@ -1334,7 +1342,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
               <tbody>
                 {filteredTenants.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '3.5rem 1rem', color: '#64748b' }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '3.5rem 1rem', color: '#64748b' }}>
                       {loading ? 'Cargando empresas desde PostgreSQL...' : 'No se encontraron empresas registrados.'}
                     </td>
                   </tr>
@@ -1365,6 +1373,39 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                               {t.email}
                             </span>
                           </div>
+                        </td>
+
+                        {/* Vendedor que gestionó el alta */}
+                        <td style={{ padding: '1.15rem 1rem' }}>
+                          {(() => {
+                            const roleLower = String(t.vendedor_role || '').toLowerCase();
+                            if (t.vendedor_name && roleLower === 'vendedor') {
+                              return (
+                                <div>
+                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', padding: '0.18rem 0.55rem', borderRadius: '6px', fontSize: '0.76rem', fontWeight: '800' }}>
+                                    {t.vendedor_name}
+                                  </div>
+                                  {t.vendedor_email && (
+                                    <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.2rem' }}>
+                                      {t.vendedor_email}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }
+                            if (roleLower === 'superadmin' || t.created_by_user_id === 'superadmin') {
+                              return (
+                                <span style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#475569', padding: '0.18rem 0.55rem', borderRadius: '6px', fontSize: '0.74rem', fontWeight: '700' }}>
+                                  SuperAdmin
+                                </span>
+                              );
+                            }
+                            return (
+                              <span style={{ color: '#94a3b8', fontSize: '0.76rem', fontWeight: '600' }}>
+                                Directo / Web
+                              </span>
+                            );
+                          })()}
                         </td>
 
                         {/* Plan Contratado con Selector */}

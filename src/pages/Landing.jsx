@@ -164,8 +164,15 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const [addonBranchesCount, setAddonBranchesCount] = useState(1);
   const [planDetailsOpen, setPlanDetailsOpen] = useState(false);
 
-  // Hero login form state (real AuthContext login)
-  const [email, setEmail] = useState('');
+  // Hero login form state (real AuthContext login, supports ?email= prefill from welcome email)
+  const [email, setEmail] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return (params.get('email') || '').trim();
+    } catch {
+      return '';
+    }
+  });
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
@@ -224,12 +231,18 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const termsTriggerRef = useRef(null);
   const termsModalRef = useRef(null);
 
-  // Focus login input when navigating directly to /login
+  // Focus & scroll login card into view when navigating directly to /login
   useEffect(() => {
     if (initialAuthModal && initialIsLogin) {
       setTimeout(() => {
-        loginInputRef.current?.focus();
-      }, 60);
+        const el = document.getElementById('acceso');
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (email) {
+          document.getElementById('et-login-password')?.focus();
+        } else {
+          loginInputRef.current?.focus();
+        }
+      }, 80);
     } else if (initialAuthModal && !initialIsLogin) {
       setIsRegisterModalOpen(true);
     }

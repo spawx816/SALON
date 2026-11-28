@@ -199,8 +199,12 @@ function createSaasRouter(pool, options = {}) {
           (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'vendedor', 'cliente_b2c', 'client', 'cliente', 'kiosco_asistencia') AND COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.estado, 'Activo')) != 'inactivo') as users_count,
           (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND LOWER(COALESCE(u.role, '')) = 'kiosco_asistencia' AND COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.estado, 'Activo')) != 'inactivo') as exempt_kiosk_users_count,
           ((GREATEST(COALESCE(t.licensed_branches, t.max_branches, 1), 1) * COALESCE(sp.users_per_branch, 3)) + GREATEST(COALESCE(t.extra_user_seats, 0), 0)) as max_allowed_users,
-          (SELECT COUNT(*) FROM clients c WHERE c.tenant_id = t.id) as clients_count
+          (SELECT COUNT(*) FROM clients c WHERE c.tenant_id = t.id) as clients_count,
+          COALESCE(creator_u.nombre, creator_u.name) as vendedor_name,
+          creator_u.email as vendedor_email,
+          creator_u.role as vendedor_role
         FROM tenants t
+        LEFT JOIN users creator_u ON creator_u.id::text = t.created_by_user_id
         LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = t.id
         LEFT JOIN saas_plans sp ON (
           (ts.plan_code IS NOT NULL AND UPPER(sp.code) = UPPER(ts.plan_code))
@@ -1408,10 +1412,10 @@ function createSaasRouter(pool, options = {}) {
         const note = match ? match[6].trim() : raw;
         const requestedBranches = branchesRaw
           ? branchesRaw.split(',').map((item) => {
-              const idx = item.indexOf(':');
-              if (idx === -1) return { id: item.trim(), name: item.trim() };
-              return { id: item.slice(0, idx).trim(), name: item.slice(idx + 1).trim() };
-            }).filter((b) => b.id)
+            const idx = item.indexOf(':');
+            if (idx === -1) return { id: item.trim(), name: item.trim() };
+            return { id: item.slice(0, idx).trim(), name: item.slice(idx + 1).trim() };
+          }).filter((b) => b.id)
           : [];
 
         const ent = await entitlementsService.getTenantEntitlements(row.tenant_id);
@@ -1722,7 +1726,7 @@ function createSaasRouter(pool, options = {}) {
         await pool.query(
           'UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND is_active = 1',
           [String(id)]
-        ).catch(() => {});
+        ).catch(() => { });
       }
       res.json({ success: true, is_active: isActive, estado });
     } catch (error) {
@@ -1752,7 +1756,7 @@ function createSaasRouter(pool, options = {}) {
       await pool.query(
         'UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND is_active = 1',
         [String(id)]
-      ).catch(() => {});
+      ).catch(() => { });
       res.json({ success: true, message: 'Contraseña actualizada correctamente.' });
     } catch (error) {
       console.error('[SUPERADMIN VENDEDORES PASSWORD ERROR]:', error.message);
