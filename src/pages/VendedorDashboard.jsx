@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Building2,
   Plus,
@@ -13,11 +14,14 @@ import {
   Sparkles,
   MessageCircle,
   Users,
+  Key,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import ChangePasswordModal from '../components/common/ChangePasswordModal';
 
 export default function VendedorDashboard() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,6 +29,7 @@ export default function VendedorDashboard() {
   const [successBanner, setSuccessBanner] = useState(null);
   const [copiedToken, setCopiedToken] = useState('');
   const [regeneratingId, setRegeneratingId] = useState(null);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   // Create Tenant Form
   const [submitting, setSubmitting] = useState(false);
@@ -80,7 +85,10 @@ export default function VendedorDashboard() {
 
   const handleOpenWhatsApp = (tenantName, phone, tokenOrPath) => {
     const url = buildFullPaymentUrl(tokenOrPath);
-    const digits = String(phone || '').replace(/\D/g, '');
+    let digits = String(phone || '').replace(/\D/g, '');
+    if (/^(809|829|849)\d{7}$/.test(digits)) {
+      digits = `1${digits}`;
+    }
     const text = encodeURIComponent(
       `Hola, aquí tienes tu enlace seguro de pago para activar *${tenantName}* en *Etereas*:\n\n${url}\n\nAl completar el pago con tu tarjeta, tu cuenta se activará automáticamente y quedará configurada para el cobro mensual automático.`
     );
@@ -93,15 +101,17 @@ export default function VendedorDashboard() {
     setFormError('');
     setSubmitting(true);
     try {
+      const clampedBranches = Math.min(50, Math.max(1, Number(form.branches_count) || 1));
+      const clampedExtraUsers = Math.min(500, Math.max(0, Number(form.extra_users_count) || 0));
       const res = await fetch('/api/saas/vendedor/tenants', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           ...form,
-          branches_count: Number(form.branches_count) || 1,
-          extra_users_count: Number(form.extra_users_count) || 0,
-          addon_branches_count: form.wants_memberships_addon ? (Number(form.branches_count) || 1) : 0,
+          branches_count: clampedBranches,
+          extra_users_count: clampedExtraUsers,
+          addon_branches_count: form.wants_memberships_addon ? clampedBranches : 0,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -137,14 +147,20 @@ export default function VendedorDashboard() {
     setRegeneratingId(tenant.id);
     setError('');
     try {
+      const branchesForLink = Math.min(50, Math.max(1, Number(tenant.licensed_branches || 1)));
+      const wantsAddonForLink = Boolean(tenant.has_memberships || tenant.latest_order_memberships_addon);
+      const addonBranchesForLink = wantsAddonForLink
+        ? Math.min(branchesForLink, Math.max(1, Number(tenant.latest_order_addon_branches_count || branchesForLink)))
+        : 0;
       const res = await fetch(`/api/saas/vendedor/tenants/${tenant.id}/payment-links`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          branchesCount: Number(tenant.licensed_branches || 1),
-          extraUsersCount: Number(tenant.extra_user_seats || 0),
-          wantsMembershipsAddon: Boolean(tenant.has_memberships),
+          branchesCount: branchesForLink,
+          extraUsersCount: Math.max(0, Number(tenant.extra_user_seats || 0)),
+          wantsMembershipsAddon: wantsAddonForLink,
+          addonBranchesCount: addonBranchesForLink,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -164,13 +180,13 @@ export default function VendedorDashboard() {
     }
   };
 
-  const branchesNum = Math.max(1, Number(form.branches_count) || 1);
-  const extraNum = Math.max(0, Number(form.extra_users_count) || 0);
+  const branchesNum = Math.min(50, Math.max(1, Number(form.branches_count) || 1));
+  const extraNum = Math.min(500, Math.max(0, Number(form.extra_users_count) || 0));
   const addonBlocks = form.wants_memberships_addon ? Math.ceil(branchesNum / 3) : 0;
   const estimatedUsd = (branchesNum * 99) + (extraNum * 30) + (addonBlocks * 99);
 
   const activeCount = tenants.filter((t) => t.status === 'active').length;
-  const pendingCount = tenants.filter((t) => t.status !== 'active').length;
+  const pendingCount = tenants.filter((t) => t.status === 'pending').length;
   const savedCardsCount = tenants.filter((t) => Number(t.saved_cards_count || 0) > 0).length;
 
   return (
@@ -218,14 +234,37 @@ export default function VendedorDashboard() {
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ textAlign: 'right', fontSize: 12.5 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ textAlign: 'right', fontSize: 12.5, marginRight: 4 }}>
             <div style={{ fontWeight: 700, color: '#ffffff' }}>{user?.name || user?.nombre || 'Vendedor'}</div>
             <div style={{ color: '#94a3b8', fontSize: 11.5 }}>{user?.email}</div>
           </div>
           <button
             type="button"
-            onClick={logout}
+            onClick={() => setIsChangePasswordOpen(true)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 12px',
+              borderRadius: 10,
+              border: '1px solid rgba(255,255,255,0.18)',
+              background: 'rgba(255,255,255,0.06)',
+              color: '#e2e8f0',
+              fontSize: 12.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            <Key size={14} />
+            <span>Cambiar clave</span>
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              await logout();
+              navigate('/', { replace: true });
+            }}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -580,9 +619,26 @@ export default function VendedorDashboard() {
                   </tr>
                 ) : (
                   tenants.map((t) => {
-                    const isActive = t.status === 'active';
+                    const st = String(t.status || '').toLowerCase();
+                    const isActive = st === 'active';
+                    const isSuspendedOrCancelled = st === 'suspended' || st === 'cancelled';
                     const hasCard = Number(t.saved_cards_count || 0) > 0;
                     const token = t.latest_payment_link_token;
+                    const includesMemberships = Boolean(t.has_memberships || t.latest_order_memberships_addon);
+                    const latestOrderStatus = String(t.latest_order_status || '').toLowerCase();
+                    const isLinkDead = Boolean(
+                      token && (
+                        ['expired', 'declined', 'cancelled', 'error'].includes(latestOrderStatus) ||
+                        (t.latest_order_expires_at && new Date(t.latest_order_expires_at).getTime() <= Date.now())
+                      )
+                    );
+                    const statusBadge = isActive
+                      ? { label: 'Activa', bg: '#dcfce7', color: '#166534' }
+                      : st === 'suspended'
+                        ? { label: 'Suspendida', bg: '#fee2e2', color: '#991b1b' }
+                        : st === 'cancelled'
+                          ? { label: 'Cancelada', bg: '#f1f5f9', color: '#475569' }
+                          : { label: 'Pendiente de pago', bg: '#fef3c7', color: '#92400e' };
                     return (
                       <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '12px 18px' }}>
@@ -597,7 +653,7 @@ export default function VendedorDashboard() {
                             {t.licensed_branches || 1} suc. · <Users size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} />
                             {Number(t.extra_user_seats || 0)} extra
                           </div>
-                          {t.has_memberships && (
+                          {includesMemberships && (
                             <span style={{ display: 'inline-block', marginTop: 3, fontSize: 11, fontWeight: 700, color: '#1d4ed8', background: '#dbeafe', padding: '1px 7px', borderRadius: 999 }}>
                               Membresías B2C
                             </span>
@@ -611,11 +667,11 @@ export default function VendedorDashboard() {
                               borderRadius: 999,
                               fontSize: 12,
                               fontWeight: 700,
-                              background: isActive ? '#dcfce7' : '#fef3c7',
-                              color: isActive ? '#166534' : '#92400e',
+                              background: statusBadge.bg,
+                              color: statusBadge.color,
                             }}
                           >
-                            {isActive ? 'Activa' : 'Pendiente de pago'}
+                            {statusBadge.label}
                           </span>
                         </td>
                         <td style={{ padding: '12px 14px', textAlign: 'center', fontSize: 12 }}>
@@ -626,8 +682,8 @@ export default function VendedorDashboard() {
                           )}
                         </td>
                         <td style={{ padding: '12px 18px', textAlign: 'right' }}>
-                          <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                            {token && !isActive && (
+                          <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+                            {token && !isActive && !isSuspendedOrCancelled && !isLinkDead && (
                               <>
                                 <button
                                   type="button"
@@ -656,12 +712,17 @@ export default function VendedorDashboard() {
                                 </a>
                               </>
                             )}
-                            {!isActive && (
+                            {token && !isActive && isLinkDead && (
+                              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '4px 8px', borderRadius: 6 }}>
+                                Link expirado
+                              </span>
+                            )}
+                            {!isActive && !isSuspendedOrCancelled && (
                               <button
                                 type="button"
                                 disabled={regeneratingId === t.id}
                                 onClick={() => handleRegenerateLink(t)}
-                                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#f8fafc', fontSize: 12, fontWeight: 700, cursor: 'pointer', color: '#334155' }}
+                                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: isLinkDead ? '#eff6ff' : '#f8fafc', fontSize: 12, fontWeight: 700, cursor: 'pointer', color: isLinkDead ? '#1d4ed8' : '#334155' }}
                               >
                                 {regeneratingId === t.id ? 'Generando...' : 'Nuevo link'}
                               </button>
@@ -682,6 +743,10 @@ export default function VendedorDashboard() {
           </div>
         </section>
       </main>
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+      />
     </div>
   );
 }

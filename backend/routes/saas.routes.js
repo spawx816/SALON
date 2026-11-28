@@ -11,6 +11,8 @@ const {
   CANONICAL_PLANS_CATALOG,
   PRINCIPAL_PLAN_REFERENCE_USD,
   MEMBERSHIPS_ADDON_DEFAULT_USD,
+  EXTRA_USER_DEFAULT_USD,
+  getConfiguredPricing,
   normalizePlanCode,
   isValidPlanCode
 } = require('../services/saas_catalog.constants');
@@ -72,27 +74,33 @@ function createSaasRouter(pool, options = {}) {
       const [activeTenants] = await pool.query("SELECT COUNT(*) as active FROM tenants WHERE status = 'active'");
       const [suspendedTenants] = await pool.query("SELECT COUNT(*) as suspended FROM tenants WHERE status = 'suspended'");
       const [branchesCount] = await pool.query("SELECT COUNT(b.id) as total FROM branches b JOIN tenants t ON b.tenant_id = t.id");
-      const [usersCount] = await pool.query("SELECT COUNT(u.id) as total FROM users u JOIN tenants t ON u.tenant_id = t.id WHERE LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.estado, 'Activo')) != 'inactivo'");
+      const [usersCount] = await pool.query("SELECT COUNT(u.id) as total FROM users u JOIN tenants t ON u.tenant_id = t.id WHERE LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'vendedor', 'cliente_b2c', 'client', 'cliente', 'kiosco_asistencia') AND COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.estado, 'Activo')) != 'inactivo'");
+
+      const configuredPricing = getConfiguredPricing();
+      const defaultPlanUsd = Number(configuredPricing?.plans?.PRINCIPAL?.usd ?? 99);
+      const defaultExtraUsd = Number(configuredPricing?.extraUser?.usd ?? EXTRA_USER_DEFAULT_USD ?? 30);
+      const defaultAddonBlockUsd = Number(configuredPricing?.addons?.memberships?.usdPerBlock ?? MEMBERSHIPS_ADDON_DEFAULT_USD ?? 99);
 
       // Regla explícita de MRR recurrente:
       // - Solo suscripciones/tenants en estado comercial elegible ('active')
       // - Excluye cuentas de prueba (slug 'test-%' / '%-test' o email '%@test.%' / '%@example.%')
-      // - Excluye cargos únicos / implementación (solo plan * sucursales + asientos extra + add-on membresías * sucursales)
-      // - Agrupa por moneda sin mezclar divisas sin conversión definida
+      // - Excluye cargos únicos / implementación (solo plan * sucursales + asientos extra + add-on membresías * bloques)
+      // - Los precios de catálogo SaaS están expresados en USD (DOP solo se usa como moneda de liquidación en pasarela)
       const [mrrRows] = await pool.query(`
         SELECT
           t.id,
           t.slug,
           t.email,
           t.status as tenant_status,
+          COALESCE(ts.plan_code, sp.code, 'PRINCIPAL') as plan_code,
           COALESCE(ts.status, t.status) as commercial_status,
-          COALESCE(ts.currency, t.currency, 'USD') as currency,
+          COALESCE(sp.currency, 'USD') as plan_currency,
           COALESCE(ts.billing_cycle, sp.billing_cycle, 'monthly') as billing_cycle,
           GREATEST(COALESCE(t.licensed_branches, t.max_branches, 1), 1) as billable_branches,
           GREATEST(COALESCE(t.extra_user_seats, 0), 0) as extra_seats,
           COALESCE(t.has_memberships, false) as has_memberships,
           COALESCE(ts.addon_blocks_count, 0) as sub_addon_blocks_count,
-          COALESCE(sp.price_per_branch, sp.price_monthly, 0) as plan_price_per_branch,
+          COALESCE(sp.price_per_branch, sp.price_monthly, sp.price, 0) as plan_price_per_branch,
           COALESCE(sp.price_yearly, 0) as plan_price_yearly,
           COALESCE(sp.extra_user_price, 0) as extra_user_price
         FROM tenants t
@@ -111,11 +119,16 @@ function createSaasRouter(pool, options = {}) {
 
       const mrrCentsByCurrency = {};
       for (const row of mrrRows) {
-        const curr = String(row.currency || 'USD').trim().toUpperCase();
+        const isPrincipal = normalizePlanCode(row.plan_code) === 'PRINCIPAL';
+        const curr = isPrincipal ? 'USD' : String(row.plan_currency || 'USD').trim().toUpperCase();
         const branches = Number(row.billable_branches) || 1;
         const extraSeats = Number(row.extra_seats) || 0;
-        const planUnitCents = Math.round(Number(row.plan_price_per_branch || 0) * 100);
-        const extraUnitCents = Math.round(Number(row.extra_user_price || 0) * 100);
+        const rawPlanPrice = Number(row.plan_price_per_branch || 0);
+        const rawExtraPrice = Number(row.extra_user_price || 0);
+        const effectivePlanPrice = rawPlanPrice > 0 ? rawPlanPrice : (isPrincipal ? defaultPlanUsd : 0);
+        const effectiveExtraPrice = rawExtraPrice > 0 ? rawExtraPrice : (isPrincipal ? defaultExtraUsd : 0);
+        const planUnitCents = Math.round(effectivePlanPrice * 100);
+        const extraUnitCents = Math.round(effectiveExtraPrice * 100);
 
         const ent = await entitlementsService.getTenantEntitlements(row.id);
         const membershipsAddon = ent?.addons?.memberships;
@@ -130,7 +143,7 @@ function createSaasRouter(pool, options = {}) {
             ? contractedBlocks
             : Math.max(1, Math.ceil(Math.max(1, Number(membershipsAddon?.enabledBranchCount ?? branches)) / 3)))
           : 0;
-        const addonUnitCents = isPaidAddon ? Math.round(Number(MEMBERSHIPS_ADDON_DEFAULT_USD || 99) * 100) : 0;
+        const addonUnitCents = isPaidAddon ? Math.round(defaultAddonBlockUsd * 100) : 0;
 
         let monthlyCents = (planUnitCents * branches) + (extraUnitCents * extraSeats) + (addonUnitCents * addonBlocksCount);
         if (String(row.billing_cycle).toLowerCase() === 'yearly' && Number(row.plan_price_yearly) > 0) {
@@ -178,9 +191,9 @@ function createSaasRouter(pool, options = {}) {
           COALESCE(sp.extra_user_price, 0) as plan_extra_user_price,
           COALESCE(sp.is_public, true) as plan_is_public,
           (SELECT COUNT(*) FROM branches b WHERE b.tenant_id = t.id AND COALESCE(b.is_active, TRUE) = TRUE) as branches_count,
-          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.estado, 'Activo')) != 'inactivo') as users_count,
+          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'vendedor', 'cliente_b2c', 'client', 'cliente', 'kiosco_asistencia') AND COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.estado, 'Activo')) != 'inactivo') as users_count,
           (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND LOWER(COALESCE(u.role, '')) = 'kiosco_asistencia' AND COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.estado, 'Activo')) != 'inactivo') as exempt_kiosk_users_count,
-          ((GREATEST(COALESCE(t.licensed_branches, t.max_branches, 1), 1) * 3) + GREATEST(COALESCE(t.extra_user_seats, 0), 0)) as max_allowed_users,
+          ((GREATEST(COALESCE(t.licensed_branches, t.max_branches, 1), 1) * COALESCE(sp.users_per_branch, 3)) + GREATEST(COALESCE(t.extra_user_seats, 0), 0)) as max_allowed_users,
           (SELECT COUNT(*) FROM clients c WHERE c.tenant_id = t.id) as clients_count
         FROM tenants t
         LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = t.id
@@ -190,6 +203,10 @@ function createSaasRouter(pool, options = {}) {
         )
         ORDER BY t.created_at DESC
       `);
+
+      const configuredPricing = getConfiguredPricing();
+      const defaultPlanUsd = Number(configuredPricing?.plans?.PRINCIPAL?.usd ?? 99);
+      const defaultExtraUsd = Number(configuredPricing?.extraUser?.usd ?? EXTRA_USER_DEFAULT_USD ?? 30);
 
       const enrichedTenants = await Promise.all((tenants || []).map(async (row) => {
         const [ent, tenantBranches] = await Promise.all([
@@ -208,8 +225,25 @@ function createSaasRouter(pool, options = {}) {
           enabledBranchCount: 0,
           isLegacyTransition: false
         };
+        const isPrincipal = normalizePlanCode(row.plan_code) === 'PRINCIPAL';
+        const resolvedPlanPrice = Number(row.plan_price_per_branch || 0) > 0
+          ? Number(row.plan_price_per_branch)
+          : (isPrincipal ? defaultPlanUsd : 0);
+        const resolvedExtraPrice = Number(row.plan_extra_user_price || 0) > 0
+          ? Number(row.plan_extra_user_price)
+          : (isPrincipal ? defaultExtraUsd : 0);
+        const modulesObj = (row.modules_config && typeof row.modules_config === 'object') ? row.modules_config : {};
+        const resolvedDgiiEcf = modulesObj.dgii_ecf !== undefined
+          ? Boolean(modulesObj.dgii_ecf)
+          : Boolean(row.has_dgii_ecf);
+
         return {
           ...row,
+          plan_name: row.plan_name || (isPrincipal ? 'Plan Principal' : row.plan_code),
+          plan_price: resolvedPlanPrice,
+          plan_price_per_branch: resolvedPlanPrice,
+          plan_extra_user_price: resolvedExtraPrice,
+          has_dgii_ecf: resolvedDgiiEcf,
           has_memberships: Boolean(addon.active),
           memberships_source: addon.source || 'none',
           memberships_reason: addon.reason || null,
@@ -271,7 +305,13 @@ function createSaasRouter(pool, options = {}) {
         LEFT JOIN tenants t ON i.tenant_id = t.id
         ORDER BY i.created_at DESC
       `);
-      res.json({ invoices: invoices || [] });
+      const formattedInvoices = (invoices || []).map((inv) => ({
+        ...inv,
+        total_amount: inv.total_amount != null
+          ? Number(inv.total_amount)
+          : Number(inv.total_minor ?? inv.amount_due_minor ?? 0) / 100,
+      }));
+      res.json({ invoices: formattedInvoices });
     } catch (error) {
       console.error('Error fetching platform SaaS invoices:', error);
       res.status(500).json({ error: 'Error listando facturas de la plataforma' });
@@ -337,10 +377,18 @@ function createSaasRouter(pool, options = {}) {
         : {};
       const mergedModules = { ...existingModules, ...patch };
 
-      await conn.query(
-        'UPDATE tenants SET modules_config = ?::jsonb, updated_at = NOW() WHERE id = ?',
-        [JSON.stringify(mergedModules), id]
-      );
+      if (patch.dgii_ecf !== undefined || patch.dgii !== undefined) {
+        const nextDgii = Boolean(patch.dgii_ecf ?? patch.dgii);
+        await conn.query(
+          'UPDATE tenants SET modules_config = ?::jsonb, has_dgii_ecf = ?, updated_at = NOW() WHERE id = ?',
+          [JSON.stringify(mergedModules), nextDgii, id]
+        );
+      } else {
+        await conn.query(
+          'UPDATE tenants SET modules_config = ?::jsonb, updated_at = NOW() WHERE id = ?',
+          [JSON.stringify(mergedModules), id]
+        );
+      }
 
       await logControlPlaneSecurityAccess(req, 'CONTROL_PLANE_UPDATE_TENANT_MODULES', `Tenant ${id}: ${JSON.stringify(patch)}`);
       await conn.commit();
@@ -752,6 +800,13 @@ function createSaasRouter(pool, options = {}) {
                    AND (t.plan_id = sp.id OR ts.saas_plan_id = sp.id)
                ) AS active_subscribers_count
              FROM saas_plans sp
+             WHERE COALESCE(sp.is_active, true) = true
+                OR EXISTS (
+                  SELECT 1 FROM tenants t2
+                  LEFT JOIN tenant_subscriptions ts2 ON ts2.tenant_id = t2.id
+                  WHERE COALESCE(t2.status, 'active') <> 'deleted'
+                    AND (t2.plan_id = sp.id OR ts2.saas_plan_id = sp.id)
+                )
              ORDER BY (UPPER(sp.code) = 'PRINCIPAL') DESC, sp.id ASC`;
         const [plans] = await pool.query(query);
         if (plans && plans.length > 0) {
@@ -765,11 +820,17 @@ function createSaasRouter(pool, options = {}) {
           const currentFxRate = saasFxRateService
             ? await saasFxRateService.getCurrentRate('USD_DOP').catch(() => null)
             : null;
+          const configuredPricing = getConfiguredPricing();
+          const defaultPlanUsd = Number(configuredPricing?.plans?.PRINCIPAL?.usd ?? 99);
+          const defaultExtraUsd = Number(configuredPricing?.extraUser?.usd ?? EXTRA_USER_DEFAULT_USD ?? 30);
           const addonCatalog = [
             {
               code: SAAS_ADDONS.MEMBERSHIPS,
-              name: 'Suscripciones y Membresías',
+              name: 'Suscripciones y Membresías B2C',
+              price_per_block: MEMBERSHIPS_ADDON_DEFAULT_USD,
               price_per_branch: MEMBERSHIPS_ADDON_DEFAULT_USD,
+              branches_per_block: 3,
+              billing_unit: 'per_block_up_to_3_branches',
               currency: 'USD',
               implementation_separate: true
             }
@@ -800,9 +861,19 @@ function createSaasRouter(pool, options = {}) {
               baseIncluded.memberships = false;
             }
 
-            const canonicalMonthly = parseOptionalPrice(p.price_monthly ?? p.price_per_branch ?? p.price);
-            const canonicalPerBranch = parseOptionalPrice(p.price_per_branch ?? p.price_monthly ?? p.price);
-            const canonicalExtraUser = parseOptionalPrice(p.extra_user_price);
+            const rawMonthly = parseOptionalPrice(p.price_monthly ?? p.price_per_branch ?? p.price);
+            const rawPerBranch = parseOptionalPrice(p.price_per_branch ?? p.price_monthly ?? p.price);
+            const rawExtraUser = parseOptionalPrice(p.extra_user_price);
+            const isPrincipalRow = String(p.code || '').toUpperCase() === 'PRINCIPAL';
+            const canonicalPerBranch = (rawPerBranch !== null && rawPerBranch > 0)
+              ? rawPerBranch
+              : (isPrincipalRow ? defaultPlanUsd : rawPerBranch);
+            const canonicalMonthly = (rawMonthly !== null && rawMonthly > 0)
+              ? rawMonthly
+              : (isPrincipalRow ? defaultPlanUsd : rawMonthly);
+            const canonicalExtraUser = (rawExtraUser !== null && rawExtraUser > 0)
+              ? rawExtraUser
+              : (isPrincipalRow ? defaultExtraUsd : rawExtraUser);
             const usersPerBranch = parseInt(p.users_per_branch, 10) || 3;
 
             return {
@@ -883,13 +954,14 @@ function createSaasRouter(pool, options = {}) {
   router.put('/tenants/:tenantId/addons/:addonCode', authenticate, requireSuperAdmin, async (req, res) => {
     try {
       const { tenantId, addonCode } = req.params;
-      const { enabled, reason, source, branchIds } = req.body || {};
+      const { enabled, reason, source, branchIds, acquiredBlocks } = req.body || {};
       const result = await entitlementsService.setAddonStatus(tenantId, addonCode, {
         enabled: Boolean(enabled),
         source: source === 'legacy_pro_transition' ? 'legacy_pro_transition' : 'commercial_addon',
         reason,
         branchIds,
-        actorId: req.auth?.userId || req.user?.id || 'superadmin',
+        ...(acquiredBlocks !== undefined ? { acquiredBlocks } : {}),
+        actorId: req.auth?.userId || req.auth?.id || req.user?.id || 'superadmin',
       });
       res.json({
         success: true,
@@ -932,7 +1004,7 @@ function createSaasRouter(pool, options = {}) {
       price_monthly = 0,
       price_yearly = 0,
       users_per_branch = 3,
-      extra_user_price = 15,
+      extra_user_price = 30,
       max_branches = 1,
       max_users = 5,
       billing_cycle = 'monthly',
@@ -1269,11 +1341,12 @@ function createSaasRouter(pool, options = {}) {
 
       const requests = await Promise.all((rows || []).map(async (row) => {
         const raw = String(row.reason || '');
-        const match = raw.match(/^addon_request:([^:]+):\s*branches=\[([^\]]*)\]\s*monthly_usd=([0-9.]+)\s*\|\s*(.*)$/);
+        const match = raw.match(/^addon_request:([^:]+):\s*(?:blocks=(\d+)\s+capacity=(\d+)\s+)?branches=\[([^\]]*)\]\s*monthly_usd=([0-9.]+)\s*\|\s*(.*)$/);
         const addonCode = match ? match[1].trim() : 'memberships';
-        const branchesRaw = match ? match[2].trim() : '';
-        const monthlyUsd = match ? Number(match[3]) : 0;
-        const note = match ? match[4].trim() : raw;
+        const requestedBlocks = match && match[2] ? Number(match[2]) : null;
+        const branchesRaw = match ? match[4].trim() : '';
+        const monthlyUsd = match ? Number(match[5]) : 0;
+        const note = match ? match[6].trim() : raw;
         const requestedBranches = branchesRaw
           ? branchesRaw.split(',').map((item) => {
               const idx = item.indexOf(':');
@@ -1296,6 +1369,7 @@ function createSaasRouter(pool, options = {}) {
           tenant_email: row.tenant_email,
           tenant_status: row.tenant_status,
           addon_code: addonCode,
+          requested_blocks: requestedBlocks,
           requested_branches: requestedBranches,
           monthly_usd: monthlyUsd,
           note,
@@ -1553,12 +1627,19 @@ function createSaasRouter(pool, options = {}) {
       const isActive = Boolean(req.body?.is_active);
       const estado = isActive ? 'Activo' : 'Inactivo';
       const [result] = await pool.query(
-        `UPDATE users SET is_active = ?, estado = ?, updated_at = NOW()
+        `UPDATE users
+         SET is_active = ?, estado = ?, token_version = COALESCE(token_version, 1) + 1
          WHERE id::text = ? AND LOWER(COALESCE(role, '')) = 'vendedor' AND tenant_id IS NULL`,
         [isActive, estado, String(id)]
       );
       if (!result?.affectedRows) {
         return res.status(404).json({ error: 'Vendedor no encontrado.' });
+      }
+      if (!isActive) {
+        await pool.query(
+          'UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND is_active = 1',
+          [String(id)]
+        ).catch(() => {});
       }
       res.json({ success: true, is_active: isActive, estado });
     } catch (error) {
@@ -1577,13 +1658,18 @@ function createSaasRouter(pool, options = {}) {
       }
       const passwordHash = await bcrypt.hash(newPassword, 12);
       const [result] = await pool.query(
-        `UPDATE users SET password_hash = ?, updated_at = NOW()
+        `UPDATE users
+         SET password_hash = ?, password = NULL, token_version = COALESCE(token_version, 1) + 1
          WHERE id::text = ? AND LOWER(COALESCE(role, '')) = 'vendedor' AND tenant_id IS NULL`,
         [passwordHash, String(id)]
       );
       if (!result?.affectedRows) {
         return res.status(404).json({ error: 'Vendedor no encontrado.' });
       }
+      await pool.query(
+        'UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND is_active = 1',
+        [String(id)]
+      ).catch(() => {});
       res.json({ success: true, message: 'Contraseña actualizada correctamente.' });
     } catch (error) {
       console.error('[SUPERADMIN VENDEDORES PASSWORD ERROR]:', error.message);
@@ -1594,7 +1680,7 @@ function createSaasRouter(pool, options = {}) {
   // GET /api/saas/vendedor/tenants - Listar empresas creadas por el vendedor autenticado (con su último link de pago y tarjeta)
   router.get('/vendedor/tenants', authenticate, requireVendedorOrSuperAdmin, async (req, res) => {
     try {
-      const actorId = String(req.auth?.userId || req.user?.id || '');
+      const actorId = String(req.auth?.userId || req.auth?.id || req.user?.id || '');
       const isSuperAdmin = Boolean(req.auth?.isSuperAdmin || String(req.auth?.role || '').toLowerCase() === 'superadmin');
 
       const whereClause = isSuperAdmin ? 'WHERE t.created_by_user_id IS NOT NULL' : 'WHERE t.created_by_user_id = ?';
@@ -1604,11 +1690,14 @@ function createSaasRouter(pool, options = {}) {
         SELECT t.id, t.business_name, t.slug, t.owner_name, t.owner_email, t.owner_phone,
                t.status, t.licensed_branches, t.extra_user_seats, t.has_memberships, t.created_at,
                ts.status AS subscription_status, ts.auto_renew,
-               (SELECT COUNT(*) FROM tenant_payment_methods pm WHERE pm.tenant_id = t.id AND pm.is_active = TRUE) AS saved_cards_count,
+               (SELECT COUNT(*)::int FROM saas_payment_methods pm WHERE pm.tenant_id = t.id AND pm.token_reference IS NOT NULL) AS saved_cards_count,
                lo.id AS latest_order_id, lo.order_number AS latest_order_number, lo.status AS latest_order_status,
                lo.payment_link_token AS latest_payment_link_token, lo.total_minor AS latest_order_total_minor,
                lo.currency AS latest_order_currency, lo.expires_at AS latest_order_expires_at,
-               lo.activated_at AS latest_order_activated_at, lo.metadata AS latest_order_metadata
+               lo.activated_at AS latest_order_activated_at, lo.metadata AS latest_order_metadata,
+               lo.memberships_addon_enabled AS latest_order_memberships_addon,
+               lo.addon_branches_count AS latest_order_addon_branches_count,
+               lo.addon_blocks_count AS latest_order_addon_blocks_count
         FROM tenants t
         LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = t.id
         LEFT JOIN LATERAL (
@@ -1658,8 +1747,8 @@ function createSaasRouter(pool, options = {}) {
         return res.status(400).json({ error: 'La contraseña inicial debe tener al menos 6 caracteres.' });
       }
 
-      const branchesNum = Math.max(1, parseInt(branches_count, 10) || 1);
-      const extraSeatsNum = Math.max(0, parseInt(extra_users_count, 10) || 0);
+      const branchesNum = Math.min(50, Math.max(1, parseInt(branches_count, 10) || 1));
+      const extraSeatsNum = Math.min(500, Math.max(0, parseInt(extra_users_count, 10) || 0));
       const wantsAddon = Boolean(wants_memberships_addon);
       const addonBranchesNum = wantsAddon ? Math.min(branchesNum, Math.max(1, parseInt(addon_branches_count, 10) || branchesNum)) : 0;
 

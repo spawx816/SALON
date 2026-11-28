@@ -474,21 +474,6 @@ const AppContent = () => {
     );
   }
 
-  // Rol de plataforma Vendedor: acceso exclusivo al Portal de Ventas (crear empresas y enviar enlaces de pago)
-  const isVendedorAccount =
-    String(user?.role || user?.rol || '').trim().toLowerCase() === 'vendedor';
-  if (isVendedorAccount) {
-    return (
-      <Suspense fallback={<WorkspaceSkeleton />}>
-        <Routes>
-          <Route path="/vendedor" element={<VendedorDashboard />} />
-          <Route path="/pago-saas/:token" element={<SaasPaymentLinkPage />} />
-          <Route path="*" element={<Navigate to="/vendedor" replace />} />
-        </Routes>
-      </Suspense>
-    );
-  }
-
   if (location.pathname === '/asistencia') {
     return (
       <Suspense fallback={<WorkspaceSkeleton />}>
@@ -554,6 +539,20 @@ const AppContent = () => {
           </button>
         </div>
       </div>
+    );
+  }
+
+  // Rol de plataforma Vendedor: acceso exclusivo al Portal de Ventas (crear empresas y enviar enlaces de pago)
+  const isVendedorAccount =
+    String(user?.role || user?.rol || '').trim().toLowerCase() === 'vendedor';
+  if (isVendedorAccount) {
+    return (
+      <Suspense fallback={<WorkspaceSkeleton />}>
+        <Routes>
+          <Route path="/vendedor" element={<VendedorDashboard />} />
+          <Route path="*" element={<Navigate to="/vendedor" replace />} />
+        </Routes>
+      </Suspense>
     );
   }
 
@@ -636,6 +635,8 @@ const AppContent = () => {
             estilista: 'Estilista',
             client: 'Cliente',
             super_admin: 'Super Admin',
+            superadmin: 'Super Admin',
+            vendedor: 'Vendedor Comercial',
           };
           const rawRole = String(user?.role || '').trim().toLowerCase();
           const roleDisplay =
@@ -711,7 +712,7 @@ const AppContent = () => {
                 <SidebarLink
                   to="/saas/planes"
                   icon={Package}
-                  label="Planes (Base / Pro)"
+                  label="Plan Comercial"
                   active={location.pathname === '/saas/planes'}
                   onClick={closeMobileMenu}
                 />

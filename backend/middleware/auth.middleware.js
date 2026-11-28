@@ -448,7 +448,8 @@ function createAuthMiddleware(pool) {
 
         effectiveRole = String(uRow.role || decoded.role || 'empleado').toLowerCase();
         isSuperAdmin = effectiveRole === 'superadmin';
-        userTenantId = isSuperAdmin ? null : uRow.tenant_id;
+        const isPlatformVendedorRole = effectiveRole === 'vendedor' && !uRow.tenant_id;
+        userTenantId = (isSuperAdmin || isPlatformVendedorRole) ? null : uRow.tenant_id;
         userBranchId = uRow.branch_id || uRow.salon_id || userBranchId;
         userName = uRow.name || uRow.nombre || userName;
         userEmail = uRow.email || userEmail;
@@ -548,10 +549,9 @@ function createAuthMiddleware(pool) {
                 /^\/api\/saas\/billing\/checkout\/orders\/[^/]+$/.test(cleanPath) ||
                 /^\/api\/saas\/billing\/invoices\/[^/]+\/receipt$/.test(cleanPath)
               )) ||
-              // 3. Métodos de pago, pago de deuda pendiente, cancelación y flujo CardNet Hosted Checkout
+              // 3. Métodos de pago, cancelación y flujo CardNet Hosted Checkout
               (method === 'POST' && (
                 cleanPath === '/api/saas/billing/payment-methods' ||
-                cleanPath === '/api/saas/billing/pay-debt' ||
                 cleanPath === '/api/saas/billing/subscription/cancel' ||
                 cleanPath === '/api/saas/billing/checkout/orders' ||
                 /^\/api\/saas\/billing\/checkout\/orders\/[^/]+\/(initiate-cardnet|verify-cardnet|verify|charge-token|reconcile)$/.test(cleanPath) ||
@@ -594,7 +594,8 @@ function createAuthMiddleware(pool) {
       // -------------------------------------------------------------
       // Validación Anti-Spoofing / Anti-IDOR para Usuarios Normales
       // -------------------------------------------------------------
-      if (!isSuperAdmin) {
+      const isPlatformControlUser = isSuperAdmin || (effectiveRole === 'vendedor' && !userTenantId);
+      if (!isPlatformControlUser) {
         const headerTenant = normalizeCandidateTenantId(req.headers['x-tenant-id']);
         const queryTenant = normalizeCandidateTenantId(req.query?.tenant_id);
         const bodyTenant = req.body && typeof req.body === 'object' ? normalizeCandidateTenantId(req.body.tenant_id) : null;
@@ -620,7 +621,7 @@ function createAuthMiddleware(pool) {
           req.body.tenant_id = String(userTenantId);
         }
       } else {
-        // SuperAdmin: pertenece ESTRICTAMENTE al Control Plane (req.tenantId = null siempre)
+        // Control Plane (SuperAdmin / Vendedor de plataforma): req.tenantId = null siempre
         // Prohibido adoptar x-tenant-id para adoptar contexto operativo de una empresa
         const candidateTenant =
           normalizeCandidateTenantId(req.headers['x-tenant-id']) ||
@@ -632,13 +633,14 @@ function createAuthMiddleware(pool) {
         delete req.headers['x-tenant-id'];
         if (req.query) delete req.query.tenant_id;
 
-        req.headers['x-user-role'] = 'superadmin';
+        req.headers['x-user-role'] = isSuperAdmin ? 'superadmin' : effectiveRole;
         req.headers['x-user-id'] = String(userId);
-        req.headers['x-user-name'] = String(userName || userEmail || 'SuperAdmin');
+        req.headers['x-user-name'] = String(userName || userEmail || (isSuperAdmin ? 'SuperAdmin' : 'Vendedor'));
       }
 
       req.auth = {
         id: userId,
+        userId: userId,
         email: userEmail,
         name: userName,
         role: effectiveRole,

@@ -1146,7 +1146,7 @@ class SaasCheckoutService {
 
     let calc;
     if (source === 'debt_payment' && invoiceId) {
-      const invoice = this.billingRepo ? await this.billingRepo.getInvoiceById(invoiceId) : null;
+      const invoice = this.billingRepo ? await this.billingRepo.getInvoiceById(tenantId, invoiceId) : null;
       if (!invoice || String(invoice.tenant_id) !== String(tenantId)) {
         const err = new Error('Factura no encontrada para esta empresa.');
         err.code = 'INVOICE_NOT_FOUND';
@@ -1265,19 +1265,26 @@ class SaasCheckoutService {
       sanitizedMetadata.fx_snapshot = calc.fxSnapshot;
     }
 
+    const validCreatorUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(actorUserId || ''))
+      ? String(actorUserId)
+      : null;
+    const effectiveAddonBlocksCount = calc.wantsMembershipsAddon
+      ? Math.max(1, Number(calc.addonBlocksCount || Math.ceil(Math.max(1, Number(calc.addonBranchesCount || 1)) / 3)))
+      : 0;
+
     await queryRunner.query(
       `INSERT INTO saas_checkout_orders (
         id, order_number, tenant_id, invoice_id, created_by_user_id, source, payment_link_token,
-        plan_code, branches_count, extra_users_count, memberships_addon_enabled, addon_branches_count,
+        plan_code, branches_count, extra_users_count, memberships_addon_enabled, addon_branches_count, addon_blocks_count,
         currency, subtotal_minor, tax_minor, total_minor, billing_cycle, status, gateway_provider,
         auto_renew_enabled, idempotency_key, expires_at, metadata, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'cardnet_hosted', ?, ?, ?, ?, NOW(), NOW())`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'cardnet_hosted', ?, ?, ?, ?, NOW(), NOW())`,
       [
         orderId,
         orderNumber,
         tenantId,
         invoiceId || null,
-        actorUserId || null,
+        validCreatorUuid,
         source,
         paymentLinkToken,
         calc.planCode,
@@ -1285,6 +1292,7 @@ class SaasCheckoutService {
         calc.extraUsersCount,
         calc.wantsMembershipsAddon,
         calc.addonBranchesCount,
+        effectiveAddonBlocksCount,
         calc.currency,
         String(calc.subtotalMinor),
         String(calc.taxMinor),
@@ -1996,14 +2004,26 @@ class SaasCheckoutService {
           [orderBranches, orderBranches, orderExtraSeats, orderBranches, orderExtraSeats, order.tenant_id]
         );
 
-        // 2. Si contrató el add-on Suscripciones/Membresías B2C, activarlo de forma canónica
+        // 2. Si contrató el add-on Suscripciones/Membresías B2C, activarlo de forma canónica preservando bloques contratados
         if (order.memberships_addon_enabled && this.entitlementsService) {
+          const orderAddonBlocks = Math.max(
+            1,
+            Number(order.addon_blocks_count || 0) || Math.ceil(Math.max(1, Number(order.addon_branches_count || orderBranches)) / 3)
+          );
           await this.entitlementsService.setAddonStatus(order.tenant_id, SAAS_ADDONS.MEMBERSHIPS, {
             enabled: true,
             source: 'commercial_addon',
+            acquiredBlocks: orderAddonBlocks,
             reason: `Activado tras pago verificado en CardNet (Orden ${order.order_number})`,
             actorId: actorUserId || order.created_by_user_id || 'cardnet_checkout',
           });
+          await this.pool.query(
+            `UPDATE tenant_subscriptions
+             SET addon_blocks_count = GREATEST(COALESCE(addon_blocks_count, 0), ?),
+                 updated_at = NOW()
+             WHERE tenant_id = ?`,
+            [orderAddonBlocks, order.tenant_id]
+          ).catch(() => {});
         }
       }
 

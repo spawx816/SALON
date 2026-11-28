@@ -109,27 +109,46 @@ export default function SaasPaymentLinkPage() {
             </span>
           </div>
 
-          <button
-            type="button"
-            className="sb-btn"
-            onClick={() => navigate(user ? '/mi-suscripcion' : '/login')}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '8px 14px',
-              borderRadius: 10,
-              background: '#ffffff',
-              border: '1px solid #cbd5e1',
-              color: '#334155',
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            <ArrowLeft size={14} />
-            <span>{user ? 'Mi Suscripción' : 'Iniciar sesión'}</span>
-          </button>
+          {(() => {
+            const rawRole = String(user?.role || '').trim().toLowerCase();
+            const backTarget = !user
+              ? '/login'
+              : rawRole === 'vendedor'
+                ? '/vendedor'
+                : (rawRole === 'superadmin' || user?.isSuperAdmin)
+                  ? '/saas'
+                  : '/mi-suscripcion';
+            const backLabel = !user
+              ? 'Iniciar sesión'
+              : rawRole === 'vendedor'
+                ? 'Portal de Ventas'
+                : (rawRole === 'superadmin' || user?.isSuperAdmin)
+                  ? 'Control Plane'
+                  : 'Mi Suscripción';
+            return (
+              <button
+                type="button"
+                className="sb-btn"
+                onClick={() => navigate(backTarget)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '8px 14px',
+                  borderRadius: 10,
+                  background: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  color: '#334155',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <ArrowLeft size={14} />
+                <span>{backLabel}</span>
+              </button>
+            );
+          })()}
         </div>
 
         {/* Main Checkout Container */}

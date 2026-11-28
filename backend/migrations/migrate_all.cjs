@@ -42,6 +42,7 @@ const { up: upScheduleOverridesUnique } = require('./20261120_schedule_overrides
 const { up: upReconcileSaasBillingDrift } = require('./20261121_reconcile_saas_billing_schema_drift.cjs');
 const { up: upOperationalAccountingAndAddonBlocks } = require('./20261122_operational_accounting_and_addon_blocks.cjs');
 const { up: upRbacAccountingAndRoleTemplates } = require('./20261123_rbac_accounting_and_role_templates.cjs');
+const { upTenantsCreatedByUserId } = require('./20261127_add_tenants_created_by_user_id.cjs');
 
 const MIGRATION_SOURCE_FILES = Object.freeze({
   '20261100_canonical_baseline_schema': path.resolve(__dirname, '../backups/independent_schema.sql'),
@@ -355,6 +356,13 @@ const MIGRATIONS_REGISTRY = [
     description: 'Metadatos estables de plantillas de roles predefinidos por empresa (template_key, template_version, is_customized)',
     execute: async (targetPool, targetSchema) => {
       return upRbacAccountingAndRoleTemplates(targetPool, targetSchema);
+    }
+  },
+  {
+    version: '20261127_add_tenants_created_by_user_id',
+    description: 'Columna created_by_user_id e índice parcial en tenants para Portal de Vendedores y trazabilidad de altas',
+    execute: async (targetPool, targetSchema) => {
+      return upTenantsCreatedByUserId(targetPool, targetSchema);
     }
   }
 ];

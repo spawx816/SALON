@@ -976,9 +976,18 @@ table{width:100%;border-collapse:collapse;margin:16px 0} td,th{padding:10px 8px;
     }
   });
 
-  // 7b. Rescate y pago directo de deuda pendiente para tenant suspendido
+  // 7b. Rescate y pago directo de deuda pendiente para tenant suspendido (SOLO SIMULACIÓN EN DESARROLLO/TESTS)
   router.post('/pay-debt', async (req, res) => {
     try {
+      const allowDevSimulation =
+        process.env.ALLOW_DEV_BILLING_SIMULATION === 'true' && process.env.NODE_ENV !== 'production';
+      if (!allowDevSimulation) {
+        return res.status(403).json({
+          error: 'El pago directo simulado está deshabilitado en producción. Utiliza el checkout verificado de CardNet.',
+          code: 'DIRECT_PAY_DEBT_DISABLED',
+        });
+      }
+
       const tenantId = req.tenantId;
       const { paymentMethodToken } = req.body;
 

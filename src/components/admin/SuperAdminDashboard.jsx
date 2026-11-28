@@ -84,9 +84,9 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     name: '',
     code: '',
     description: '',
-    price_per_branch: 49.00,
+    price_per_branch: 99.00,
     users_per_branch: 3,
-    extra_user_price: 15.00,
+    extra_user_price: 30.00,
     billing_cycle: 'monthly',
     is_public: true,
     is_active: true,
@@ -189,7 +189,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       showNotification(`Vendedor ${nextActive ? 'activado' : 'desactivado'} correctamente.`);
       await loadVendedores();
     } catch (err) {
-      showNotification(err.message, 'error');
+      showError(err.message);
     }
   };
 
@@ -197,7 +197,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     const nextPwd = window.prompt(`Nueva contraseña para ${v.name} (${v.email}) (mínimo 6 caracteres):`);
     if (!nextPwd) return;
     if (nextPwd.length < 6) {
-      showNotification('La contraseña debe tener al menos 6 caracteres.', 'error');
+      showError('La contraseña debe tener al menos 6 caracteres.');
       return;
     }
     try {
@@ -211,7 +211,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       if (!res.ok) throw new Error(data.error || 'No se pudo cambiar la contraseña.');
       showNotification(`Contraseña de ${v.name} actualizada correctamente.`);
     } catch (err) {
-      showNotification(err.message, 'error');
+      showError(err.message);
     }
   };
 
@@ -359,15 +359,19 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
   const handleGeneratePaymentLink = async (tenant) => {
     setGeneratingPaymentLinkId(tenant.id);
     try {
+      const licensedBranchesCount = Math.max(1, Number(tenant.licensed_branches ?? tenant.branches_count ?? 1));
+      const wantsPaidAddon = Boolean(tenant.has_memberships && tenant.memberships_source !== 'legacy_pro_transition');
       const res = await fetch(`/api/saas/tenants/${tenant.id}/payment-links`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          branchesCount: Math.max(1, Number(tenant.branch_count || 1)),
-          extraUsersCount: 0,
-          wantsMembershipsAddon: Boolean(tenant.has_memberships && tenant.memberships_source !== 'legacy_pro_transition'),
-          addonBranchesCount: Number(tenant.memberships_enabled_branch_count || 0),
+          branchesCount: licensedBranchesCount,
+          extraUsersCount: Math.max(0, Number(tenant.extra_user_seats || 0)),
+          wantsMembershipsAddon: wantsPaidAddon,
+          addonBranchesCount: wantsPaidAddon
+            ? Math.max(1, Number(tenant.memberships_enabled_branch_count || licensedBranchesCount))
+            : 0,
           note: 'Enlace de pago generado desde consola SuperAdmin',
         }),
       });
@@ -405,7 +409,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       setConfirmModal({
         title: updatedValue ? 'Activar Add-on Suscripciones/Membresías' : 'Desactivar Add-on Suscripciones/Membresías',
         description: updatedValue
-          ? `Se habilitará el add-on B2C (US$99/mes por sucursal habilitada) para "${currentTenant.business_name}".`
+          ? `Se habilitará el add-on B2C (US$99/mes por bloque de hasta 3 sucursales) para "${currentTenant.business_name}".`
           : `Se desactivará el add-on B2C para "${currentTenant.business_name}". Los datos e historial se conservarán intactos.`,
         requireReason: true,
         reason: updatedValue ? 'Activación comercial desde Control Plane' : 'Desactivación desde Control Plane',
@@ -459,14 +463,26 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
   // Toggle Tenant Status with Confirmation Modal
   const handleToggleStatus = (tenantId, currentStatus, businessName) => {
-    const newStatus = currentStatus === 'active' ? 'suspended' : 'active';
+    const isCurrentlyActive = currentStatus === 'active';
+    const isPendingPayment = currentStatus === 'pending';
+    const newStatus = isCurrentlyActive ? 'suspended' : 'active';
     setConfirmModal({
-      title: newStatus === 'suspended' ? `Suspender a "${businessName || 'Empresa'}"` : `Reactivar a "${businessName || 'Empresa'}"`,
+      title: newStatus === 'suspended'
+        ? `Suspender a "${businessName || 'Empresa'}"`
+        : isPendingPayment
+          ? `Activar manualmente a "${businessName || 'Empresa'}"`
+          : `Reactivar a "${businessName || 'Empresa'}"`,
       description: newStatus === 'suspended'
         ? 'La suscripción pasará a estado suspendido y bloqueará el acceso operativo de la empresa.'
-        : 'La suscripción volverá a estado activo.',
+        : isPendingPayment
+          ? 'Atención: esta empresa aún figura como pendiente de pago inicial en CardNet. Si la activas manualmente, podrá operar sin haber completado su enlace de pago ni registrado tarjeta.'
+          : 'La suscripción volverá a estado activo.',
       requireReason: true,
-      reason: newStatus === 'suspended' ? 'Suspensión administrativa desde Control Plane' : 'Reactivación administrativa desde Control Plane',
+      reason: newStatus === 'suspended'
+        ? 'Suspensión administrativa desde Control Plane'
+        : isPendingPayment
+          ? 'Activación administrativa manual desde Control Plane'
+          : 'Reactivación administrativa desde Control Plane',
       onConfirm: async (reason) => {
         await dataService.updateTenantStatus(tenantId, newStatus, reason);
         showNotification(`Estado de la empresa cambiado a "${newStatus}".`);
@@ -481,12 +497,17 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     try {
       const res = await dataService.updateTenantLicensing(tenant.id, { licensed_branches: newBranches });
       showNotification(`Licencias de sucursal de "${tenant.business_name}" actualizadas a ${newBranches}.`);
-      setTenants(prev => prev.map(t => t.id === tenant.id ? {
-        ...t,
-        licensed_branches: res.licensed_branches ?? newBranches,
-        max_branches: res.max_branches ?? newBranches,
-        max_users: res.max_users ?? ((newBranches * (parseInt(t.plan_users_per_branch, 10) || 3)) + (parseInt(t.extra_user_seats, 10) || 0))
-      } : t));
+      setTenants(prev => prev.map(t => {
+        if (t.id !== tenant.id) return t;
+        const computedMaxUsers = res.max_users ?? ((newBranches * (parseInt(t.plan_users_per_branch, 10) || 3)) + (parseInt(t.extra_user_seats, 10) || 0));
+        return {
+          ...t,
+          licensed_branches: res.licensed_branches ?? newBranches,
+          max_branches: res.max_branches ?? newBranches,
+          max_users: computedMaxUsers,
+          max_allowed_users: computedMaxUsers
+        };
+      }));
     } catch (err) {
       showError(`Error al ajustar sucursales: ${err.message}`);
     }
@@ -498,11 +519,16 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     try {
       const res = await dataService.updateTenantLicensing(tenant.id, { extra_user_seats: newSeats });
       showNotification(`Asientos adicionales de "${tenant.business_name}" actualizados a ${newSeats}.`);
-      setTenants(prev => prev.map(t => t.id === tenant.id ? {
-        ...t,
-        extra_user_seats: res.extra_user_seats ?? newSeats,
-        max_users: res.max_users ?? (((parseInt(t.licensed_branches, 10) || 1) * (parseInt(t.plan_users_per_branch, 10) || 3)) + newSeats)
-      } : t));
+      setTenants(prev => prev.map(t => {
+        if (t.id !== tenant.id) return t;
+        const computedMaxUsers = res.max_users ?? (((parseInt(t.licensed_branches, 10) || 1) * (parseInt(t.plan_users_per_branch, 10) || 3)) + newSeats);
+        return {
+          ...t,
+          extra_user_seats: res.extra_user_seats ?? newSeats,
+          max_users: computedMaxUsers,
+          max_allowed_users: computedMaxUsers
+        };
+      }));
     } catch (err) {
       showError(`Error al ajustar asientos: ${err.message}`);
     }
@@ -513,11 +539,11 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     try {
       await dataService.updateTenantLicensing(tenantId, { plan_id: parseInt(newPlanId) });
       const targetPlan = plans.find(p => p.id === parseInt(newPlanId));
-      const isPro = targetPlan?.code === 'pro' || Boolean(targetPlan?.included_features?.memberships);
       showNotification(`Plan cambiado a "${targetPlan?.name || 'Nuevo Plan'}".`);
       setTenants(prev => prev.map(t => {
         if (t.id === tenantId) {
           const uPerBranch = parseInt(targetPlan?.users_per_branch) || 3;
+          const computedMaxUsers = ((parseInt(t.licensed_branches) || 1) * uPerBranch) + (parseInt(t.extra_user_seats) || 0);
           return {
             ...t,
             plan_id: targetPlan?.id,
@@ -526,8 +552,8 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
             plan_users_per_branch: uPerBranch,
             plan_price_per_branch: targetPlan?.price_per_branch,
             plan_is_public: targetPlan?.is_public,
-            has_memberships: isPro,
-            max_allowed_users: ((parseInt(t.licensed_branches) || 1) * uPerBranch) + (parseInt(t.extra_user_seats) || 0)
+            max_users: computedMaxUsers,
+            max_allowed_users: computedMaxUsers
           };
         }
         return t;
@@ -711,11 +737,17 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     setIsPlanModalOpen(true);
   };
 
-  const filteredTenants = tenants.filter(t =>
-    t.business_name?.toLowerCase().includes(search.toLowerCase()) ||
-    t.slug?.toLowerCase().includes(search.toLowerCase()) ||
-    t.email?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredTenants = tenants.filter(t => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      t.business_name?.toLowerCase().includes(q) ||
+      t.slug?.toLowerCase().includes(q) ||
+      t.email?.toLowerCase().includes(q) ||
+      t.owner_email?.toLowerCase().includes(q) ||
+      t.owner_name?.toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div style={{ padding: '1.5rem', maxWidth: '1440px', margin: '0 auto', color: '#1e293b' }}>
@@ -1227,7 +1259,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                 type="text"
                 placeholder="Buscar por nombre, slug o correo..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); setTenantPage(1); }}
                 style={{
                   width: '100%',
                   background: '#f8fafc',
@@ -1315,7 +1347,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                               maxWidth: '180px'
                             }}
                           >
-                            {plans.map(p => (
+                            {plans.filter(p => p.is_active !== false || p.id === t.plan_id).map(p => (
                               <option key={p.id} value={p.id}>
                                 {p.name} (${p.price_per_branch}/sede) {!p.is_public ? '[Heredado]' : ''}
                               </option>
@@ -1475,20 +1507,34 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
                         {/* Estado */}
                         <td style={{ padding: '1.15rem 1rem', textAlign: 'center' }}>
-                          <span style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.35rem',
-                            padding: '0.25rem 0.7rem',
-                            borderRadius: '20px',
-                            fontSize: '0.75rem',
-                            fontWeight: '800',
-                            background: t.status === 'active' ? '#ecfdf5' : '#fff1f2',
-                            border: `1px solid ${t.status === 'active' ? '#a7f3d0' : '#fecdd3'}`,
-                            color: t.status === 'active' ? '#047857' : '#be123c'
-                          }}>
-                            {t.status === 'active' ? 'Activo' : 'Suspendido'}
-                          </span>
+                          {(() => {
+                            const st = String(t.status || '').toLowerCase();
+                            const badgeCfg = st === 'active'
+                              ? { label: 'Activo', bg: '#ecfdf5', border: '#a7f3d0', color: '#047857' }
+                              : st === 'pending'
+                                ? { label: 'Pendiente de pago', bg: '#fffbeb', border: '#fde68a', color: '#b45309' }
+                                : st === 'past_due'
+                                  ? { label: 'Pago vencido', bg: '#fff7ed', border: '#fed7aa', color: '#c2410c' }
+                                  : st === 'cancelled'
+                                    ? { label: 'Cancelado', bg: '#f1f5f9', border: '#cbd5e1', color: '#475569' }
+                                    : { label: 'Suspendido', bg: '#fff1f2', border: '#fecdd3', color: '#be123c' };
+                            return (
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.35rem',
+                                padding: '0.25rem 0.7rem',
+                                borderRadius: '20px',
+                                fontSize: '0.75rem',
+                                fontWeight: '800',
+                                background: badgeCfg.bg,
+                                border: `1px solid ${badgeCfg.border}`,
+                                color: badgeCfg.color
+                              }}>
+                                {badgeCfg.label}
+                              </span>
+                            );
+                          })()}
                         </td>
 
                         {/* Acciones */}
@@ -1524,7 +1570,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                                 fontWeight: '700'
                               }}
                             >
-                              {t.status === 'active' ? 'Suspender' : 'Reactivar'}
+                              {t.status === 'active' ? 'Suspender' : t.status === 'pending' ? 'Activar manual' : 'Reactivar'}
                             </button>
                           </div>
                         </td>
@@ -1636,7 +1682,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: '1.5rem', fontWeight: '900', color: '#0f172a' }}>
-                          ${parseFloat(p.price_per_branch || p.price || 49).toFixed(2)}
+                          ${parseFloat(p.price_per_branch || p.price || 99).toFixed(2)}
                         </div>
                         <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '600' }}>
                           / mes por sucursal
@@ -2063,7 +2109,12 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                       <tr key={inv.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '0.85rem 1.25rem', fontWeight: '700' }}>{inv.invoice_number || inv.id}</td>
                         <td style={{ padding: '0.85rem 1rem' }}>{inv.business_name || inv.tenant_id}</td>
-                        <td style={{ padding: '0.85rem 1rem', fontWeight: '700' }}>{inv.currency || 'USD'} {Number(inv.total_amount ?? inv.amount ?? 0).toFixed(2)}</td>
+                        <td style={{ padding: '0.85rem 1rem', fontWeight: '700' }}>
+                          {inv.currency || 'USD'}{' '}
+                          {Number(
+                            inv.total_amount ?? (inv.total_minor != null ? Number(inv.total_minor) / 100 : (inv.amount ?? 0))
+                          ).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
                         <td style={{ padding: '0.85rem 1rem' }}>{inv.status}</td>
                         <td style={{ padding: '0.85rem 1rem', color: '#475569' }}>{inv.created_at ? new Date(inv.created_at).toLocaleDateString() : '—'}</td>
                       </tr>
@@ -2140,7 +2191,13 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       {/* ========================================================================= */}
       {activeTab === 'contacts' && (() => {
         const cq = contactSearch.trim().toLowerCase();
-        const filteredContacts = contactMessages.filter((m) => !cq || (m.name || '').toLowerCase().includes(cq) || (m.email || '').toLowerCase().includes(cq) || (m.message || '').toLowerCase().includes(cq));
+        const filteredContacts = contactMessages.filter((m) => {
+          if (!cq) return true;
+          const senderName = String(m.nombre || m.name || '').toLowerCase();
+          const senderEmail = String(m.email || '').toLowerCase();
+          const senderMsg = String(m.mensaje || m.message || '').toLowerCase();
+          return senderName.includes(cq) || senderEmail.includes(cq) || senderMsg.includes(cq);
+        });
         const pagedContacts = filteredContacts.slice((contactPage - 1) * PAGE_SIZE, contactPage * PAGE_SIZE);
         return (
           <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden' }}>
@@ -2172,9 +2229,9 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                     <tr><td colSpan={4} style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>No hay mensajes de contacto registrados.</td></tr>
                   ) : pagedContacts.map((m) => (
                     <tr key={m.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '0.85rem 1.25rem', fontWeight: '700', color: '#0f172a' }}>{m.name || 'Sin nombre'}</td>
-                      <td style={{ padding: '0.85rem 1rem', color: '#475569' }}>{m.email || '—'} {m.phone ? `· ${m.phone}` : ''}</td>
-                      <td style={{ padding: '0.85rem 1rem', color: '#334155', maxWidth: '420px' }}>{m.message}</td>
+                      <td style={{ padding: '0.85rem 1.25rem', fontWeight: '700', color: '#0f172a' }}>{m.nombre || m.name || 'Sin nombre'}</td>
+                      <td style={{ padding: '0.85rem 1rem', color: '#475569' }}>{m.email || '—'} {(m.telefono || m.phone) ? `· ${m.telefono || m.phone}` : ''}</td>
+                      <td style={{ padding: '0.85rem 1rem', color: '#334155', maxWidth: '420px' }}>{m.mensaje || m.message || '—'}</td>
                       <td style={{ padding: '0.85rem 1rem', color: '#64748b' }}>{m.created_at ? new Date(m.created_at).toLocaleString() : '—'}</td>
                     </tr>
                   ))}
@@ -2276,6 +2333,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                                   await dataService.setTenantAddon(reqItem.tenant_id, 'memberships', {
                                     enabled: true,
                                     branchIds: selectedBranchIds,
+                                    ...(reqItem.requested_blocks ? { acquiredBlocks: reqItem.requested_blocks } : {}),
                                     reason: reason || 'Activación desde bandeja de solicitudes',
                                     source: 'commercial_addon'
                                   });
@@ -2689,7 +2747,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
             {Array.isArray(confirmModal.branchOptions) && confirmModal.branchOptions.length > 0 && (
               <div style={{ marginBottom: '1rem' }}>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
-                  Sucursales habilitadas (US$99/mes por sucursal)
+                  Sucursales habilitadas (US$99/mes por bloque de hasta 3 sucursales)
                 </label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '140px', overflowY: 'auto', padding: '0.5rem', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc' }}>
                   {confirmModal.branchOptions.map(b => {
@@ -2932,7 +2990,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                     { key: 'cash_registers', label: 'Control de Cajas (Apertura y Cierre)' },
                     { key: 'services_catalog', label: 'Catálogo de Servicios' },
                     { key: 'clients', label: 'Directorio de Clientes / CRM' },
-                    { key: 'memberships', label: 'Suscripciones y Membresías (Add-on independiente US$99/mes/sucursal)', lockedOff: true }
+                    { key: 'memberships', label: 'Suscripciones y Membresías (Add-on independiente US$99/mes c/3 sucursales)', lockedOff: true }
                   ].map(f => (
                     <label key={f.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: f.lockedOff ? '#94a3b8' : '#334155', cursor: f.lockedOff ? 'not-allowed' : 'pointer' }}>
                       <input

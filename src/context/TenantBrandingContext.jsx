@@ -71,6 +71,7 @@ export function TenantBrandingProvider({ children }) {
   const isKioskOnlyUser = Boolean(
     user?.kioskOnly || String(user?.role || user?.rol || '').trim().toLowerCase() === 'kiosco_asistencia'
   );
+  const isVendedorUser = String(user?.role || user?.rol || '').trim().toLowerCase() === 'vendedor';
 
   const tenantId = user?.tenant_id || user?.tenant?.id || null;
 
@@ -108,7 +109,7 @@ export function TenantBrandingProvider({ children }) {
 
   // Fetch branding from API
   const fetchBranding = useCallback(async () => {
-    if (!user || isSuperAdmin || isKioskOnlyUser || !tenantId) {
+    if (!user || isSuperAdmin || isKioskOnlyUser || isVendedorUser || !tenantId) {
       setBranding(DEFAULT_BRANDING);
       applyCssTokens(DEFAULT_BRANDING);
       return;

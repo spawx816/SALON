@@ -71,26 +71,33 @@ class TenantSubscriptionRepository {
     const status = data.status || SUBSCRIPTION_STATUSES.ACTIVE;
     const periodStart = data.current_period_start || new Date();
     const periodEnd = data.current_period_end || null;
+    const gracePeriodUntil = data.grace_period_until !== undefined ? data.grace_period_until : null;
 
     if (this.pool) {
       await this.pool.query(`
-        INSERT INTO tenant_subscriptions (tenant_id, plan_code, status, current_period_start, current_period_end, updated_at)
-        VALUES (?, ?, ?, ?, ?, NOW())
+        INSERT INTO tenant_subscriptions (tenant_id, plan_code, status, current_period_start, current_period_end, grace_period_until, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, NOW())
         ON CONFLICT (tenant_id) DO UPDATE SET
           plan_code = EXCLUDED.plan_code,
           status = EXCLUDED.status,
           current_period_start = EXCLUDED.current_period_start,
           current_period_end = EXCLUDED.current_period_end,
+          grace_period_until = COALESCE(EXCLUDED.grace_period_until, tenant_subscriptions.grace_period_until),
           updated_at = NOW()
-      `, [tenantId, planCode, status, periodStart, periodEnd]);
+      `, [tenantId, planCode, status, periodStart, periodEnd, gracePeriodUntil]);
 
-      // Sincronizar plan_id en tabla tenants sin sobreescribir has_memberships (gobernado por add-on)
+      // Sincronizar plan_id en tabla tenants hacia el plan canónico correspondiente sin sobreescribir has_memberships
+      const [planRows] = await this.pool.query(
+        `SELECT id FROM saas_plans WHERE UPPER(code) = UPPER(?) ORDER BY COALESCE(is_active, true) DESC, id ASC LIMIT 1`,
+        [planCode]
+      );
+      const resolvedPlanId = planRows?.[0]?.id || 1;
       await this.pool.query(`
         UPDATE tenants
-        SET plan_id = 1,
+        SET plan_id = ?,
             updated_at = NOW()
         WHERE id = ?
-      `, [tenantId]);
+      `, [resolvedPlanId, tenantId]);
     }
 
     return {
@@ -98,7 +105,8 @@ class TenantSubscriptionRepository {
       plan_code: planCode,
       status,
       current_period_start: periodStart,
-      current_period_end: periodEnd
+      current_period_end: periodEnd,
+      grace_period_until: gracePeriodUntil
     };
   }
 }

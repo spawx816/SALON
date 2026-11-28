@@ -160,7 +160,7 @@ const CANONICAL_PLANS_CATALOG = Object.freeze([
     price_per_branch: readConfiguredPrice('SAAS_PRINCIPAL_PLAN_PRICE_USD') ?? PRINCIPAL_PLAN_DEFAULT_USD,
     reference_price_monthly: PRINCIPAL_PLAN_REFERENCE_USD,
     users_included: 3,
-    extra_user_price: readConfiguredPrice('SAAS_EXTRA_USER_PRICE_USD'),
+    extra_user_price: readConfiguredPrice('SAAS_EXTRA_USER_PRICE_USD') ?? EXTRA_USER_DEFAULT_USD,
     branches_included: 1,
     description:
       'Operación integral de la empresa: POS, cajas, facturación y gestión de comprobantes, Clientes/CRM, inventario avanzado multisucursal, compras y proveedores, control de asistencia facial, nómina, comisiones, marketing y reportes. Integración de facturación electrónica DGII: contratación y habilitación por separado.',

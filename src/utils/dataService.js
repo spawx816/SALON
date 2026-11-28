@@ -4026,10 +4026,16 @@ export const dataService = {
     return resData;
   },
 
-  setTenantAddon: async (tenantId, addonCode, { enabled, reason, source = 'commercial_addon' }) =>
+  setTenantAddon: async (tenantId, addonCode, { enabled, reason, source = 'commercial_addon', branchIds, acquiredBlocks }) =>
     saasFetch(`/saas/tenants/${encodeURIComponent(tenantId)}/addons/${encodeURIComponent(addonCode)}`, {
       method: 'PUT',
-      body: JSON.stringify({ enabled, reason, source })
+      body: JSON.stringify({
+        enabled,
+        reason,
+        source,
+        ...(branchIds !== undefined ? { branchIds } : {}),
+        ...(acquiredBlocks !== undefined ? { acquiredBlocks } : {}),
+      })
     }),
 
   getSaasInvoices: async () => {

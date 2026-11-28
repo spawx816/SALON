@@ -2146,7 +2146,7 @@ function createAuthRouter(pool, options = {}) {
             email: u.email,
             name: u.name || u.nombre,
             role: effectiveRole,
-            tenantId: isSuperAdmin ? null : u.tenant_id,
+            tenantId: (isSuperAdmin || effectiveRole === 'vendedor') ? null : u.tenant_id,
             branchId: assignedBranchId,
             sessionId,
             isSuperAdmin,
@@ -2500,7 +2500,7 @@ function createAuthRouter(pool, options = {}) {
             error: isReplaced ? SESSION_REPLACED_MESSAGE : 'Sesión finalizada remotamente.'
           });
         }
-        if (auth.tenantId) {
+        if (auth.tenantId && auth.tenantId !== 'null') {
           await pool.query('UPDATE user_sessions SET last_activity = NOW() WHERE id = ? AND tenant_id = ?', [sessionId, auth.tenantId]);
         } else {
           await pool.query('UPDATE user_sessions SET last_activity = NOW() WHERE id = ? AND tenant_id IS NULL', [sessionId]);
@@ -2626,13 +2626,14 @@ function createAuthRouter(pool, options = {}) {
       }
 
       const isSuperAdmin = Boolean(auth.isSuperAdmin || String(u.role || '').toLowerCase() === 'superadmin');
+      const isPlatformVendedor = String(auth.role || u.role || '').toLowerCase() === 'vendedor' && !u.tenant_id;
       const refreshedToken = signAuthToken({
         sub: userId,
         id: userId,
         email: u.email,
         name: u.name || u.nombre,
         role: auth.role || u.role,
-        tenantId: isSuperAdmin ? null : u.tenant_id,
+        tenantId: (isSuperAdmin || isPlatformVendedor) ? null : u.tenant_id,
         branchId: u.branch_id || u.salon_id || null,
         sessionId: auth.sessionId || null,
         isSuperAdmin,
