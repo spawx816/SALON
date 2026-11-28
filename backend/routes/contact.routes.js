@@ -57,98 +57,68 @@ function createContactRouter(pool) {
         [cleanNombre, cleanEmail, cleanTelefono || null, cleanMensaje, ip]
       );
 
-      // Enviar notificación por correo al equipo de soporte / administración
+      // Enviar notificación por correo al equipo de soporte / administración usando SMTP global de plataforma
       try {
-        const [settingsRows] = await pool.query('SELECT * FROM email_settings LIMIT 1');
-        let transporter;
-        let fromAddress = '"Plan Beauty RD Soporte" <hola@planbeautyrd.com>';
-        let adminRecipient = 'hola@planbeautyrd.com';
+        const { getGlobalSmtpConfig, resolveTransporterForTenant } = require('../services/platform_email.service');
+        const globalCfg = await getGlobalSmtpConfig(pool);
+        const { transporter, fromAddress } = await resolveTransporterForTenant(pool, null, 'Etereas');
+        const adminRecipient = globalCfg?.user || process.env.SMTP_USER || null;
 
-        if (settingsRows && settingsRows.length > 0) {
-          const s = settingsRows[0];
-          transporter = nodemailer.createTransport({
-            host: s.smtp_host || 'smtp.hostinger.com',
-            port: s.smtp_port || 465,
-            secure: s.smtp_secure === 1,
-            auth: {
-              user: s.smtp_user || 'hola@planbeautyrd.com',
-              pass: s.smtp_pass || 'z5!CIiplZ'
-            }
+        if (transporter && fromAddress && adminRecipient) {
+          // Notificación al equipo
+          await transporter.sendMail({
+            from: fromAddress,
+            to: adminRecipient,
+            replyTo: cleanEmail,
+            subject: `📩 Nuevo Mensaje de Contacto: ${escapeHtml(cleanNombre)}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #ffffff; border: 1px solid #e2e8f0;">
+                <div style="background: #0f172a; padding: 14px 20px; border-radius: 10px; color: #ffffff; font-weight: 800; font-size: 18px; margin-bottom: 20px;">
+                  Etereas • Nuevo Mensaje Web
+                </div>
+                <p style="color: #334155; font-size: 15px; margin-bottom: 15px;">Has recibido una nueva consulta a través del formulario de contacto web:</p>
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                  <tr>
+                    <td style="padding: 10px 12px; background: #f8fafc; font-weight: bold; width: 140px; border: 1px solid #e2e8f0; color: #475569;">Nombre:</td>
+                    <td style="padding: 10px 12px; border: 1px solid #e2e8f0; color: #0f172a; font-weight: 600;">${escapeHtml(cleanNombre)}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 12px; background: #f8fafc; font-weight: bold; border: 1px solid #e2e8f0; color: #475569;">Correo:</td>
+                    <td style="padding: 10px 12px; border: 1px solid #e2e8f0;"><a href="mailto:${escapeHtml(cleanEmail)}" style="color: #2563eb; font-weight: 600;">${escapeHtml(cleanEmail)}</a></td>
+                  </tr>
+                  ${cleanTelefono ? `<tr><td style="padding: 10px 12px; background: #f8fafc; font-weight: bold; border: 1px solid #e2e8f0; color: #475569;">Teléfono:</td><td style="padding: 10px 12px; border: 1px solid #e2e8f0; color: #0f172a;">${escapeHtml(cleanTelefono)}</td></tr>` : ''}
+                  <tr>
+                    <td style="padding: 10px 12px; background: #f8fafc; font-weight: bold; border: 1px solid #e2e8f0; color: #475569;">Fecha:</td>
+                    <td style="padding: 10px 12px; border: 1px solid #e2e8f0; color: #64748b;">${new Date().toLocaleString('es-DO', { timeZone: 'America/Santo_Domingo' })}</td>
+                  </tr>
+                </table>
+                <div style="background: #f8fafc; border-left: 4px solid #2563eb; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+                  <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px;">Mensaje o Consulta:</strong>
+                  <p style="margin: 0; color: #1e293b; white-space: pre-wrap; line-height: 1.6; font-size: 15px;">${escapeHtml(cleanMensaje)}</p>
+                </div>
+              </div>
+            `
           });
-          fromAddress = `"${s.smtp_from || 'Plan Beauty'}" <${s.smtp_user || 'hola@planbeautyrd.com'}>`;
-          if (s.smtp_user) adminRecipient = s.smtp_user;
-        } else {
-          transporter = nodemailer.createTransport({
-            host: process.env.SMTP_HOST || 'smtp.hostinger.com',
-            port: parseInt(process.env.SMTP_PORT) || 465,
-            secure: true,
-            auth: {
-              user: process.env.SMTP_USER || 'hola@planbeautyrd.com',
-              pass: process.env.SMTP_PASS || 'z5!CIiplZ'
-            }
-          });
+
+          // Confirmación al cliente
+          transporter.sendMail({
+            from: fromAddress,
+            to: cleanEmail,
+            subject: `✨ Hemos recibido tu mensaje | Etereas`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 550px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #ffffff; border: 1px solid #e2e8f0; text-align: center;">
+                <h2 style="color: #0f172a; margin: 0 0 10px 0; font-weight: 800;">¡Hola ${escapeHtml(cleanNombre)}!</h2>
+                <p style="color: #475569; font-size: 15px; line-height: 1.6; margin-bottom: 20px;">
+                  Gracias por ponerte en contacto con <strong>Etereas</strong>. Hemos recibido tu mensaje y nuestro equipo te responderá a la brevedad posible.
+                </p>
+                <div style="background: #f8fafc; border-radius: 12px; padding: 16px; text-align: left; border: 1px solid #e2e8f0;">
+                  <strong style="font-size: 12px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 6px;">Tu mensaje:</strong>
+                  <p style="margin: 0; color: #334155; font-size: 14px; white-space: pre-wrap; font-style: italic;">"${escapeHtml(cleanMensaje)}"</p>
+                </div>
+              </div>
+            `
+          }).catch((clientErr) => console.warn('[CONTACT EMAIL CLIENT RECEIPT]:', clientErr.message));
         }
-
-        // Notificación al equipo
-        await transporter.sendMail({
-          from: fromAddress,
-          to: adminRecipient,
-          replyTo: cleanEmail,
-          subject: `📩 Nuevo Mensaje de Contacto: ${escapeHtml(cleanNombre)}`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #ffffff; border: 1px solid #e2e8f0;">
-              <div style="background: #d4af37; padding: 14px 20px; border-radius: 10px; color: #ffffff; font-weight: 800; font-size: 18px; margin-bottom: 20px;">
-                Plan Beauty RD • Nuevo Mensaje Web
-              </div>
-              <p style="color: #334155; font-size: 15px; margin-bottom: 15px;">Has recibido una nueva consulta a través del formulario de contacto web:</p>
-              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-                <tr>
-                  <td style="padding: 10px 12px; background: #f8fafc; font-weight: bold; width: 140px; border: 1px solid #e2e8f0; color: #475569;">Nombre:</td>
-                  <td style="padding: 10px 12px; border: 1px solid #e2e8f0; color: #0f172a; font-weight: 600;">${escapeHtml(cleanNombre)}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 12px; background: #f8fafc; font-weight: bold; border: 1px solid #e2e8f0; color: #475569;">Correo:</td>
-                  <td style="padding: 10px 12px; border: 1px solid #e2e8f0;"><a href="mailto:${escapeHtml(cleanEmail)}" style="color: #d4af37; font-weight: 600;">${escapeHtml(cleanEmail)}</a></td>
-                </tr>
-                ${cleanTelefono ? `<tr><td style="padding: 10px 12px; background: #f8fafc; font-weight: bold; border: 1px solid #e2e8f0; color: #475569;">Teléfono:</td><td style="padding: 10px 12px; border: 1px solid #e2e8f0; color: #0f172a;">${escapeHtml(cleanTelefono)}</td></tr>` : ''}
-                <tr>
-                  <td style="padding: 10px 12px; background: #f8fafc; font-weight: bold; border: 1px solid #e2e8f0; color: #475569;">Fecha:</td>
-                  <td style="padding: 10px 12px; border: 1px solid #e2e8f0; color: #64748b;">${new Date().toLocaleString('es-DO', { timeZone: 'America/Santo_Domingo' })}</td>
-                </tr>
-              </table>
-              <div style="background: #fdfaf0; border-left: 4px solid #d4af37; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
-                <strong style="color: #78350f; display: block; margin-bottom: 8px; font-size: 14px;">Mensaje o Consulta:</strong>
-                <p style="margin: 0; color: #1e293b; white-space: pre-wrap; line-height: 1.6; font-size: 15px;">${escapeHtml(cleanMensaje)}</p>
-              </div>
-              <p style="font-size: 12px; color: #94a3b8; text-align: center; margin-top: 25px;">
-                Sistema Automatizado Plan Beauty RD
-              </p>
-            </div>
-          `
-        });
-
-        // Confirmación al cliente
-        transporter.sendMail({
-          from: fromAddress,
-          to: cleanEmail,
-          subject: `✨ Hemos recibido tu mensaje | Plan Beauty RD`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 550px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #ffffff; border: 1px solid #e2e8f0; text-align: center;">
-              <div style="font-size: 38px; margin-bottom: 12px;">💌</div>
-              <h2 style="color: #0f172a; margin: 0 0 10px 0; font-weight: 800;">¡Hola ${escapeHtml(cleanNombre)}!</h2>
-              <p style="color: #475569; font-size: 15px; line-height: 1.6; margin-bottom: 20px;">
-                Gracias por ponerte en contacto con nosotros. Hemos recibido tu mensaje satisfactoriamente y un representante de nuestro equipo te responderá en la mayor brevedad posible.
-              </p>
-              <div style="background: #f8fafc; border-radius: 12px; padding: 16px; text-align: left; margin-bottom: 25px; border: 1px solid #e2e8f0;">
-                <strong style="font-size: 12px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 6px; letter-spacing: 0.5px;">Tu mensaje:</strong>
-                <p style="margin: 0; color: #334155; font-size: 14px; white-space: pre-wrap; font-style: italic;">"${escapeHtml(cleanMensaje)}"</p>
-              </div>
-              <p style="color: #64748b; font-size: 13px; margin-bottom: 0;">
-                Para soporte directo o citas también puedes contactarnos al <strong>(809) 561-5000</strong>.
-              </p>
-            </div>
-          `
-        }).catch(clientErr => console.warn('[CONTACT EMAIL CLIENT RECEIPT]:', clientErr.message));
 
       } catch (mailErr) {
         console.error('[CONTACT EMAIL ERROR]:', mailErr.message);

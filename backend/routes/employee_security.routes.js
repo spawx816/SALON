@@ -223,53 +223,84 @@ function createEmployeeSecurityRouter(pool) {
   });
 
   // === EMPLOYEE OTP AUTHORIZATION ===
+  const { resolveTransporterForTenant } = require('../services/platform_email.service');
+  const { verifyPin } = require('../services/pin_security.service');
+
+  const getTenantBrandName = async (tenantId) => {
+    try {
+      const [rows] = await pool.query('SELECT business_name FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
+      return rows?.[0]?.business_name || 'Etereas';
+    } catch {
+      return 'Etereas';
+    }
+  };
+
   router.post('/auth/send-employee-otp', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      const { employeeId, employeeEmail, employeeName } = req.body;
-      if (!employeeEmail) {
-        return res.status(400).json({ error: 'El empleado no tiene correo registrado.' });
+      const { employeeId, employeeEmail, employeeName } = req.body || {};
+      let targetEmail = String(employeeEmail || '').trim();
+      let resolvedName = String(employeeName || '').trim() || 'Colaborador';
+
+      if (!targetEmail && employeeId) {
+        const cleanId = String(employeeId).replace('EMP-', '').trim();
+        const [empRows] = await pool.query(
+          'SELECT nombre, email FROM staff_records WHERE (id::text = ? OR LOWER(nombre) = LOWER(?)) AND tenant_id = ? LIMIT 1',
+          [cleanId, cleanId, tenantId]
+        );
+        if (empRows?.[0]?.email) {
+          targetEmail = String(empRows[0].email).trim();
+          resolvedName = empRows[0].nombre || resolvedName;
+        } else {
+          const [uRows] = await pool.query(
+            'SELECT COALESCE(nombre, name) AS nombre, email FROM users WHERE (id::text = ? OR LOWER(COALESCE(nombre, name, \'\')) = LOWER(?)) AND tenant_id = ? LIMIT 1',
+            [cleanId, empRows?.[0]?.nombre || cleanId, tenantId]
+          );
+          if (uRows?.[0]?.email) {
+            targetEmail = String(uRows[0].email).trim();
+            resolvedName = uRows[0].nombre || resolvedName;
+          }
+        }
+      }
+
+      if (!targetEmail || !targetEmail.includes('@')) {
+        return res.status(400).json({ error: 'El colaborador no tiene correo electrónico registrado.' });
       }
 
       const code = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      const brandName = await getTenantBrandName(tenantId);
 
       await pool.query(
         'INSERT INTO verification_codes (tenant_id, client_id, code, expires_at) VALUES (?, ?, ?, ?)',
         [tenantId, employeeId || 'EMP', code, expiresAt]
       );
 
-      // Send email using tenant SMTP settings with fallback
-      const [smtpRows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
-      if (smtpRows[0] && smtpRows[0].smtp_host) {
-        const cfg = smtpRows[0];
-        const transporter = nodemailer.createTransport({
-          host: cfg.smtp_host,
-          port: cfg.smtp_port,
-          secure: parseInt(cfg.smtp_port) === 465,
-          auth: { user: cfg.smtp_user, pass: cfg.smtp_pass }
-        });
-
-        await transporter.sendMail({
-          from: cfg.smtp_from || '"Plan Beauty RD" <hola@planbeautyrd.com>',
-          to: employeeEmail,
-          subject: `🔒 Código de Seguridad Consumo Nómina: ${code}`,
-          text: `Hola ${employeeName || ''}, tu código de autorización para consumo en empresa a las ${new Date().toLocaleTimeString('es-DO')} es: ${code}`,
-          html: `
-            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ec4899; border-radius: 12px; max-width: 500px;">
-              <h2 style="color: #be185d;">Autorización de Consumo de Empleado</h2>
-              <p>Hola <strong>${escapeHtml(employeeName || 'Colaborador')}</strong>,</p>
-              <p>Se ha registrado un consumo de servicios en empresa a las <strong>${new Date().toLocaleTimeString('es-DO')}</strong>.</p>
-              <p style="font-size: 24px; font-weight: bold; color: #ec4899; letter-spacing: 4px; text-align: center; background: #fdf2f8; padding: 10px; border-radius: 8px;">${code}</p>
-              <p style="font-size: 12px; color: #64748b;">Si no realizaste esta solicitud, por favor comunícate con administración inmediatamente.</p>
-            </div>
-          `
-        });
+      const { transporter, fromAddress } = await resolveTransporterForTenant(pool, tenantId, brandName);
+      if (!transporter || !fromAddress) {
+        return res.status(503).json({ error: 'No hay servidor SMTP configurado para enviar el código.' });
       }
 
-      res.json({ success: true, message: 'Código de autorización enviado al correo.' });
+      await transporter.sendMail({
+        from: fromAddress,
+        to: targetEmail,
+        subject: `🔒 Código de Seguridad Consumo Nómina (${code}) — ${brandName}`,
+        text: `Hola ${resolvedName}, tu código de autorización para consumo en ${brandName} a las ${new Date().toLocaleTimeString('es-DO')} es: ${code}`,
+        html: `
+          <div style="font-family: sans-serif; padding: 22px; border: 1px solid #e2e8f0; border-radius: 14px; max-width: 500px; margin: 0 auto; background: #ffffff;">
+            <h2 style="color: #be185d; margin-top: 0;">Autorización de Consumo de Colaborador</h2>
+            <p>Hola <strong>${escapeHtml(resolvedName)}</strong>,</p>
+            <p>Se ha solicitado un consumo de servicios en <strong>${escapeHtml(brandName)}</strong> a las <strong>${new Date().toLocaleTimeString('es-DO')}</strong>.</p>
+            <p style="font-size: 28px; font-weight: bold; color: #be185d; letter-spacing: 6px; text-align: center; background: #fdf2f8; padding: 12px; border-radius: 10px; border: 1px solid #fbcfe8;">${code}</p>
+            <p style="font-size: 12px; color: #64748b; margin-bottom: 0;">Si no realizaste esta solicitud, comunícate con administración inmediatamente.</p>
+          </div>
+        `
+      });
+
+      res.json({ success: true, emailSent: true, message: 'Código de autorización enviado al correo del colaborador.' });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      console.error('[SEND EMPLOYEE OTP ERROR]:', err);
+      res.status(500).json({ error: err.message || 'No se pudo enviar el código OTP.' });
     }
   });
 
@@ -277,7 +308,7 @@ function createEmployeeSecurityRouter(pool) {
   const handleNominaOtp = async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      const { employee_id, email, amount } = req.body;
+      const { employee_id, email, amount } = req.body || {};
       let targetEmail = email ? String(email).trim() : '';
       let empName = 'Colaborador';
       const cleanEmpId = String(employee_id || '').replace('EMP-', '').trim();
@@ -291,73 +322,77 @@ function createEmployeeSecurityRouter(pool) {
           if (!targetEmail) targetEmail = String(empRows[0].email || '').trim();
           empName = empRows[0].nombre || empName;
         }
+        if (!targetEmail) {
+          const [uRows] = await pool.query(
+            'SELECT COALESCE(nombre, name) AS nombre, email FROM users WHERE (id::text = ? OR LOWER(COALESCE(nombre, name, \'\')) = LOWER(?)) AND tenant_id = ? LIMIT 1',
+            [cleanEmpId, empName !== 'Colaborador' ? empName : cleanEmpId, tenantId]
+          );
+          if (uRows && uRows.length > 0) {
+            targetEmail = String(uRows[0].email || '').trim();
+            empName = uRows[0].nombre || empName;
+          }
+        }
+      }
+
+      if (!targetEmail || !targetEmail.includes('@')) {
+        return res.status(400).json({
+          error: `El colaborador (${empName}) no tiene correo electrónico registrado en Personal/Usuarios. Regístralo para poder enviarle el código OTP.`,
+          code: 'EMPLOYEE_EMAIL_MISSING',
+        });
       }
 
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       const clientIdKey = `EMP-${cleanEmpId || 'GEN'}`;
+      const brandName = await getTenantBrandName(tenantId);
 
       await pool.query(
         'INSERT INTO verification_codes (tenant_id, client_id, code, expires_at) VALUES (?, ?, ?, ?)',
         [tenantId, clientIdKey, code, expiresAt]
       );
 
-      let emailSent = false;
-      if (targetEmail && targetEmail.includes('@')) {
-        try {
-          const [smtpRows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
-          if (smtpRows && smtpRows.length > 0 && smtpRows[0].smtp_host) {
-            const cfg = smtpRows[0];
-            const transporter = nodemailer.createTransport({
-              host: cfg.smtp_host,
-              port: cfg.smtp_port,
-              secure: parseInt(cfg.smtp_port) === 465 || cfg.smtp_secure === 1,
-              auth: { user: cfg.smtp_user, pass: cfg.smtp_pass },
-              tls: { rejectUnauthorized: false }
-            });
-
-            const formattedAmount = Number(amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 });
-            await transporter.sendMail({
-              from: cfg.smtp_from ? `"${cfg.smtp_from}" <${cfg.smtp_user}>` : '"Plan Beauty RD" <hola@planbeautyrd.com>',
-              to: targetEmail,
-              subject: `🔐 Código de Autorización Nómina: ${code}`,
-              text: `Hola ${empName}, tu código de autorización para el cargo a nómina por RD$ ${formattedAmount} es: ${code}`,
-              html: `
-                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #eff6ff; border: 1px solid #bfdbfe; text-align: center;">
-                  <div style="font-size: 36px; margin-bottom: 10px;">📋</div>
-                  <h2 style="color: #1e40af; margin: 0 0 8px 0; font-weight: 900;">Autorización de Descuento por Nómina</h2>
-                  <p style="color: #475569; font-size: 14px; margin-bottom: 20px;">
-                    Hola <strong>${escapeHtml(empName)}</strong>, se ha solicitado un cargo por servicios en empresa:
-                  </p>
-                  <div style="background: #ffffff; border-radius: 12px; padding: 15px; margin: 15px 0; border: 1px dashed #93c5fd;">
-                    <p style="margin: 0; color: #64748b; font-size: 13px;">Monto a descontar de nómina:</p>
-                    <p style="margin: 5px 0 0; font-size: 22px; font-weight: 900; color: #1e40af;">RD$ ${formattedAmount}</p>
-                  </div>
-                  <p style="font-size: 13px; color: #64748b; margin-bottom: 10px;">Tu código de autorización de 6 dígitos es:</p>
-                  <div style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #1d4ed8; background: #ffffff; padding: 16px; border-radius: 12px; border: 2px solid #3b82f6; display: inline-block; margin-bottom: 20px;">
-                    ${code}
-                  </div>
-                </div>
-              `
-            });
-            emailSent = true;
-          }
-        } catch (mailErr) {
-          console.warn('[NOMINA OTP MAIL WARNING]: Fallo en envío SMTP, código guardado en base de datos:', mailErr.message);
-        }
+      const { transporter, fromAddress } = await resolveTransporterForTenant(pool, tenantId, brandName);
+      if (!transporter || !fromAddress) {
+        return res.status(503).json({
+          error: 'No hay servidor SMTP configurado para enviar el código OTP por correo.',
+          code: 'SMTP_NOT_CONFIGURED',
+        });
       }
+
+      const formattedAmount = Number(amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 });
+      await transporter.sendMail({
+        from: fromAddress,
+        to: targetEmail,
+        subject: `🔐 Código de Autorización Nómina (${code}) — ${brandName}`,
+        text: `Hola ${empName}, tu código de autorización para el cargo a nómina por RD$ ${formattedAmount} en ${brandName} es: ${code}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #eff6ff; border: 1px solid #bfdbfe; text-align: center;">
+            <div style="font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #1d4ed8; margin-bottom: 8px;">${escapeHtml(brandName)}</div>
+            <h2 style="color: #1e40af; margin: 0 0 8px 0; font-weight: 900;">Autorización de Descuento por Nómina</h2>
+            <p style="color: #475569; font-size: 14px; margin-bottom: 20px;">
+              Hola <strong>${escapeHtml(empName)}</strong>, se ha solicitado un cargo por consumo en recepción:
+            </p>
+            <div style="background: #ffffff; border-radius: 12px; padding: 15px; margin: 15px 0; border: 1px dashed #93c5fd;">
+              <p style="margin: 0; color: #64748b; font-size: 13px;">Monto a descontar de nómina:</p>
+              <p style="margin: 5px 0 0; font-size: 22px; font-weight: 900; color: #1e40af;">RD$ ${formattedAmount}</p>
+            </div>
+            <p style="font-size: 13px; color: #64748b; margin-bottom: 10px;">Tu código de autorización de 6 dígitos es:</p>
+            <div style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #1d4ed8; background: #ffffff; padding: 16px; border-radius: 12px; border: 2px solid #3b82f6; display: inline-block; margin-bottom: 12px;">
+              ${code}
+            </div>
+            <p style="font-size: 12px; color: #64748b; margin: 0;">Válido por 15 minutos.</p>
+          </div>
+        `
+      });
 
       res.json({
         success: true,
-        emailSent,
-        code,
-        message: emailSent
-          ? 'Código de autorización enviado correctamente al correo.'
-          : 'Código de autorización generado correctamente.'
+        emailSent: true,
+        message: `Código de autorización enviado a ${targetEmail}.`
       });
     } catch (err) {
       console.error('[NOMINA OTP ERROR]:', err);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'No se pudo enviar el código de autorización al correo del colaborador.' });
     }
   };
 
@@ -393,11 +428,23 @@ function createEmployeeSecurityRouter(pool) {
         return res.json({ success: true, message: 'Código verificado exitosamente.' });
       }
 
-      // Permitir PIN maestro gerencial del tenant o de emergencia
-      const [secRows] = await pool.query('SELECT master_pin FROM security_settings WHERE tenant_id = ? LIMIT 1', [tenantId]).catch(() => [[]]);
-      const tenantMasterPin = secRows?.[0]?.master_pin ? String(secRows[0].master_pin).trim() : null;
-      if ((tenantMasterPin && cleanPin === tenantMasterPin) || ['2026', '1234', '8888'].includes(cleanPin)) {
-        return res.json({ success: true, message: 'Autorizado mediante PIN administrativo.' });
+      // Permitir PIN maestro gerencial o PIN OTP dinámico de security_settings de la empresa
+      const [secRows] = await pool.query(
+        'SELECT admin_pin, admin_pin_hash, active_otp_pin, otp_expires_at FROM security_settings WHERE tenant_id = ? LIMIT 1',
+        [tenantId]
+      ).catch(() => [[]]);
+      const sec = secRows?.[0] || null;
+      if (sec) {
+        if (sec.active_otp_pin && cleanPin === String(sec.active_otp_pin).trim() && (!sec.otp_expires_at || new Date(sec.otp_expires_at) > new Date())) {
+          return res.json({ success: true, message: 'Autorizado mediante PIN OTP administrativo.' });
+        }
+        const storedMaster = sec.admin_pin_hash || sec.admin_pin;
+        if (storedMaster) {
+          const verifyRes = await verifyPin(cleanPin, storedMaster);
+          if (verifyRes.matched && !verifyRes.isLegacy) {
+            return res.json({ success: true, message: 'Autorizado mediante PIN Maestro administrativo.' });
+          }
+        }
       }
 
       return res.status(400).json({ error: 'Código de verificación incorrecto o expirado.' });
@@ -457,43 +504,28 @@ function createEmployeeSecurityRouter(pool) {
         [tenantId, clientIdKey, code, expiresAt]
       );
 
-      pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId])
-        .then(([smtpRows]) => {
-          if (smtpRows && smtpRows.length > 0 && smtpRows[0].smtp_host) {
-            const cfg = smtpRows[0];
-            const transporter = nodemailer.createTransport({
-              host: cfg.smtp_host,
-              port: cfg.smtp_port,
-              secure: parseInt(cfg.smtp_port) === 465 || cfg.smtp_secure === 1,
-              auth: { user: cfg.smtp_user, pass: cfg.smtp_pass },
-              connectionTimeout: 5000,
-              greetingTimeout: 5000,
-              socketTimeout: 8000
-            });
-
-            return transporter.sendMail({
-              from: cfg.smtp_from ? `"${cfg.smtp_from}" <${cfg.smtp_user}>` : '"Plan Beauty RD" <hola@planbeautyrd.com>',
-              to: targetEmail,
-              subject: `🔐 PIN de Consulta de Comisiones: ${code}`,
-              text: `Hola ${empName}, tu PIN para consultar tus comisiones en el Kiosco es: ${code}`,
-              html: `
-                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #f5f3ff; border: 1px solid #ddd6fe; text-align: center;">
-                  <div style="font-size: 36px; margin-bottom: 10px;">💰</div>
-                  <h2 style="color: #6d28d9; margin: 0 0 8px 0; font-weight: 900;">Consulta de Comisiones</h2>
-                  <p style="color: #475569; font-size: 14px; margin-bottom: 20px;">
-                    Hola <strong>${escapeHtml(empName)}</strong>, se solicitó acceso para consultar tus comisiones acumuladas en el Kiosco:
-                  </p>
-                  <div style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #7c3aed; background: #ffffff; padding: 16px; border-radius: 12px; border: 2px solid #8b5cf6; display: inline-block; margin-bottom: 20px;">
-                    ${code}
-                  </div>
-                </div>
-              `
-            });
-          }
-        })
-        .catch(mailErr => {
-          console.error('[COMMISSION PIN ASYNC EMAIL ERROR]:', mailErr.message);
+      const brandName = await getTenantBrandName(tenantId);
+      const { transporter, fromAddress } = await resolveTransporterForTenant(pool, tenantId, brandName);
+      if (transporter && fromAddress) {
+        await transporter.sendMail({
+          from: fromAddress,
+          to: targetEmail,
+          subject: `🔐 PIN de Consulta de Comisiones (${code}) — ${brandName}`,
+          text: `Hola ${empName}, tu PIN para consultar tus comisiones en el Kiosco es: ${code}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #f5f3ff; border: 1px solid #ddd6fe; text-align: center;">
+              <div style="font-size: 36px; margin-bottom: 10px;">💰</div>
+              <h2 style="color: #6d28d9; margin: 0 0 8px 0; font-weight: 900;">Consulta de Comisiones</h2>
+              <p style="color: #475569; font-size: 14px; margin-bottom: 20px;">
+                Hola <strong>${escapeHtml(empName)}</strong>, se solicitó acceso para consultar tus comisiones acumuladas:
+              </p>
+              <div style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #7c3aed; background: #ffffff; padding: 16px; border-radius: 12px; border: 2px solid #8b5cf6; display: inline-block; margin-bottom: 20px;">
+                ${code}
+              </div>
+            </div>
+          `
         });
+      }
 
       return res.json({ success: true, message: 'PIN generado y enviado al correo.' });
     } catch (err) {

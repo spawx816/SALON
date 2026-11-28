@@ -736,7 +736,13 @@ function createApp(dependencies = {}) {
   };
   app.use('/api/services', rejectControlPlaneRoleOnTenantRoutes, servicesGuard, createServicesRouter(pool));
   const employeeSecurityRouter = createEmployeeSecurityRouter(pool);
+  const { createOtpRouter } = require('./routes/otp.routes');
+  app.use('/api/otp', rejectControlPlaneRoleOnTenantRoutes, createOtpRouter(pool));
   app.use('/api/employee-security', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('pos.discounts.apply', 'staff.manage', 'commissions.approve', 'security.manage', 'pos.visits.create'), employeeSecurityRouter);
+  app.use('/api/auth/send-employee-otp', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('pos.visits.create', 'pos.discounts.apply', 'staff.manage', 'security.manage'), (req, res, next) => {
+    req.url = '/auth/send-employee-otp';
+    return employeeSecurityRouter(req, res, next);
+  });
   app.use('/api/employee-discounts', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('pos.discounts.apply', 'staff.manage', 'commissions.approve', 'security.manage', 'pos.visits.create'), (req, res, next) => {
     req.url = '/employee-discounts' + (req.url === '/' ? '' : req.url);
     return employeeSecurityRouter(req, res, next);
@@ -747,6 +753,14 @@ function createApp(dependencies = {}) {
   });
   app.use('/api/verify-nomina-otp', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('pos.visits.create', 'pos.discounts.apply', 'staff.manage', 'security.manage'), (req, res, next) => {
     req.url = '/verify-nomina-otp';
+    return employeeSecurityRouter(req, res, next);
+  });
+  app.use('/api/commission-pin', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, (req, res, next) => {
+    req.url = '/commission-pin';
+    return employeeSecurityRouter(req, res, next);
+  });
+  app.use('/api/verify-commission-pin', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, (req, res, next) => {
+    req.url = '/verify-commission-pin';
     return employeeSecurityRouter(req, res, next);
   });
   const giftsSurveysRouter = createGiftsSurveysRouter(pool);

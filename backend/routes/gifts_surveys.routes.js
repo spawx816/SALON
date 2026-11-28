@@ -3,6 +3,7 @@ const nodemailer = require('nodemailer');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
+const { resolveTransporterForTenant } = require('../services/platform_email.service');
 
 /**
  * Utility function to send satisfaction survey email to client (Scoped by tenant_id)
@@ -10,23 +11,16 @@ const fs = require('fs');
 async function sendSurveyEmail(pool, clientId, clientName, clientEmail, tenantId) {
   console.log(`[Survey Email] Preparing to send to ${clientEmail} (Client: ${clientId}, Tenant: ${tenantId})`);
   try {
-    let settingsQuery = 'SELECT * FROM email_settings';
-    const params = [];
-    if (tenantId) {
-      settingsQuery += ' WHERE tenant_id = ?';
-      params.push(tenantId);
-    }
-    settingsQuery += ' ORDER BY id ASC LIMIT 1';
-
-    const [settings] = await pool.query(settingsQuery, params);
-    if (settings.length === 0 || !settings[0].smtp_host) {
-      console.warn("[Survey Email] No SMTP settings found.");
+    if (!tenantId) {
+      console.warn('[Survey Email] tenantId is required for client lookup. Skipped.');
       return;
     }
 
-    const s = settings[0];
-    if (!tenantId) {
-      console.warn('[Survey Email] tenantId is required for client lookup. Skipped.');
+    const [tRows] = await pool.query('SELECT business_name FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
+    const senderBrand = tRows?.[0]?.business_name || 'Etereas';
+    const { transporter, fromAddress } = await resolveTransporterForTenant(pool, tenantId, senderBrand);
+    if (!transporter || !fromAddress) {
+      console.warn('[Survey Email] No SMTP settings found.');
       return;
     }
 
@@ -53,21 +47,10 @@ async function sendSurveyEmail(pool, clientId, clientName, clientEmail, tenantId
       [pendingId, tenantId || null, clientId]
     );
 
-    const transporter = nodemailer.createTransport({
-      host: s.smtp_host,
-      port: parseInt(s.smtp_port),
-      secure: parseInt(s.smtp_port) === 465,
-      auth: { user: s.smtp_user, pass: s.smtp_pass },
-      tls: { rejectUnauthorized: false },
-      family: 4
-    });
-
-    const portalLink = `https://planbeautyrd.com/encuesta?cedula=${encodeURIComponent(clientCedula)}`;
-
-    const senderBrand = s.smtp_from || 'SalonPro / Plan Beauty';
+    const portalLink = `https://etereasapp.com/encuesta?cedula=${encodeURIComponent(clientCedula)}`;
 
     await transporter.sendMail({
-      from: `"${senderBrand}" <${s.smtp_user}>`,
+      from: fromAddress,
       to: finalEmail,
       subject: `✨ Cuéntanos tu experiencia en ${senderBrand}`,
       html: `
@@ -620,21 +603,17 @@ function createGiftsSurveysRouter(pool, helpers = {}) {
     const { recipientEmail, giftDetails, giftCode } = req.body;
     
     try {
-      const [settings] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
-      if (settings.length === 0) {
-        return res.status(400).json({ error: 'Configuración de correo no encontrada para esta empresa' });
+      const [tRows] = await pool.query('SELECT business_name FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
+      const brandName = tRows?.[0]?.business_name || 'Etereas';
+      const { transporter, fromAddress } = await resolveTransporterForTenant(pool, tenantId, brandName);
+      if (!transporter || !fromAddress) {
+        return res.status(503).json({ error: 'No hay servidor SMTP configurado para enviar el certificado de regalo.' });
       }
-      
-      const s = settings[0];
-      const transporter = nodemailer.createTransport({
-        host: s.smtp_host, port: s.smtp_port, secure: s.smtp_port == 465,
-        auth: { user: s.smtp_user, pass: s.smtp_pass }
-      });
 
       await transporter.sendMail({
-        from: `"${s.smtp_from || 'Plan Beauty'}" <${s.smtp_user}>`,
+        from: fromAddress,
         to: recipientEmail,
-        subject: `¡Un Regalo Especial para ti! 🎁`,
+        subject: `¡Un Regalo Especial para ti en ${brandName}! 🎁`,
         html: `
           <div style="font-family: sans-serif; padding: 20px;">
             <h2>¡Has recibido un Regalo Especial!</h2>

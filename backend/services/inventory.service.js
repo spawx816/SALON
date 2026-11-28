@@ -375,28 +375,20 @@ class InventoryService {
 
   async _dispatchLowStockEmailBestEffort(tenantId, alert) {
     try {
-      const host = process.env.SMTP_HOST;
-      const user = process.env.SMTP_USER;
-      const pass = process.env.SMTP_PASS;
-      if (!host || !user || !pass) return;
-
       const [tenantRows] = await this.repo.pool.query(
-        'SELECT email, business_name FROM tenants WHERE id = ? LIMIT 1',
+        'SELECT email, owner_email, business_name FROM tenants WHERE id = ? LIMIT 1',
         [tenantId]
       );
       const t = tenantRows && tenantRows[0] ? tenantRows[0] : {};
-      const to = t.email;
+      const to = t.owner_email || t.email;
       if (!to) return;
 
-      const nodemailer = require('nodemailer');
-      const transporter = nodemailer.createTransport({
-        host,
-        port: Number(process.env.SMTP_PORT || 587),
-        secure: Number(process.env.SMTP_PORT || 587) === 465,
-        auth: { user, pass }
-      });
+      const { resolveTransporterForTenant } = require('./platform_email.service');
+      const { transporter, fromAddress } = await resolveTransporterForTenant(this.repo.pool, tenantId, t.business_name || 'Etereas');
+      if (!transporter || !fromAddress) return;
+
       await transporter.sendMail({
-        from: process.env.SMTP_FROM || user,
+        from: fromAddress,
         to,
         subject: `[${t.business_name || 'Etereas'}] Alerta de stock bajo: ${alert.product_name}`,
         text: `El producto "${alert.product_name}"${alert.sku ? ` (${alert.sku})` : ''} en ${alert.location_name || 'Almacén'} alcanzó ${alert.current_stock} unidades (umbral configurado: <= ${alert.min_stock}).`

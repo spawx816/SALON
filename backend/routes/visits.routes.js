@@ -1242,17 +1242,35 @@ function createVisitsRouter(pool, helpers = {}) {
             [tenantId]
           );
           const sec = secRows && secRows[0] ? secRows[0] : null;
-          const isOtpValid = Boolean(sec && sec.active_otp_pin && String(providedPin) === String(sec.active_otp_pin) && sec.otp_expires_at && new Date(sec.otp_expires_at) > new Date());
+          const cleanProvidedPin = String(providedPin).trim();
+          const isOtpValid = Boolean(sec && sec.active_otp_pin && cleanProvidedPin === String(sec.active_otp_pin).trim() && (!sec.otp_expires_at || new Date(sec.otp_expires_at) > new Date()));
           let isMasterValid = false;
           const storedMaster = sec?.admin_pin_hash || sec?.admin_pin;
           if (storedMaster) {
             const { verifyPin } = require('../services/pin_security.service');
-            const verifyRes = await verifyPin(String(providedPin), storedMaster);
-            isMasterValid = verifyRes.matched;
+            const verifyRes = await verifyPin(cleanProvidedPin, storedMaster);
+            isMasterValid = Boolean(verifyRes.matched && !verifyRes.isLegacy);
           }
+          let isSecurityRequestValid = false;
           if (!isMasterValid && !isOtpValid) {
+            const [reqRows] = await pool.query(
+              `SELECT id FROM security_requests
+               WHERE tenant_id = ? AND auth_code = ? AND status IN ('pending', 'authorized')
+                 AND created_at >= (NOW() - INTERVAL '2 hours')
+               ORDER BY created_at DESC LIMIT 1`,
+              [tenantId, cleanProvidedPin]
+            );
+            if (reqRows && reqRows.length > 0) {
+              isSecurityRequestValid = true;
+              await pool.query(
+                "UPDATE security_requests SET status = 'authorized' WHERE id = ? AND tenant_id = ? AND status = 'pending'",
+                [reqRows[0].id, tenantId]
+              ).catch(() => {});
+            }
+          }
+          if (!isMasterValid && !isOtpValid && !isSecurityRequestValid) {
             return res.status(401).json({
-              error: 'PIN de administrador incorrecto para aplicar descuento.',
+              error: 'PIN o código OTP de administrador incorrecto para aplicar descuento.',
               code: 'INVALID_ADMIN_PIN'
             });
           }

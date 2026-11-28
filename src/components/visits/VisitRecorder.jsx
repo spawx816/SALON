@@ -304,6 +304,9 @@ const VisitRecorder = () => {
   const [currentSecurityRequestId, setCurrentSecurityRequestId] = useState(null);
   const [currentSecurityAuthCode, setCurrentSecurityAuthCode] = useState('');
   const [isVerifyingAdminPin, setIsVerifyingAdminPin] = useState(false);
+  const [securityEmailInfo, setSecurityEmailInfo] = useState(null);
+  const [sendingSecurityOtp, setSendingSecurityOtp] = useState(false);
+  const lastAuthorizedAdminPinRef = React.useRef('');
 
   // Nómina checkout (employee payroll deduction)
   const [showNominaModal, setShowNominaModal] = useState(false);
@@ -1563,6 +1566,8 @@ const VisitRecorder = () => {
     setPendingDiscountItem(null);
     setAdminPin('');
     setAdminOtpCode('');
+    setSecurityEmailInfo(null);
+    lastAuthorizedAdminPinRef.current = '';
     setIsCreditoFiscal(false);
     setSelectedComprobanteType(resolveDefaultConsumoType(sequenceAvailability));
     setClientRncInput('');
@@ -2611,10 +2616,8 @@ const VisitRecorder = () => {
     setLineItems(updated);
   };
 
-  const triggerAdminPinModal = async (discountOrPriceItem) => {
-    setPendingDiscountItem(discountOrPriceItem);
-    setShowAdminPinModal(true);
-
+  const sendSecurityOtpRequest = async (discountOrPriceItem) => {
+    setSendingSecurityOtp(true);
     try {
       let sName = 'Autorización de Descuento / Ajuste de Precio';
       if (discountOrPriceItem?.type === 'discount') {
@@ -2641,10 +2644,31 @@ const VisitRecorder = () => {
       }
       if (res?.code) {
         setCurrentSecurityAuthCode(res.code);
+      } else {
+        setCurrentSecurityAuthCode('');
       }
+      setSecurityEmailInfo({
+        emailSent: Boolean(res?.emailSent),
+        maskedRecipients: Array.isArray(res?.maskedRecipients) ? res.maskedRecipients : [],
+        warning: res?.emailWarning || null,
+      });
     } catch (err) {
       console.warn('Error auto-generating security request:', err);
+      setSecurityEmailInfo({
+        emailSent: false,
+        maskedRecipients: [],
+        warning: err.message || 'No se pudo enviar la solicitud',
+      });
+    } finally {
+      setSendingSecurityOtp(false);
     }
+  };
+
+  const triggerAdminPinModal = async (discountOrPriceItem) => {
+    setPendingDiscountItem(discountOrPriceItem);
+    setSecurityEmailInfo(null);
+    setShowAdminPinModal(true);
+    await sendSecurityOtpRequest(discountOrPriceItem);
   };
 
   const handleDiscountChange = (index, discountPercent) => {
@@ -2780,7 +2804,8 @@ const VisitRecorder = () => {
         requestId: currentSecurityRequestId
       });
 
-      if (res?.valid || clean === '2026' || clean === '1234' || clean === '8888') {
+      if (res?.valid) {
+        lastAuthorizedAdminPinRef.current = clean;
         setShowAdminPinModal(false);
         if (pendingDiscountItem) {
           const updated = [...lineItems];
@@ -2808,41 +2833,12 @@ const VisitRecorder = () => {
         setAdminPin('');
         setCurrentSecurityRequestId(null);
         setCurrentSecurityAuthCode('');
+        setSecurityEmailInfo(null);
       } else {
         alert('❌ Clave o Código de Autorización incorrecto o expirado.');
       }
     } catch (err) {
-      if (clean === '2026' || clean === '1234' || clean === '8888') {
-        setShowAdminPinModal(false);
-        if (pendingDiscountItem) {
-          const updated = [...lineItems];
-          if (pendingDiscountItem.type === 'discount') {
-            const { index, pct } = pendingDiscountItem;
-            const item = updated[index];
-            if (item) {
-              const discountAmt = (item.precioBase * item.cantidad) * (pct / 100);
-              updated[index].descuento = discountAmt;
-              updated[index].descuentoPercent = pct;
-              updated[index].isDiscountAuthorized = true;
-              updated[index].authorizedDiscountPct = pct;
-            }
-          } else if (pendingDiscountItem.type === 'price' || pendingDiscountItem.val !== undefined) {
-            const { index, val } = pendingDiscountItem;
-            if (updated[index]) {
-              updated[index].precioAplicado = val;
-              updated[index].isPriceAuthorized = true;
-              updated[index].authorizedPrice = val;
-            }
-          }
-          setLineItems(updated);
-          setPendingDiscountItem(null);
-        }
-        setAdminPin('');
-        setCurrentSecurityRequestId(null);
-        setCurrentSecurityAuthCode('');
-      } else {
-        alert('❌ Clave o Código de Autorización incorrecto.');
-      }
+      alert(err?.message || '❌ Clave o Código de Autorización incorrecto o expirado.');
     } finally {
       setIsVerifyingAdminPin(false);
     }
@@ -3598,7 +3594,8 @@ const VisitRecorder = () => {
           gift_card_redemption: gcRedemption,
           ncf_type: ncfTypeToSend,
           rnc_cliente: rncToSend,
-          rzn_soc_cliente: razonSocialToSend
+          rzn_soc_cliente: razonSocialToSend,
+          admin_pin: lastAuthorizedAdminPinRef.current || undefined
         });
       } catch (err) {
         const isAlreadyBilled = err.code === 'VISIT_ALREADY_BILLED' || err.data?.code === 'VISIT_ALREADY_BILLED';
@@ -6016,9 +6013,25 @@ const VisitRecorder = () => {
                   : 'Se requiere PIN de administrador o código del Monitor de Seguridad para autorizar este descuento.'}
               </p>
 
-              <div style={{ marginTop: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '4px 12px', borderRadius: '99px', fontSize: '0.75rem', color: '#16a34a', fontWeight: 800 }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#16a34a', display: 'inline-block' }}></span>
-                <span>Código activo en Monitor de Seguridad</span>
+              <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.45rem' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', background: sendingSecurityOtp ? '#eff6ff' : securityEmailInfo?.emailSent ? '#f0fdf4' : '#fffbeb', border: `1px solid ${sendingSecurityOtp ? '#bfdbfe' : securityEmailInfo?.emailSent ? '#bbf7d0' : '#fde68a'}`, padding: '5px 12px', borderRadius: '99px', fontSize: '0.75rem', color: sendingSecurityOtp ? '#1d4ed8' : securityEmailInfo?.emailSent ? '#15803d' : '#b45309', fontWeight: 700 }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: sendingSecurityOtp ? '#2563eb' : securityEmailInfo?.emailSent ? '#16a34a' : '#d97706', display: 'inline-block' }}></span>
+                  <span>
+                    {sendingSecurityOtp
+                      ? 'Enviando código OTP al correo de administración...'
+                      : securityEmailInfo?.emailSent
+                        ? `Código OTP enviado a: ${securityEmailInfo.maskedRecipients.join(', ')}`
+                        : 'Código disponible en Monitor de Seguridad (o usa PIN Maestro)'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={sendingSecurityOtp}
+                  onClick={() => sendSecurityOtpRequest(pendingDiscountItem)}
+                  style={{ background: 'transparent', border: 'none', color: '#2563eb', fontSize: '0.76rem', fontWeight: 700, cursor: sendingSecurityOtp ? 'not-allowed' : 'pointer', textDecoration: 'underline' }}
+                >
+                  {sendingSecurityOtp ? 'Enviando...' : '🔄 Reenviar código al correo del administrador'}
+                </button>
               </div>
             </div>
 

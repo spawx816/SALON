@@ -2,6 +2,23 @@ const express = require('express');
 const nodemailer = require('nodemailer');
 const { requireRole } = require('../middleware/rbac.middleware');
 const { validatePinComplexity, hashPin, verifyPin, verifyLegacyPinForRotation } = require('../services/pin_security.service');
+const { resolveTransporterForTenant } = require('../services/platform_email.service');
+
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function maskEmailAddress(email) {
+  const raw = String(email || '').trim();
+  const atIdx = raw.indexOf('@');
+  if (atIdx <= 1) return raw;
+  return `${raw.slice(0, 2)}***${raw.slice(atIdx)}`;
+}
 
 // Actor-specific PIN lockout tracker for non-owners to prevent employee DoS on owner PIN
 const actorPinLockouts = new Map();
@@ -76,37 +93,142 @@ function createSecurityRouter(pool) {
     }
   };
 
-  // 1. Solicitar código de autorización dinámico para descuento / cambio de precio
+  // Helper: resolver correos de notificación de PIN/OTP para la empresa (con respaldo automático a dueños/admins)
+  const resolveSecurityRecipientsAndBrand = async (tenantId) => {
+    const [secRows] = await pool.query(
+      'SELECT pin_notification_emails FROM security_settings WHERE tenant_id = ? LIMIT 1',
+      [tenantId]
+    );
+    const [tenantRows] = await pool.query(
+      'SELECT business_name, owner_email, email FROM tenants WHERE id = ? LIMIT 1',
+      [tenantId]
+    );
+    const businessName = tenantRows?.[0]?.business_name || 'Etereas';
+
+    const configuredList = String(secRows?.[0]?.pin_notification_emails || '')
+      .split(/[,;\n]+/)
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e.length > 3 && e.includes('@'));
+
+    if (configuredList.length > 0) {
+      return { recipients: [...new Set(configuredList)], businessName, usedFallback: false };
+    }
+
+    const fallbackSet = new Set();
+    if (tenantRows?.[0]?.owner_email && String(tenantRows[0].owner_email).includes('@')) {
+      fallbackSet.add(String(tenantRows[0].owner_email).trim().toLowerCase());
+    }
+    if (tenantRows?.[0]?.email && String(tenantRows[0].email).includes('@')) {
+      fallbackSet.add(String(tenantRows[0].email).trim().toLowerCase());
+    }
+
+    try {
+      const [adminUsers] = await pool.query(
+        `SELECT email FROM users
+         WHERE tenant_id = ?
+           AND LOWER(COALESCE(role, '')) IN ('owner', 'propietario', 'admin', 'administrador')
+           AND COALESCE(is_active, TRUE) = TRUE
+           AND LOWER(COALESCE(estado, 'Activo')) <> 'inactivo'`,
+        [tenantId]
+      );
+      for (const u of adminUsers || []) {
+        if (u.email && String(u.email).includes('@')) {
+          fallbackSet.add(String(u.email).trim().toLowerCase());
+        }
+      }
+    } catch (_) {}
+
+    return { recipients: [...fallbackSet], businessName, usedFallback: true };
+  };
+
+  // 1. Solicitar código de autorización dinámico para descuento / cambio de precio (envía OTP por correo + registra en Monitor)
   router.post('/request-auth', async (req, res) => {
     try {
       const tenantId = req.verifiedTenantId;
       if (!tenantId) return res.status(401).json({ error: 'Tenant context required' });
 
-      const { clientId, clientName, serviceName, staffName, type } = req.body;
+      const { clientId, clientName, serviceName, staffName, type } = req.body || {};
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       const sName = serviceName || 'Autorización de Descuento / Ajuste de Precio';
       const cName = clientName || 'Cliente General (Recepción POS)';
-      const stName = staffName || 'Caja Recepción';
+      const stName = staffName || req.auth?.name || 'Caja Recepción';
+      const normalizedClientId = String(clientId || 'POS').slice(0, 250);
 
       // Invalidate previous pending requests of the same client in this tenant
       try {
         await pool.query(
-          "UPDATE security_requests SET status = 'cancelled' WHERE client_id = ? AND status = 'pending' AND tenant_id = ?",
-          [clientId || 'POS', tenantId]
+          "UPDATE security_requests SET status = 'cancelled' WHERE client_id::text = ? AND status = 'pending' AND tenant_id = ?",
+          [normalizedClientId, tenantId]
         );
       } catch (e) { }
 
       const [result] = await pool.query(
         `INSERT INTO security_requests (client_id, client_name, service_name, staff_name, auth_code, type, status, expires_at, created_at, tenant_id)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW() + INTERVAL '15 MINUTE', NOW(), ?)`,
-        [clientId || 'POS', cName, sName, stName, code, type || 'discount_price', tenantId]
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW() + INTERVAL '15 MINUTE', NOW(), ?)
+         RETURNING id`,
+        [normalizedClientId, cName, sName, stName, code, type || 'discount_price', tenantId]
       );
+
+      let emailSent = false;
+      let emailError = null;
+      const { recipients, businessName } = await resolveSecurityRecipientsAndBrand(tenantId);
+
+      if (recipients.length > 0) {
+        try {
+          const { transporter, fromAddress } = await resolveTransporterForTenant(pool, tenantId, businessName);
+          if (transporter && fromAddress) {
+            await transporter.sendMail({
+              from: fromAddress,
+              to: recipients.join(', '),
+              subject: `🔐 Código de Autorización (${code}) — ${businessName}`,
+              text: `Solicitud de autorización en ${businessName}\nDetalle: ${sName}\nCliente: ${cName}\nSolicitado por: ${stName}\nCódigo de autorización (15 min): ${code}`,
+              html: `
+                <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border-radius: 16px; background: #ffffff; border: 1px solid #e2e8f0;">
+                  <div style="font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #be185d; margin-bottom: 6px;">
+                    ${escapeHtml(businessName)} · Control de Descuentos y Precios
+                  </div>
+                  <h2 style="margin: 0 0 12px; font-size: 20px; color: #0f172a;">Solicitud de Autorización en Caja</h2>
+                  <div style="background: #f8fafc; border-radius: 12px; padding: 14px 16px; border: 1px solid #e2e8f0; font-size: 13.5px; color: #334155; margin-bottom: 18px;">
+                    <div style="margin-bottom: 5px;"><strong>Operación:</strong> ${escapeHtml(sName)}</div>
+                    <div style="margin-bottom: 5px;"><strong>Cliente:</strong> ${escapeHtml(cName)}</div>
+                    <div><strong>Solicitado por:</strong> ${escapeHtml(stName)}</div>
+                  </div>
+                  <div style="text-align: center; margin: 18px 0;">
+                    <div style="font-size: 12px; color: #64748b; margin-bottom: 6px;">Código OTP de autorización (válido por 15 minutos):</div>
+                    <div style="display: inline-block; font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #9d174d; background: #fdf2f8; border: 2px solid #f472b6; padding: 12px 22px; border-radius: 12px;">
+                      ${code}
+                    </div>
+                  </div>
+                  <p style="font-size: 12px; color: #64748b; margin: 0; text-align: center;">
+                    Comunica este código únicamente si apruebas el descuento o cambio de precio solicitado.
+                  </p>
+                </div>
+              `,
+            });
+            emailSent = true;
+          } else {
+            emailError = 'Servidor SMTP no configurado.';
+          }
+        } catch (mailErr) {
+          console.error('[SECURITY REQUEST AUTH EMAIL ERROR]:', mailErr.message);
+          emailError = mailErr.message;
+        }
+      }
+
+      const actorRole = String(req.auth?.role || req.user?.role || '').trim().toLowerCase();
+      const isPrivileged = ['owner', 'propietario', 'admin', 'administrador'].includes(actorRole);
 
       res.json({
         success: true,
-        requestId: result.insertId || result[0]?.id,
-        code: code,
-        message: 'Solicitud de autorización generada exitosamente'
+        requestId: result?.insertId || result?.[0]?.id,
+        ...(isPrivileged ? { code } : {}),
+        emailSent,
+        recipientsCount: recipients.length,
+        maskedRecipients: recipients.map(maskEmailAddress),
+        ...(emailError ? { emailWarning: emailError } : {}),
+        message: emailSent
+          ? `Código de autorización enviado a ${recipients.map(maskEmailAddress).join(', ')}`
+          : 'Solicitud registrada en el Monitor de Seguridad',
       });
     } catch (err) {
       console.error('[SECURITY REQUEST AUTH ERROR]:', err);
@@ -133,7 +255,7 @@ function createSecurityRouter(pool) {
       let authorizedRole = 'PIN Administrador';
 
       if (secSettings) {
-        const { admin_pin, active_otp_pin, otp_expires_at } = secSettings;
+        const { admin_pin, admin_pin_hash, active_otp_pin, otp_expires_at } = secSettings;
 
         // PIN OTP dinámico (si está activo y no ha expirado)
         if (active_otp_pin && cleanPin === String(active_otp_pin).trim()) {
@@ -144,10 +266,14 @@ function createSecurityRouter(pool) {
           }
         }
 
-        // PIN Maestro configurado en la base de datos para este inquilino
-        if (!isPinAuthorized && admin_pin && cleanPin === String(admin_pin).trim()) {
-          isPinAuthorized = true;
-          authorizedRole = 'PIN Maestro Administrador';
+        // PIN Maestro configurado en la base de datos para este inquilino (soporta hash bcrypt y legacy)
+        const storedMaster = admin_pin_hash || admin_pin;
+        if (!isPinAuthorized && storedMaster) {
+          const verifyRes = await verifyPin(cleanPin, storedMaster);
+          if (verifyRes.matched && !verifyRes.isLegacy) {
+            isPinAuthorized = true;
+            authorizedRole = 'PIN Maestro Administrador';
+          }
         }
       }
 
@@ -243,7 +369,7 @@ function createSecurityRouter(pool) {
       await pool.query(
         `INSERT INTO security_requests (client_id, client_name, service_name, staff_name, auth_code, status, expires_at, created_at, tenant_id)
          VALUES (?, ?, ?, ?, ?, 'pending', NOW() + INTERVAL '15 MINUTE', NOW(), ?)`,
-        [clientId || 'POS', clientName || 'Cliente General', serviceName, staffName, code, tenantId]
+        [String(clientId || 'POS').slice(0, 250), clientName || 'Cliente General', serviceName, staffName, code, tenantId]
       );
       res.json({ success: true, code });
     } catch (err) {
@@ -665,6 +791,7 @@ function createSecurityRouter(pool) {
       const tenantId = req.verifiedTenantId;
       if (!tenantId) return res.status(401).json({ error: 'Tenant context required' });
 
+      await getTenantSecuritySettings(tenantId);
       const otpPin = Math.floor(100000 + Math.random() * 900000).toString();
 
       await pool.query(`
@@ -673,39 +800,37 @@ function createSecurityRouter(pool) {
         WHERE tenant_id = ?
       `, [otpPin, tenantId]);
 
-      const [secRows] = await pool.query('SELECT pin_notification_emails FROM security_settings WHERE tenant_id = ?', [tenantId]);
-      const emailListRaw = secRows[0]?.pin_notification_emails || '';
-      const emailRecipients = emailListRaw
-        .split(/[,;\n]+/)
-        .map(e => e.trim())
-        .filter(e => e.length > 3 && e.includes('@'));
+      const { recipients: emailRecipients, businessName } = await resolveSecurityRecipientsAndBrand(tenantId);
 
       if (emailRecipients.length === 0) {
-        return res.status(400).json({ error: 'No hay correos configurados en el módulo de seguridad de esta empresa para recibir el PIN.' });
+        return res.status(400).json({ error: 'No hay correos configurados en el módulo de seguridad ni correo de propietario registrado para recibir el PIN.' });
       }
 
-      const [smtpRows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
-      const smtp = smtpRows[0] || {};
-      const transporter = nodemailer.createTransport({
-        host: smtp.smtp_host || process.env.SMTP_HOST || 'smtp.gmail.com',
-        port: parseInt(smtp.smtp_port || process.env.SMTP_PORT || '587'),
-        secure: smtp.smtp_secure === 1,
-        auth: {
-          user: smtp.smtp_user || process.env.SMTP_USER,
-          pass: smtp.smtp_pass || process.env.SMTP_PASS
-        }
-      });
+      const { transporter, fromAddress } = await resolveTransporterForTenant(pool, tenantId, businessName);
+      if (!transporter || !fromAddress) {
+        return res.status(503).json({ error: 'No hay servidor SMTP configurado en el sistema para enviar el PIN.' });
+      }
 
-      const senderEmail = smtp.smtp_user || process.env.SMTP_USER || 'notificaciones@salonpro.io';
-      const smtpFrom = `"Seguridad Empresa Pro" <${senderEmail}>`;
       const clientIp = getClientIp(req);
 
       await transporter.sendMail({
-        from: smtpFrom,
+        from: fromAddress,
         to: emailRecipients.join(', '),
-        subject: `🔐 PIN de Seguridad Empresa Pro: ${otpPin} (Válido por 10 min)`,
-        text: `Tu PIN de seguridad para tu empresa es: ${otpPin}. Válido por 10 minutos. Solicitado desde IP: ${clientIp}`,
-        html: `<p>Tu PIN de seguridad dinámico es: <strong>${otpPin}</strong> (expira en 10 minutos).</p>`
+        subject: `🔐 PIN de Seguridad (${otpPin}) — ${businessName}`,
+        text: `Tu PIN de seguridad para ${businessName} es: ${otpPin}. Válido por 10 minutos. Solicitado desde IP: ${clientIp}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border-radius: 16px; background: #ffffff; border: 1px solid #e2e8f0; text-align: center;">
+            <div style="font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #2563eb; margin-bottom: 6px;">
+              ${escapeHtml(businessName)} · Seguridad Administrativa
+            </div>
+            <h2 style="margin: 0 0 10px; color: #0f172a; font-size: 20px;">PIN Dinámico de Seguridad</h2>
+            <p style="font-size: 14px; color: #475569; margin: 0 0 16px;">Usa este código temporal para autorizar el acceso o descuento solicitado:</p>
+            <div style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #0f172a; background: #f8fafc; padding: 14px 22px; border-radius: 12px; border: 2px solid #3b82f6; display: inline-block; margin-bottom: 14px;">
+              ${otpPin}
+            </div>
+            <p style="font-size: 12px; color: #64748b; margin: 0;">Expira en 10 minutos · IP solicitante: ${escapeHtml(clientIp)}</p>
+          </div>
+        `
       });
 
       await logSecurityAudit(

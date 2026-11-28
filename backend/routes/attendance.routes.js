@@ -1380,23 +1380,16 @@ function createAttendanceRouter(pool) {
           ? 'Falta registro de Salida (Check-Out)'
           : 'Falta registro completo (Entrada y Salida)';
 
-      const [smtpRows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
-      const smtp = smtpRows[0] || {};
-      const transporter = nodemailer.createTransport({
-        host: smtp.smtp_host || process.env.SMTP_HOST || 'smtp.gmail.com',
-        port: parseInt(smtp.smtp_port || process.env.SMTP_PORT || '587'),
-        secure: smtp.smtp_secure === 1,
-        auth: {
-          user: smtp.smtp_user || process.env.SMTP_USER,
-          pass: smtp.smtp_pass || process.env.SMTP_PASS
-        }
-      });
-
-      const smtpFrom = smtp.smtp_from || process.env.SMTP_FROM || 'notificaciones@salonpro.io';
-      const smtpUser = smtp.smtp_user || process.env.SMTP_USER;
+      const { resolveTransporterForTenant } = require('../services/platform_email.service');
+      const [tRows] = await pool.query('SELECT business_name FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
+      const brandName = tRows?.[0]?.business_name || 'Etereas';
+      const { transporter, fromAddress } = await resolveTransporterForTenant(pool, tenantId, brandName);
+      if (!transporter || !fromAddress) {
+        return res.status(503).json({ error: 'No hay servidor SMTP configurado para enviar el aviso.' });
+      }
 
       await transporter.sendMail({
-        from: `"${smtpFrom}" <${smtpUser}>`,
+        from: fromAddress,
         to: emp.email,
         subject: `⚠️ Aviso de Registro de Asistencia Omitido - ${date}`,
         text: `Hola ${emp.nombre},\n\nSe ha detectado una omisión en tu registro de asistencia para el día ${date}.\nIncidencia: ${incidentLabel}.\n\nPor favor regulariza tu marca con administración.`,

@@ -43,6 +43,7 @@ const { up: upReconcileSaasBillingDrift } = require('./20261121_reconcile_saas_b
 const { up: upOperationalAccountingAndAddonBlocks } = require('./20261122_operational_accounting_and_addon_blocks.cjs');
 const { up: upRbacAccountingAndRoleTemplates } = require('./20261123_rbac_accounting_and_role_templates.cjs');
 const { upTenantsCreatedByUserId } = require('./20261127_add_tenants_created_by_user_id.cjs');
+const { upFixSecurityRequestsClientIdVarchar } = require('./20261127_fix_security_requests_client_id_varchar.cjs');
 
 const MIGRATION_SOURCE_FILES = Object.freeze({
   '20261100_canonical_baseline_schema': path.resolve(__dirname, '../backups/independent_schema.sql'),
@@ -74,7 +75,9 @@ const MIGRATION_SOURCE_FILES = Object.freeze({
   '20261120_schedule_overrides_unique_tenant_emp_date': path.resolve(__dirname, './20261120_schedule_overrides_unique_tenant_emp_date.cjs'),
   '20261121_reconcile_saas_billing_schema_drift': path.resolve(__dirname, './20261121_reconcile_saas_billing_schema_drift.cjs'),
   '20261122_operational_accounting_and_addon_blocks': path.resolve(__dirname, './20261122_operational_accounting_and_addon_blocks.cjs'),
-  '20261123_rbac_accounting_and_role_templates': path.resolve(__dirname, './20261123_rbac_accounting_and_role_templates.cjs')
+  '20261123_rbac_accounting_and_role_templates': path.resolve(__dirname, './20261123_rbac_accounting_and_role_templates.cjs'),
+  '20261127_add_tenants_created_by_user_id': path.resolve(__dirname, './20261127_add_tenants_created_by_user_id.cjs'),
+  '20261127_fix_security_requests_client_id_varchar': path.resolve(__dirname, './20261127_fix_security_requests_client_id_varchar.cjs')
 });
 
 function computeMigrationChecksum(version, customContent = null) {
@@ -363,6 +366,13 @@ const MIGRATIONS_REGISTRY = [
     description: 'Columna created_by_user_id e índice parcial en tenants para Portal de Vendedores y trazabilidad de altas',
     execute: async (targetPool, targetSchema) => {
       return upTenantsCreatedByUserId(targetPool, targetSchema);
+    }
+  },
+  {
+    version: '20261127_fix_security_requests_client_id_varchar',
+    description: 'Convertir security_requests.client_id a VARCHAR(255) para soportar solicitudes POS, UUIDs y empleados',
+    execute: async (targetPool, targetSchema) => {
+      return upFixSecurityRequestsClientIdVarchar(targetPool, targetSchema);
     }
   }
 ];
