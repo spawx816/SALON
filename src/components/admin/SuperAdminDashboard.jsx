@@ -75,6 +75,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     extra_user_seats: 0,
     has_memberships: false,
     has_dgii_ecf: false,
+    send_payment_link: true,
     owner_name: '',
     owner_password: ''
   });
@@ -387,8 +388,14 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
         totalMinor: data.order?.total_minor,
         currency: data.order?.currency || 'USD',
         url: fullUrl,
+        generatedPassword: null,
+        emailSent: Boolean(data.emailSent),
       });
-      showNotification(`Enlace de pago generado para ${tenant.business_name}.`);
+      showNotification(
+        data.emailSent
+          ? `Enlace de pago generado y enviado por correo a ${data.ownerEmail || tenant.owner_email || tenant.business_name}.`
+          : `Enlace de pago generado para ${tenant.business_name}.`
+      );
     } catch (err) {
       showError(err.message);
     } finally {
@@ -606,29 +613,47 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     }
   };
 
-  // Crear Nueva empresa (Contrato canónico alineado con backend)
+  // Crear Nueva empresa (Contrato canónico alineado con backend + clave autogenerada + correo bienvenida)
   const handleCreateTenant = async (e) => {
     e.preventDefault();
-    if (!tenantFormData.business_name || !tenantFormData.email || !tenantFormData.owner_password) {
-      showError('Por favor complete el nombre comercial, el correo electrónico y la contraseña.');
+    if (!tenantFormData.business_name || !tenantFormData.email) {
+      showError('Por favor complete el nombre comercial y el correo electrónico del propietario.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await dataService.createSaasTenant({
+      const created = await dataService.createSaasTenant({
         business_name: tenantFormData.business_name,
         slug: tenantFormData.slug || undefined,
         owner_name: tenantFormData.owner_name || 'Propietario',
         owner_email: tenantFormData.email,
         owner_phone: tenantFormData.phone || '',
-        admin_password: tenantFormData.owner_password,
+        admin_password: tenantFormData.owner_password ? tenantFormData.owner_password : undefined,
         rnc: tenantFormData.rnc || '',
         licensed_branches: parseInt(tenantFormData.licensed_branches, 10) || 1,
         extra_user_seats: parseInt(tenantFormData.extra_user_seats, 10) || 0,
-        status: 'active'
+        wants_memberships_addon: Boolean(tenantFormData.has_memberships),
+        generate_payment_link: Boolean(tenantFormData.send_payment_link),
+        status: tenantFormData.send_payment_link ? 'pending' : 'active'
       });
-      showNotification('¡Empresa creado exitosamente con Plan Principal!');
+      if (created?.paymentPath || created?.generated_password) {
+        setGeneratedPaymentLink({
+          tenantName: tenantFormData.business_name,
+          ownerEmail: tenantFormData.email,
+          orderNumber: created?.order?.order_number || null,
+          totalMinor: created?.order?.total_minor || null,
+          currency: created?.order?.currency || 'DOP',
+          url: created?.paymentPath ? `${window.location.origin}${created.paymentPath}` : `${window.location.origin}/login`,
+          generatedPassword: created?.generated_password || null,
+          emailSent: Boolean(created?.emailSent),
+        });
+      }
+      showNotification(
+        created?.emailSent
+          ? `¡Empresa creada! Se envió el correo de bienvenida con credenciales${created?.paymentPath ? ' y link directo de pago' : ''} a ${tenantFormData.email}.`
+          : '¡Empresa creada exitosamente con Plan Principal!'
+      );
       setIsNewTenantModalOpen(false);
       setTenantFormData({
         business_name: '',
@@ -643,6 +668,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
         extra_user_seats: 0,
         has_memberships: false,
         has_dgii_ecf: false,
+        send_payment_link: true,
         owner_name: '',
         owner_password: ''
       });
@@ -906,8 +932,20 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
         }}>
           <div style={{ fontSize: '0.88rem' }}>
             <div style={{ fontWeight: '700' }}>
-              Enlace de pago generado para {generatedPaymentLink.tenantName} (Orden #{generatedPaymentLink.orderNumber})
+              {generatedPaymentLink.orderNumber
+                ? `Enlace de pago generado para ${generatedPaymentLink.tenantName} (Orden #${generatedPaymentLink.orderNumber})`
+                : `Accesos generados para ${generatedPaymentLink.tenantName}`}
             </div>
+            {generatedPaymentLink.emailSent && (
+              <div style={{ marginTop: '3px', fontSize: '0.8rem', color: '#15803d', fontWeight: '700' }}>
+                ✓ Correo enviado automáticamente a {generatedPaymentLink.ownerEmail}
+              </div>
+            )}
+            {generatedPaymentLink.generatedPassword && (
+              <div style={{ marginTop: '4px', fontSize: '0.82rem', color: '#0f172a' }}>
+                Usuario: <strong>{generatedPaymentLink.ownerEmail}</strong> · Clave temporal: <code>{generatedPaymentLink.generatedPassword}</code>
+              </div>
+            )}
             <div style={{ marginTop: '4px', wordBreak: 'break-all' }}>
               <code>{generatedPaymentLink.url}</code>
             </div>
@@ -3181,9 +3219,12 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
               {/* Cuenta del Dueño */}
               <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '0.825rem', fontWeight: '800', color: '#0f172a', marginBottom: '0.6rem' }}>
+                <div style={{ fontSize: '0.825rem', fontWeight: '800', color: '#0f172a', marginBottom: '0.35rem' }}>
                   👤 Administrador / Dueño Inicial
                 </div>
+                <p style={{ margin: '0 0 0.65rem', fontSize: '0.76rem', color: '#64748b' }}>
+                  Si dejas la contraseña vacía, el sistema genera una clave segura automáticamente y la envía por correo con toda la información.
+                </p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                   <div>
                     <input
@@ -3197,7 +3238,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                   <div>
                     <input
                       type="password"
-                      placeholder="Contraseña Inicial"
+                      placeholder="Clave automática (opcional)"
                       value={tenantFormData.owner_password}
                       onChange={(e) => setTenantFormData({ ...tenantFormData, owner_password: e.target.value })}
                       style={{ width: '100%', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '0.5rem 0.75rem', fontSize: '0.85rem', boxSizing: 'border-box' }}
@@ -3206,12 +3247,21 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                 </div>
               </div>
 
-              {/* Add-ons */}
+              {/* Add-ons y Enlace de Pago */}
               <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                 <div style={{ fontSize: '0.825rem', fontWeight: '800', color: '#0f172a', marginBottom: '0.6rem' }}>
-                  Módulos Add-on Iniciales
+                  Activación y Módulos Add-on
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.825rem', color: '#1e3a8a', fontWeight: '700' }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(tenantFormData.send_payment_link)}
+                      onChange={(e) => setTenantFormData({ ...tenantFormData, send_payment_link: e.target.checked })}
+                      style={{ accentColor: '#2563eb', width: '16px', height: '16px' }}
+                    />
+                    <span>💳 Crear pendiente de pago y enviar link directo CardNet por correo</span>
+                  </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.825rem', color: '#334155' }}>
                     <input
                       type="checkbox"

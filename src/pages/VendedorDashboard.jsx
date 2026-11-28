@@ -15,6 +15,7 @@ import {
   MessageCircle,
   Users,
   Key,
+  Mail,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import ChangePasswordModal from '../components/common/ChangePasswordModal';
@@ -40,7 +41,6 @@ export default function VendedorDashboard() {
     owner_email: '',
     owner_phone: '',
     address: '',
-    admin_password: '',
     branches_count: 1,
     extra_users_count: 0,
     wants_memberships_addon: false,
@@ -83,14 +83,17 @@ export default function VendedorDashboard() {
     }
   };
 
-  const handleOpenWhatsApp = (tenantName, phone, tokenOrPath) => {
+  const handleOpenWhatsApp = (tenantName, phone, tokenOrPath, credentials = null) => {
     const url = buildFullPaymentUrl(tokenOrPath);
     let digits = String(phone || '').replace(/\D/g, '');
     if (/^(809|829|849)\d{7}$/.test(digits)) {
       digits = `1${digits}`;
     }
+    const credsBlock = credentials?.email && credentials?.password
+      ? `\n\n*Tus credenciales de acceso:*\n• Portal: ${window.location.origin}/login\n• Usuario: ${credentials.email}\n• Contraseña temporal: ${credentials.password}`
+      : '';
     const text = encodeURIComponent(
-      `Hola, aquí tienes tu enlace seguro de pago para activar *${tenantName}* en *Etereas*:\n\n${url}\n\nAl completar el pago con tu tarjeta, tu cuenta se activará automáticamente y quedará configurada para el cobro mensual automático.`
+      `Hola, ¡bienvenido a *Etereas*! Aquí tienes tu enlace directo y seguro de pago para activar *${tenantName}*:\n\n${url}${credsBlock}\n\nAl completar el pago con tu tarjeta en CardNet, tu cuenta se activará automáticamente y quedará configurada para el cobro mensual automático.`
     );
     const waUrl = digits ? `https://wa.me/${digits}?text=${text}` : `https://wa.me/?text=${text}`;
     window.open(waUrl, '_blank', 'noopener,noreferrer');
@@ -123,6 +126,9 @@ export default function VendedorDashboard() {
         ownerPhone: form.owner_phone,
         paymentPath: data.paymentPath,
         orderNumber: data.order?.order_number,
+        generatedPassword: data.generatedPassword || null,
+        emailSent: Boolean(data.emailSent),
+        emailError: data.emailError || null,
       });
       setForm({
         business_name: '',
@@ -130,7 +136,6 @@ export default function VendedorDashboard() {
         owner_email: '',
         owner_phone: '',
         address: '',
-        admin_password: '',
         branches_count: 1,
         extra_users_count: 0,
         wants_memberships_addon: false,
@@ -171,6 +176,9 @@ export default function VendedorDashboard() {
         ownerPhone: tenant.owner_phone,
         paymentPath: data.paymentPath,
         orderNumber: data.order?.order_number,
+        generatedPassword: null,
+        emailSent: Boolean(data.emailSent),
+        emailError: data.emailError || null,
       });
       await loadTenants();
     } catch (err) {
@@ -346,6 +354,85 @@ export default function VendedorDashboard() {
                 Cerrar ✕
               </button>
             </div>
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: successBanner.emailSent ? '#166534' : '#92400e',
+                background: successBanner.emailSent ? '#dcfce7' : '#fef3c7',
+                border: `1px solid ${successBanner.emailSent ? '#86efac' : '#fde68a'}`,
+                padding: '8px 12px',
+                borderRadius: 9,
+              }}
+            >
+              <Mail size={15} />
+              <span>
+                {successBanner.emailSent
+                  ? `Correo de bienvenida enviado automáticamente a ${successBanner.ownerEmail} con su información, credenciales y link directo de pago.`
+                  : `No se pudo enviar el correo automático${successBanner.emailError ? ` (${successBanner.emailError})` : ''}. Comparte el link y credenciales por WhatsApp o cópialos abajo.`}
+              </span>
+            </div>
+
+            {successBanner.generatedPassword && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  flexWrap: 'wrap',
+                  background: '#ffffff',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: 10,
+                  padding: '9px 12px',
+                  fontSize: 13,
+                }}
+              >
+                <div>
+                  <span style={{ color: '#64748b', fontWeight: 600 }}>Usuario: </span>
+                  <strong style={{ color: '#0f172a' }}>{successBanner.ownerEmail}</strong>
+                  <span style={{ margin: '0 8px', color: '#cbd5e1' }}>|</span>
+                  <span style={{ color: '#64748b', fontWeight: 600 }}>Contraseña generada: </span>
+                  <code style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: 6, fontWeight: 800, color: '#0f172a' }}>
+                    {successBanner.generatedPassword}
+                  </code>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const summary = `Empresa: ${successBanner.businessName}\nPortal: ${window.location.origin}/login\nUsuario: ${successBanner.ownerEmail}\nContraseña temporal: ${successBanner.generatedPassword}\nLink de pago: ${buildFullPaymentUrl(successBanner.paymentPath)}`;
+                    try {
+                      await navigator.clipboard.writeText(summary);
+                      setCopiedToken('CREDENTIALS_SUMMARY');
+                      setTimeout(() => setCopiedToken(''), 2200);
+                    } catch {
+                      window.prompt('Copia los accesos:', summary);
+                    }
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    padding: '6px 11px',
+                    borderRadius: 8,
+                    border: '1px solid #cbd5e1',
+                    background: '#f8fafc',
+                    color: '#0f172a',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {copiedToken === 'CREDENTIALS_SUMMARY' ? <Check size={13} color="#16a34a" /> : <Copy size={13} />}
+                  <span>{copiedToken === 'CREDENTIALS_SUMMARY' ? 'Accesos copiados' : 'Copiar todo'}</span>
+                </button>
+              </div>
+            )}
+
             <div
               style={{
                 display: 'flex',
@@ -383,7 +470,16 @@ export default function VendedorDashboard() {
               </button>
               <button
                 type="button"
-                onClick={() => handleOpenWhatsApp(successBanner.businessName, successBanner.ownerPhone, successBanner.paymentPath)}
+                onClick={() =>
+                  handleOpenWhatsApp(
+                    successBanner.businessName,
+                    successBanner.ownerPhone,
+                    successBanner.paymentPath,
+                    successBanner.generatedPassword
+                      ? { email: successBanner.ownerEmail, password: successBanner.generatedPassword }
+                      : null
+                  )
+                }
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -419,7 +515,7 @@ export default function VendedorDashboard() {
               <span>Registrar nueva empresa y generar link de pago</span>
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
-              La empresa se crea en estado pendiente. Al enviar el link, el cliente ingresa su tarjeta en CardNet, paga, se activa automáticamente y queda suscrito al cobro recurrente mensual.
+              La contraseña del dueño se genera automáticamente y el cliente recibe un correo de bienvenida con sus credenciales, el resumen de su plan y el botón directo de pago en CardNet.
             </p>
           </div>
 
@@ -475,18 +571,6 @@ export default function VendedorDashboard() {
                 />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#334155', marginBottom: 5 }}>Contraseña inicial del dueño *</label>
-                <input
-                  type="password"
-                  required
-                  minLength={6}
-                  placeholder="Mínimo 6 caracteres"
-                  value={form.admin_password}
-                  onChange={(e) => setForm({ ...form, admin_password: e.target.value })}
-                  style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13.5, boxSizing: 'border-box' }}
-                />
-              </div>
-              <div>
                 <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#334155', marginBottom: 5 }}>Dirección (opcional)</label>
                 <input
                   type="text"
@@ -495,6 +579,27 @@ export default function VendedorDashboard() {
                   onChange={(e) => setForm({ ...form, address: e.target.value })}
                   style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13.5, boxSizing: 'border-box' }}
                 />
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '9px 12px',
+                  borderRadius: 10,
+                  background: '#eff6ff',
+                  border: '1px solid #bfdbfe',
+                  color: '#1e3a8a',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  lineHeight: 1.35,
+                  alignSelf: 'end',
+                  minHeight: 39,
+                  boxSizing: 'border-box',
+                }}
+              >
+                <Mail size={15} color="#2563eb" style={{ flexShrink: 0 }} />
+                <span>Clave autogenerada + envío automático por correo con link directo de pago</span>
               </div>
             </div>
 

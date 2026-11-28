@@ -27,6 +27,11 @@ const {
   getGlobalSmtpConfig,
   isPlaceholderPassword,
 } = require('../services/platform_email.service');
+const {
+  generateSecureTempPassword,
+  resolvePublicAppOrigin,
+  sendTenantWelcomeAndPaymentEmail,
+} = require('../services/saas_onboarding_email.service');
 
 function createSaasRouter(pool, options = {}) {
   const router = express.Router();
@@ -539,15 +544,24 @@ function createSaasRouter(pool, options = {}) {
       address,
       licensed_branches = 1,
       extra_user_seats = 0,
-      status = 'active'
+      status = 'active',
+      generate_payment_link = false,
+      wants_memberships_addon = false,
+      send_welcome_email = true,
     } = req.body || {};
 
-    if (!business_name || !owner_email || !admin_password) {
-      return res.status(400).json({ error: 'Nombre de la empresa, email y contraseña del administrador son obligatorios' });
+    const hasExplicitPassword =
+      admin_password !== undefined &&
+      admin_password !== null &&
+      String(admin_password).trim() !== '';
+
+    if (!business_name || !owner_email) {
+      return res.status(400).json({ error: 'Nombre de la empresa y correo electrónico del propietario son obligatorios' });
     }
-    if (String(admin_password).length < 6) {
+    if (hasExplicitPassword && String(admin_password).length < 6) {
       return res.status(400).json({ error: 'La contraseña del administrador debe tener al menos 6 caracteres' });
     }
+    const effectivePassword = hasExplicitPassword ? String(admin_password) : generateSecureTempPassword();
     const branchesNum = Number(licensed_branches);
     const extraSeatsNum = Number(extra_user_seats);
     if (!Number.isInteger(branchesNum) || branchesNum < 1 || branchesNum > 500) {
@@ -557,7 +571,7 @@ function createSaasRouter(pool, options = {}) {
       return res.status(400).json({ error: 'extra_user_seats debe ser un entero entre 0 y 2000' });
     }
 
-    const initialStatus = status === 'pending' ? 'pending' : 'active';
+    const initialStatus = (status === 'pending' || generate_payment_link) ? 'pending' : 'active';
     const cleanBusinessName = String(business_name).trim();
     const cleanEmail = String(owner_email).trim().toLowerCase();
     const cleanOwnerName = String(owner_name || 'Propietario').trim();
@@ -567,6 +581,7 @@ function createSaasRouter(pool, options = {}) {
     }
 
     const conn = await pool.getConnection();
+    let tenantId, branchId, userId, subscriptionId;
     try {
       const [existingSlug] = await conn.query("SELECT id FROM tenants WHERE slug = ?", [cleanSlug]);
       if (existingSlug.length > 0) {
@@ -584,11 +599,11 @@ function createSaasRouter(pool, options = {}) {
       const finalMaxUsers = (branchesNum * usersPerBranch) + extraSeatsNum;
       const finalModules = { ...CANONICAL_PLAN_FEATURES.PRINCIPAL, memberships: false };
 
-      const tenantId = crypto.randomUUID();
-      const branchId = crypto.randomUUID();
-      const userId = crypto.randomUUID();
-      const subscriptionId = crypto.randomUUID();
-      const passwordHash = await bcrypt.hash(String(admin_password), 12);
+      tenantId = crypto.randomUUID();
+      branchId = crypto.randomUUID();
+      userId = crypto.randomUUID();
+      subscriptionId = crypto.randomUUID();
+      const passwordHash = await bcrypt.hash(effectivePassword, 12);
       const actorId = String(req.auth?.userId || 'superadmin');
 
       await conn.beginTransaction();
@@ -597,14 +612,14 @@ function createSaasRouter(pool, options = {}) {
           INSERT INTO tenants (
             id, business_name, slug, email, phone, owner_name, owner_email, owner_phone,
             rnc, address, plan_id, status, licensed_branches, max_branches, extra_user_seats, max_users,
-            has_memberships, modules_config
+            has_memberships, modules_config, created_by_user_id
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false, ?::jsonb)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false, ?::jsonb, ?)
         `, [
           tenantId, cleanBusinessName, cleanSlug, cleanEmail, owner_phone || '',
           cleanOwnerName, cleanEmail, owner_phone || '',
           rnc || '', address || '', principalPlan.id, initialStatus,
-          branchesNum, branchesNum, extraSeatsNum, finalMaxUsers, JSON.stringify(finalModules)
+          branchesNum, branchesNum, extraSeatsNum, finalMaxUsers, JSON.stringify(finalModules), actorId
         ]);
 
         await conn.query(`
@@ -634,41 +649,85 @@ function createSaasRouter(pool, options = {}) {
         await conn.query(`
           INSERT INTO tenant_subscriptions (
             id, tenant_id, saas_plan_id, plan_code, status, billing_cycle, currency,
-            periodicity_mode, billing_anchor_day, auto_renew, started_at, current_period_start, current_period_end
+            periodicity_mode, billing_anchor_day, auto_renew, extra_users_count, started_at, current_period_start, current_period_end
           )
-          VALUES (?, ?, ?, 'PRINCIPAL', ?, 'monthly', 'DOP', 'calendar_month', ?, TRUE, ?, ?, ?)
-        `, [subscriptionId, tenantId, principalPlan.id, initialStatus, anchorDay, subStart.toISOString(), subStart.toISOString(), subEnd.toISOString()]);
+          VALUES (?, ?, ?, 'PRINCIPAL', ?, 'monthly', 'DOP', 'calendar_month', ?, TRUE, ?, ?, ?, ?)
+        `, [subscriptionId, tenantId, principalPlan.id, initialStatus, anchorDay, extraSeatsNum, subStart.toISOString(), subStart.toISOString(), subEnd.toISOString()]);
 
         await conn.query(`
           INSERT INTO tenant_subscription_events (
             tenant_id, previous_plan, new_plan, previous_status, new_status, reason, actor_id
           )
           VALUES (?, NULL, 'PRINCIPAL', NULL, ?, ?, ?)
-        `, [tenantId, initialStatus, 'Alta de empresa desde Control Plane (Plan Principal sin add-on)', actorId]);
+        `, [tenantId, initialStatus, 'Alta de empresa desde Control Plane', actorId]);
 
         await conn.commit();
       } catch (txError) {
         await conn.rollback();
         throw txError;
       }
-
-      res.status(201).json({
-        success: true,
-        message: 'Empresa registrado exitosamente por SuperAdmin',
-        tenant_id: tenantId,
-        branch_id: branchId,
-        user_id: userId,
-        subscription_id: subscriptionId,
-        plan_code: 'PRINCIPAL',
-        has_memberships: false,
-        status: initialStatus
-      });
     } catch (error) {
       console.error('Error creating tenant:', error.message);
-      res.status(500).json({ error: 'Error interno al crear el nueva empresa' });
+      return res.status(500).json({ error: 'Error interno al crear el nueva empresa' });
     } finally {
       conn.release();
     }
+
+    let linkResult = null;
+    if ((generate_payment_link || initialStatus === 'pending') && options.saasCheckoutService) {
+      try {
+        linkResult = await options.saasCheckoutService.createSuperAdminPaymentLink({
+          tenantId,
+          actorUserId: String(req.auth?.userId || 'superadmin'),
+          branchesCount: branchesNum,
+          extraUsersCount: extraSeatsNum,
+          wantsMembershipsAddon: Boolean(wants_memberships_addon),
+          addonBranchesCount: wants_memberships_addon ? branchesNum : 0,
+          note: 'Enlace de pago generado en alta desde Control Plane',
+        });
+      } catch (linkErr) {
+        console.warn('[SUPERADMIN CREATE TENANT PAYMENT LINK WARN]:', linkErr.message);
+      }
+    }
+
+    const appOrigin = resolvePublicAppOrigin(req);
+    const fullPaymentUrl = linkResult?.paymentPath ? `${appOrigin}${linkResult.paymentPath}` : null;
+    let emailResult = { sent: false, error: null };
+    if (send_welcome_email !== false) {
+      emailResult = await sendTenantWelcomeAndPaymentEmail(pool, {
+        businessName: cleanBusinessName,
+        ownerName: cleanOwnerName,
+        ownerEmail: cleanEmail,
+        temporaryPassword: effectivePassword,
+        paymentUrl: fullPaymentUrl,
+        loginUrl: `${appOrigin}/login`,
+        orderNumber: linkResult?.order?.order_number || null,
+        branchesCount: branchesNum,
+        extraUsersCount: extraSeatsNum,
+        wantsMembershipsAddon: Boolean(wants_memberships_addon),
+        totalMinor: linkResult?.order?.total_minor || null,
+        currency: linkResult?.order?.currency || 'DOP',
+        isLinkResendOnly: false,
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Empresa registrado exitosamente por SuperAdmin',
+      tenant_id: tenantId,
+      branch_id: branchId,
+      user_id: userId,
+      subscription_id: subscriptionId,
+      plan_code: 'PRINCIPAL',
+      has_memberships: false,
+      status: initialStatus,
+      generated_password: hasExplicitPassword ? undefined : effectivePassword,
+      paymentPath: linkResult?.paymentPath || null,
+      paymentUrl: fullPaymentUrl,
+      order: linkResult?.order || null,
+      emailSent: Boolean(emailResult.sent),
+      emailError: emailResult.error || null,
+    });
   });
 
   // PUT /api/saas/tenants/:id/status - Máquina de estados explícita + sincronización transaccional + auditoría
@@ -1406,7 +1465,7 @@ function createSaasRouter(pool, options = {}) {
       } = req.body || {};
 
       const [tenantRows] = await pool.query(
-        'SELECT id, business_name, legal_name, owner_email FROM tenants WHERE id::text = ? LIMIT 1',
+        'SELECT id, business_name, legal_name, owner_name, owner_email, email FROM tenants WHERE id::text = ? LIMIT 1',
         [String(tenantId)]
       );
       if (!tenantRows || tenantRows.length === 0) {
@@ -1423,10 +1482,34 @@ function createSaasRouter(pool, options = {}) {
         note,
       });
 
+      const appOrigin = resolvePublicAppOrigin(req);
+      const paymentUrl = result?.paymentPath ? `${appOrigin}${result.paymentPath}` : null;
+      const recipientEmail = tenantRows[0].owner_email || tenantRows[0].email || '';
+      let emailResult = { sent: false, error: null };
+      if (recipientEmail && req.body?.sendEmail !== false) {
+        emailResult = await sendTenantWelcomeAndPaymentEmail(pool, {
+          businessName: tenantRows[0].business_name || tenantRows[0].legal_name || 'Tu Empresa',
+          ownerName: tenantRows[0].owner_name || 'Propietario',
+          ownerEmail: recipientEmail,
+          paymentUrl,
+          loginUrl: `${appOrigin}/login`,
+          orderNumber: result?.order?.order_number || null,
+          branchesCount,
+          extraUsersCount,
+          wantsMembershipsAddon,
+          totalMinor: result?.order?.total_minor || null,
+          currency: result?.order?.currency || 'DOP',
+          isLinkResendOnly: true,
+        });
+      }
+
       res.status(201).json({
         success: true,
         tenantName: tenantRows[0].business_name || tenantRows[0].legal_name || '',
-        ownerEmail: tenantRows[0].owner_email || null,
+        ownerEmail: recipientEmail || null,
+        paymentUrl,
+        emailSent: Boolean(emailResult.sent),
+        emailError: emailResult.error || null,
         ...result,
       });
     } catch (error) {
@@ -1740,12 +1823,17 @@ function createSaasRouter(pool, options = {}) {
         note = '',
       } = req.body || {};
 
-      if (!business_name || !owner_email || !admin_password) {
-        return res.status(400).json({ error: 'Nombre de empresa, correo del propietario y contraseña inicial son obligatorios.' });
+      if (!business_name || !owner_email) {
+        return res.status(400).json({ error: 'Nombre de empresa y correo del propietario son obligatorios.' });
       }
-      if (String(admin_password).length < 6) {
+      const hasExplicitPassword =
+        admin_password !== undefined &&
+        admin_password !== null &&
+        String(admin_password).trim() !== '';
+      if (hasExplicitPassword && String(admin_password).length < 6) {
         return res.status(400).json({ error: 'La contraseña inicial debe tener al menos 6 caracteres.' });
       }
+      const effectivePassword = hasExplicitPassword ? String(admin_password) : generateSecureTempPassword();
 
       const branchesNum = Math.min(50, Math.max(1, parseInt(branches_count, 10) || 1));
       const extraSeatsNum = Math.min(500, Math.max(0, parseInt(extra_users_count, 10) || 0));
@@ -1776,7 +1864,7 @@ function createSaasRouter(pool, options = {}) {
         branchId = crypto.randomUUID();
         userId = crypto.randomUUID();
         subscriptionId = crypto.randomUUID();
-        const passwordHash = await bcrypt.hash(String(admin_password), 12);
+        const passwordHash = await bcrypt.hash(effectivePassword, 12);
         const actorId = String(req.auth?.userId || req.user?.id || 'vendedor');
 
         await conn.beginTransaction();
@@ -1852,9 +1940,27 @@ function createSaasRouter(pool, options = {}) {
         note: note || `Enlace de pago generado por vendedor (${req.auth?.email || 'vendedor'})`,
       });
 
+      const appOrigin = resolvePublicAppOrigin(req);
+      const paymentUrl = linkResult?.paymentPath ? `${appOrigin}${linkResult.paymentPath}` : null;
+      const emailResult = await sendTenantWelcomeAndPaymentEmail(pool, {
+        businessName: cleanBusinessName,
+        ownerName: cleanOwnerName,
+        ownerEmail: cleanEmail,
+        temporaryPassword: effectivePassword,
+        paymentUrl,
+        loginUrl: `${appOrigin}/login`,
+        orderNumber: linkResult?.order?.order_number || null,
+        branchesCount: branchesNum,
+        extraUsersCount: extraSeatsNum,
+        wantsMembershipsAddon: wantsAddon,
+        totalMinor: linkResult?.order?.total_minor || null,
+        currency: linkResult?.order?.currency || 'DOP',
+        isLinkResendOnly: false,
+      });
+
       res.status(201).json({
         success: true,
-        message: 'Empresa creada y enlace de pago generado exitosamente.',
+        message: 'Empresa creada, contraseña generada y correo de bienvenida procesado.',
         tenant: {
           id: tenantId,
           business_name: cleanBusinessName,
@@ -1864,6 +1970,10 @@ function createSaasRouter(pool, options = {}) {
           licensed_branches: branchesNum,
           extra_user_seats: extraSeatsNum,
         },
+        generatedPassword: effectivePassword,
+        paymentUrl,
+        emailSent: Boolean(emailResult.sent),
+        emailError: emailResult.error || null,
         ...linkResult,
       });
     } catch (error) {
@@ -1884,7 +1994,7 @@ function createSaasRouter(pool, options = {}) {
       const isSuperAdmin = Boolean(req.auth?.isSuperAdmin || String(req.auth?.role || '').toLowerCase() === 'superadmin');
 
       const [tRows] = await pool.query(
-        'SELECT id, business_name, owner_email, licensed_branches, extra_user_seats, has_memberships, created_by_user_id FROM tenants WHERE id::text = ? LIMIT 1',
+        'SELECT id, business_name, owner_name, owner_email, email, licensed_branches, extra_user_seats, has_memberships, created_by_user_id FROM tenants WHERE id::text = ? LIMIT 1',
         [String(tenantId)]
       );
       if (!tRows || tRows.length === 0) {
@@ -1914,10 +2024,34 @@ function createSaasRouter(pool, options = {}) {
         note: req.body?.note || `Enlace de pago generado por vendedor (${req.auth?.email || 'vendedor'})`,
       });
 
+      const appOrigin = resolvePublicAppOrigin(req);
+      const paymentUrl = result?.paymentPath ? `${appOrigin}${result.paymentPath}` : null;
+      const recipientEmail = tenant.owner_email || tenant.email || '';
+      let emailResult = { sent: false, error: null };
+      if (recipientEmail && req.body?.sendEmail !== false) {
+        emailResult = await sendTenantWelcomeAndPaymentEmail(pool, {
+          businessName: tenant.business_name,
+          ownerName: tenant.owner_name || 'Propietario',
+          ownerEmail: recipientEmail,
+          paymentUrl,
+          loginUrl: `${appOrigin}/login`,
+          orderNumber: result?.order?.order_number || null,
+          branchesCount,
+          extraUsersCount,
+          wantsMembershipsAddon,
+          totalMinor: result?.order?.total_minor || null,
+          currency: result?.order?.currency || 'DOP',
+          isLinkResendOnly: true,
+        });
+      }
+
       res.status(201).json({
         success: true,
         tenantName: tenant.business_name,
-        ownerEmail: tenant.owner_email || null,
+        ownerEmail: recipientEmail || null,
+        paymentUrl,
+        emailSent: Boolean(emailResult.sent),
+        emailError: emailResult.error || null,
         ...result,
       });
     } catch (error) {
