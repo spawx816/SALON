@@ -94,7 +94,7 @@ function createSaasRouter(pool, options = {}) {
           t.status as tenant_status,
           COALESCE(ts.plan_code, sp.code, 'PRINCIPAL') as plan_code,
           COALESCE(ts.status, t.status) as commercial_status,
-          COALESCE(sp.currency, 'USD') as plan_currency,
+          'USD' as plan_currency,
           COALESCE(ts.billing_cycle, sp.billing_cycle, 'monthly') as billing_cycle,
           GREATEST(COALESCE(t.licensed_branches, t.max_branches, 1), 1) as billable_branches,
           GREATEST(COALESCE(t.extra_user_seats, 0), 0) as extra_seats,
